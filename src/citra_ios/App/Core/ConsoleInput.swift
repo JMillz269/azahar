@@ -42,11 +42,15 @@ final class GameControllerInput {
                 self?.attach(controller)
             }
         })
-        GCController.controllers().forEach(attach)
+        for controller in GCController.controllers() {
+            attach(controller)
+        }
     }
 
     func stop() {
-        observers.forEach(NotificationCenter.default.removeObserver)
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
         observers.removeAll()
         for controller in GCController.controllers() {
             controller.extendedGamepad?.valueChangedHandler = nil

@@ -195,7 +195,7 @@ private struct DPad: View {
             ForEach([ConsoleButton.up, .down, .left, .right], id: \.self) { direction in
                 Image(systemName: arrow(for: direction))
                     .font(.system(size: size * 0.16, weight: .bold))
-                    .foregroundStyle(active.contains(direction) ? .white : .white.opacity(0.7))
+                    .foregroundStyle(Color.white.opacity(active.contains(direction) ? 1.0 : 0.7))
                     .offset(offset(for: direction))
             }
         }
