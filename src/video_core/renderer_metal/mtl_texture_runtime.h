@@ -1,0 +1,347 @@
+// Copyright 2026 Citra Emulator Project / Azahar Emulator Project
+// Licensed under GPLv3 or any later version
+// Refer to the LICENSE.txt file included.
+
+#pragma once
+
+#include <array>
+#include <span>
+#include <unordered_map>
+#include <fmt/format.h>
+#include "video_core/rasterizer_cache/framebuffer_base.h"
+#include "video_core/rasterizer_cache/rasterizer_cache_base.h"
+#include "video_core/rasterizer_cache/surface_base.h"
+#include "video_core/renderer_metal/mtl_instance.h"
+#include "video_core/renderer_metal/mtl_scheduler.h"
+#include "video_core/renderer_metal/mtl_stream_buffer.h"
+
+namespace VideoCore {
+struct Material;
+}
+
+namespace Metal {
+
+class Surface;
+
+enum Type {
+    Current = -1,
+    Base = 0,
+    Scaled,
+    Custom,
+    Copy,
+    Num,
+};
+
+/**
+ * Render-pass based helpers for operations Metal has no fixed-function equivalent for: scaled
+ * blits, partial clears and depth/stencil blits.
+ */
+class BlitHelper {
+public:
+    explicit BlitHelper(const Instance& instance, Scheduler& scheduler);
+    ~BlitHelper();
+
+    /// Blits a rectangle of a color texture into a rectangle of another color texture.
+    void BlitColor(id<MTLTexture> src, u32 src_level, u32 src_slice,
+                   const Common::Rectangle<u32>& src_rect, id<MTLTexture> dst, u32 dst_level,
+                   u32 dst_slice, const Common::Rectangle<u32>& dst_rect, bool linear);
+
+    /// Blits a rectangle of a depth(-stencil) texture into another depth(-stencil) texture.
+    void BlitDepthStencil(id<MTLTexture> src, id<MTLTexture> src_stencil_view, u32 src_level,
+                          const Common::Rectangle<u32>& src_rect, id<MTLTexture> dst, u32 dst_level,
+                          const Common::Rectangle<u32>& dst_rect);
+
+    /// Clears a rectangle of a color texture.
+    void ClearColor(id<MTLTexture> texture, u32 level, u32 slice,
+                    const Common::Rectangle<u32>& rect, const Common::Vec4f& color);
+
+    /// Clears a rectangle of a depth(-stencil) texture.
+    void ClearDepthStencil(id<MTLTexture> texture, u32 level, bool has_stencil,
+                           const Common::Rectangle<u32>& rect, float depth, u8 stencil);
+
+    /// Returns (and caches) a utility pipeline using the provided fragment function.
+    id<MTLRenderPipelineState> GetPipeline(std::string_view function, MTLPixelFormat color,
+                                           MTLPixelFormat depth, MTLPixelFormat stencil);
+
+    /// Sets the viewport/scissor to the destination rectangle and returns source coordinates
+    /// adjusted for flipped rectangles.
+    void SetupRect(id<MTLRenderCommandEncoder> encoder, id<MTLTexture> dst, u32 dst_level,
+                   const Common::Rectangle<u32>& dst_rect, const Common::Rectangle<u32>& src_rect,
+                   u32 src_width, u32 src_height, float lod, const Common::Vec4f& color,
+                   float depth);
+
+private:
+    const Instance& instance;
+    Scheduler& scheduler;
+    id<MTLLibrary> library;
+    id<MTLLibrary> stencil_library;
+    id<MTLSamplerState> linear_sampler;
+    id<MTLSamplerState> nearest_sampler;
+    id<MTLDepthStencilState> depth_write_state;
+    id<MTLDepthStencilState> depth_stencil_write_state;
+    std::unordered_map<std::string, id<MTLRenderPipelineState>> pipelines;
+};
+
+/**
+ * Provides texture manipulation functions to the rasterizer cache
+ * Separating this into a class makes it easier to abstract graphics API code
+ */
+class TextureRuntime {
+    friend class Surface;
+
+public:
+    explicit TextureRuntime(const Instance& instance, Scheduler& scheduler);
+    ~TextureRuntime();
+
+    const Instance& GetInstance() const {
+        return instance;
+    }
+
+    Scheduler& GetScheduler() const {
+        return scheduler;
+    }
+
+    BlitHelper& GetBlitHelper() {
+        return blit_helper;
+    }
+
+    bool SupportsCustomFormat(VideoCore::CustomPixelFormat pixel_format) const {
+        return instance.GetTraits(pixel_format).transfer_support;
+    }
+
+    /// Gets an opaque tick-value used to indicate to the garbage collector when a surface was made.
+    u64 GetResourceTick();
+
+    /// Gets an opaque tick-value used to indicate to the garbage collector what surfaces can be
+    /// safely deleted.
+    u64 GetResourceFreeTick();
+
+    /// Submits and waits for current GPU work.
+    void Finish();
+
+    /// Maps an internal staging buffer of the provided size for pixel uploads/downloads
+    VideoCore::StagingData FindStaging(u32 size, bool upload);
+
+    /// Attempts to reinterpret a rectangle of source to another rectangle of dest
+    bool Reinterpret(Surface& source, Surface& dest, const VideoCore::TextureCopy& copy);
+
+    /// Fills the rectangle of the texture with the clear value provided
+    bool ClearTexture(Surface& surface, const VideoCore::TextureClear& clear);
+
+    /// Copies a rectangle of src_tex to another rectange of dst_rect
+    bool CopyTextures(Surface& source, Surface& dest,
+                      std::span<const VideoCore::TextureCopy> copies);
+
+    bool CopyTextures(Surface& source, Surface& dest, const VideoCore::TextureCopy& copy) {
+        return CopyTextures(source, dest, std::array{copy});
+    }
+
+    /// Blits a rectangle of src_tex to another rectange of dst_rect
+    bool BlitTextures(Surface& surface, Surface& dest, const VideoCore::TextureBlit& blit);
+
+    /// Generates mipmaps for all the available levels of the texture
+    void GenerateMipmaps(Surface& surface);
+
+    /// Returns true if the provided pixel format needs convertion
+    bool NeedsConversion(const Surface& surface) const;
+
+private:
+    const Instance& instance;
+    Scheduler& scheduler;
+    BlitHelper blit_helper;
+    StreamBuffer upload_buffer;
+    StreamBuffer download_buffer;
+};
+
+class Surface : public VideoCore::SurfaceBase {
+    friend class TextureRuntime;
+
+public:
+    explicit Surface(TextureRuntime& runtime, const VideoCore::SurfaceParams& params,
+                     const VideoCore::SurfaceFlagBits& initial_flag_bits = {});
+    explicit Surface(TextureRuntime& runtime, const VideoCore::SurfaceBase& surface,
+                     const VideoCore::Material* materal);
+    ~Surface();
+
+    Surface(const Surface&) = delete;
+    Surface& operator=(const Surface&) = delete;
+
+    Surface(Surface&& o) noexcept = default;
+    Surface& operator=(Surface&& o) noexcept = default;
+
+    /// Returns the texture at index, otherwise the current one.
+    id<MTLTexture> Texture(Type type = Type::Current) const noexcept {
+        return textures[type == Type::Current ? current : type];
+    }
+
+    /// Returns a copy of the current texture, used to break feedback loops.
+    id<MTLTexture> CopyTexture();
+
+    /// Returns a R32Uint view of the current texture used by shadow mapping.
+    id<MTLTexture> StorageTexture();
+
+    /// Returns a stencil view of the current depth-stencil texture.
+    id<MTLTexture> StencilTexture();
+
+    /// Returns width of the surface
+    u32 GetWidth() const noexcept {
+        return width;
+    }
+
+    /// Returns height of the surface
+    u32 GetHeight() const noexcept {
+        return height;
+    }
+
+    /// Returns resolution scale of the surface
+    u32 GetResScale() const noexcept {
+        return res_scale;
+    }
+
+    bool IsDepth() const noexcept {
+        return traits.is_depth;
+    }
+
+    bool HasStencil() const noexcept {
+        return traits.has_stencil;
+    }
+
+    /// Uploads pixel data in staging to a rectangle region of the surface texture
+    void Upload(const VideoCore::BufferTextureCopy& upload, const VideoCore::StagingData& staging);
+
+    /// Uploads the custom material to the surface allocation.
+    void UploadCustom(const VideoCore::Material* material, u32 level);
+
+    /// Downloads pixel data to staging from a rectangle region of the surface texture
+    void Download(const VideoCore::BufferTextureCopy& download,
+                  const VideoCore::StagingData& staging);
+
+    /// Scales up the surface to match the new resolution scale.
+    void ScaleUp(u32 new_scale);
+
+    /// Returns the bpp of the internal surface format
+    u32 GetInternalBytesPerPixel() const;
+
+private:
+    id<MTLTexture> CreateTexture(u32 width, u32 height, MTLPixelFormat format,
+                                 std::string_view label) const;
+
+    /// Performs blit between the scaled/unscaled images
+    void BlitScale(const VideoCore::TextureBlit& blit, bool up_scale);
+
+public:
+    TextureRuntime* runtime;
+    const Instance* instance;
+    Scheduler* scheduler;
+    FormatTraits traits;
+    std::array<id<MTLTexture>, Type::Num> textures{};
+    Type current{};
+    id<MTLTexture> storage_view = nil;
+    id<MTLTexture> stencil_view = nil;
+    bool storage_capable{};
+};
+
+class Framebuffer : public VideoCore::FramebufferParams {
+public:
+    explicit Framebuffer(TextureRuntime& runtime, const VideoCore::FramebufferParams& params,
+                         Surface* color, Surface* depth_stencil);
+    ~Framebuffer();
+
+    Framebuffer(const Framebuffer&) = delete;
+    Framebuffer& operator=(const Framebuffer&) = delete;
+
+    Framebuffer(Framebuffer&& other) noexcept = default;
+    Framebuffer& operator=(Framebuffer&& other) noexcept = default;
+
+    VideoCore::PixelFormat Format(VideoCore::SurfaceType type) const noexcept {
+        return formats[Index(type)];
+    }
+
+    /// Returns the texture attached for the surface type (nil if none).
+    id<MTLTexture> Attachment(VideoCore::SurfaceType type) const noexcept {
+        return attachments[Index(type)];
+    }
+
+    /// Returns the shadow buffer (R32Uint view) used for shadow rendering.
+    id<MTLTexture> ShadowBuffer() const noexcept {
+        return shadow_buffer;
+    }
+
+    /// Returns the render pass description for this framebuffer.
+    const RenderTarget& Target() const noexcept {
+        return target;
+    }
+
+    /// Returns true if the framebuffer can be rendered to.
+    bool IsValid() const noexcept {
+        return valid;
+    }
+
+    u32 Width() const noexcept {
+        return width;
+    }
+
+    u32 Height() const noexcept {
+        return height;
+    }
+
+    u32 Scale() const noexcept {
+        return res_scale;
+    }
+
+private:
+    std::array<id<MTLTexture>, 2> attachments{};
+    std::array<VideoCore::PixelFormat, 2> formats{VideoCore::PixelFormat::Invalid,
+                                                  VideoCore::PixelFormat::Invalid};
+    id<MTLTexture> shadow_buffer = nil;
+    RenderTarget target{};
+    u32 width{};
+    u32 height{};
+    u32 res_scale{1};
+    bool valid{};
+};
+
+class Sampler {
+public:
+    Sampler(TextureRuntime& runtime, const VideoCore::SamplerParams& params);
+    ~Sampler();
+
+    Sampler(const Sampler&) = delete;
+    Sampler& operator=(const Sampler&) = delete;
+
+    Sampler(Sampler&& o) noexcept = default;
+    Sampler& operator=(Sampler&& o) noexcept = default;
+
+    [[nodiscard]] id<MTLSamplerState> Handle() const noexcept {
+        return sampler;
+    }
+
+private:
+    id<MTLSamplerState> sampler;
+};
+
+class DebugScope {
+public:
+    template <typename... T>
+    explicit DebugScope(TextureRuntime& runtime, Common::Vec4f color,
+                        fmt::format_string<T...> format, T... args)
+        : DebugScope{runtime, color, fmt::format(format, std::forward<T>(args)...)} {}
+    explicit DebugScope(TextureRuntime& runtime, Common::Vec4f color, std::string_view label);
+    ~DebugScope();
+
+private:
+    Scheduler& scheduler;
+    bool enabled;
+};
+
+struct Traits {
+    using Runtime = Metal::TextureRuntime;
+    using Surface = Metal::Surface;
+    using Sampler = Metal::Sampler;
+    using Framebuffer = Metal::Framebuffer;
+    using DebugScope = Metal::DebugScope;
+};
+
+using RasterizerCache = VideoCore::RasterizerCache<Traits>;
+
+} // namespace Metal

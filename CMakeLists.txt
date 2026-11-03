@@ -149,7 +149,10 @@ CMAKE_DEPENDENT_OPTION(ENABLE_FFMPEG "Enable features which require FFmpeg to fu
 CMAKE_DEPENDENT_OPTION(ENABLE_SOFTWARE_RENDERER "Enables the software renderer" ON "NOT ANDROID" OFF)
 CMAKE_DEPENDENT_OPTION(ENABLE_OPENGL "Enables the OpenGL renderer" ${DEFAULT_ENABLE_OPENGL} "NOT APPLE" OFF)
 # NetBSD doesn't support Vulkan yet, remove this check when it does.
-CMAKE_DEPENDENT_OPTION(ENABLE_VULKAN "Enables the Vulkan renderer" ON "NOT (BSD MATCHES \"NetBSD\")" OFF)
+# The iOS app uses the native Metal renderer instead of Vulkan over MoltenVK.
+CMAKE_DEPENDENT_OPTION(ENABLE_VULKAN "Enables the Vulkan renderer" ON "NOT (BSD MATCHES \"NetBSD\") AND NOT (IOS AND NOT ENABLE_LIBRETRO)" OFF)
+CMAKE_DEPENDENT_OPTION(ENABLE_METAL "Enables the native Metal renderer" ON "APPLE AND NOT ENABLE_LIBRETRO" OFF)
+CMAKE_DEPENDENT_OPTION(ENABLE_IOS_APP "Build the native iOS app (SwiftUI frontend)" ON "IOS AND ENABLE_METAL" OFF)
 
 option(ENABLE_DISCORD_RPC "Enables Discord Rich Presence" OFF)
 

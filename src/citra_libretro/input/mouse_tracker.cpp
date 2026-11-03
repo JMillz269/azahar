@@ -80,6 +80,8 @@ MouseTracker::MouseTracker() {
     case Settings::GraphicsAPI::Software:
         cursor_renderer = std::make_unique<SoftwareCursorRenderer>();
         break;
+    default:
+        break;
     }
 
     last_moved = std::chrono::steady_clock::time_point::min();

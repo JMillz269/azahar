@@ -14,6 +14,9 @@
 #ifdef ENABLE_VULKAN
 #include "video_core/renderer_vulkan/renderer_vulkan.h"
 #endif
+#ifdef ENABLE_METAL
+#include "video_core/renderer_metal/renderer_metal.h"
+#endif
 #include "video_core/video_core.h"
 
 #ifdef ENABLE_SDL2
@@ -45,6 +48,10 @@ std::unique_ptr<RendererBase> CreateRenderer(Frontend::EmuWindow& emu_window,
     case Settings::GraphicsAPI::OpenGL:
         return std::make_unique<OpenGL::RendererOpenGL>(system, pica, emu_window, secondary_window);
 #endif
+#ifdef ENABLE_METAL
+    case Settings::GraphicsAPI::Metal:
+        return Metal::CreateRenderer(system, pica, emu_window, secondary_window);
+#endif
     default:
         LOG_CRITICAL(Render,
                      "Unknown or unsupported graphics API {}, falling back to available default",
@@ -53,6 +60,8 @@ std::unique_ptr<RendererBase> CreateRenderer(Frontend::EmuWindow& emu_window,
         return std::make_unique<OpenGL::RendererOpenGL>(system, pica, emu_window, secondary_window);
 #elif ENABLE_VULKAN
         return std::make_unique<Vulkan::RendererVulkan>(system, pica, emu_window, secondary_window);
+#elif ENABLE_METAL
+        return Metal::CreateRenderer(system, pica, emu_window, secondary_window);
 #elif ENABLE_SOFTWARE_RENDERER
         return std::make_unique<SwRenderer::RendererSoftware>(system, pica, emu_window);
 #else

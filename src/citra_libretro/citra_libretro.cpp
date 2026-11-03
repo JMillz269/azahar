@@ -633,6 +633,8 @@ bool retro_load_game(const struct retro_game_info* info) {
             return false;
         break;
     }
+    default:
+        break;
     }
 
     uint64_t quirks =

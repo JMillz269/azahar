@@ -1,0 +1,4 @@
+module AzaharCore {
+    umbrella header "AzaharCore.h"
+    export *
+}

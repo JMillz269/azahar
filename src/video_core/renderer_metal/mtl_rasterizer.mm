@@ -1,0 +1,630 @@
+// Copyright 2026 Citra Emulator Project / Azahar Emulator Project
+// Licensed under GPLv3 or any later version
+// Refer to the LICENSE.txt file included.
+
+#include <algorithm>
+#include <bit>
+#include <cstddef>
+#include "common/alignment.h"
+#include "common/literals.h"
+#include "common/logging/log.h"
+#include "common/math_util.h"
+#include "common/microprofile.h"
+#include "common/settings.h"
+#include "core/memory.h"
+#include "video_core/pica/pica_core.h"
+#include "video_core/renderer_metal/mtl_instance.h"
+#include "video_core/renderer_metal/mtl_rasterizer.h"
+#include "video_core/renderer_metal/mtl_scheduler.h"
+#include "video_core/renderer_metal/pica_to_mtl.h"
+#include "video_core/shader/generator/msl_shader_gen.h"
+#include "video_core/texture/texture_decode.h"
+
+MICROPROFILE_DEFINE(Metal_Drawing, "Metal", "Drawing", MP_RGB(128, 128, 192));
+
+namespace Metal {
+
+namespace {
+
+using namespace Common::Literals;
+using namespace Pica::Shader::Generator;
+using VideoCore::SurfaceType;
+using TextureType = Pica::TexturingRegs::TextureConfig::TextureType;
+
+constexpr u64 VERTEX_BUFFER_SIZE = 32_MiB;
+constexpr u64 TEXTURE_BUFFER_SIZE = 2_MiB;
+
+/// Converts the PICA RGBA color write mask (bit 0 = red) to a MTLColorWriteMask.
+MTLColorWriteMask ColorWriteMask(u32 pica_mask) {
+    MTLColorWriteMask mask = MTLColorWriteMaskNone;
+    if (pica_mask & 1) {
+        mask |= MTLColorWriteMaskRed;
+    }
+    if (pica_mask & 2) {
+        mask |= MTLColorWriteMaskGreen;
+    }
+    if (pica_mask & 4) {
+        mask |= MTLColorWriteMaskBlue;
+    }
+    if (pica_mask & 8) {
+        mask |= MTLColorWriteMaskAlpha;
+    }
+    return mask;
+}
+
+} // Anonymous namespace
+
+RasterizerMetal::RasterizerMetal(Memory::MemorySystem& memory, Pica::PicaCore& pica,
+                                 VideoCore::CustomTexManager& custom_tex_manager,
+                                 VideoCore::RendererBase& renderer, const Instance& instance_,
+                                 Scheduler& scheduler_)
+    : RasterizerAccelerated{memory, pica}, instance{instance_}, scheduler{scheduler_},
+      runtime{instance_, scheduler_},
+      res_cache{memory, custom_tex_manager, runtime, regs, renderer},
+      pipeline_cache{instance_, MakeVertexDescriptor()},
+      vertex_buffer{instance_, scheduler_, VERTEX_BUFFER_SIZE, "Vertex buffer"},
+      texture_buffer{instance_, scheduler_, TEXTURE_BUFFER_SIZE, "Proctex LUT buffer"},
+      texture_lf_buffer{instance_, scheduler_, TEXTURE_BUFFER_SIZE, "Lighting/fog LUT buffer"} {}
+
+RasterizerMetal::~RasterizerMetal() = default;
+
+MTLVertexDescriptor* RasterizerMetal::MakeVertexDescriptor() {
+    MTLVertexDescriptor* desc = [MTLVertexDescriptor vertexDescriptor];
+    const auto set_attribute = [&](u32 index, MTLVertexFormat format, std::size_t offset) {
+        desc.attributes[index].format = format;
+        desc.attributes[index].offset = offset;
+        desc.attributes[index].bufferIndex = MSL::VS_BUFFER_VERTEX_BASE;
+    };
+    set_attribute(ATTRIBUTE_POSITION, MTLVertexFormatFloat4, offsetof(HardwareVertex, position));
+    set_attribute(ATTRIBUTE_COLOR, MTLVertexFormatFloat4, offsetof(HardwareVertex, color));
+    set_attribute(ATTRIBUTE_TEXCOORD0, MTLVertexFormatFloat2, offsetof(HardwareVertex, tex_coord0));
+    set_attribute(ATTRIBUTE_TEXCOORD1, MTLVertexFormatFloat2, offsetof(HardwareVertex, tex_coord1));
+    set_attribute(ATTRIBUTE_TEXCOORD2, MTLVertexFormatFloat2, offsetof(HardwareVertex, tex_coord2));
+    set_attribute(ATTRIBUTE_TEXCOORD0_W, MTLVertexFormatFloat,
+                  offsetof(HardwareVertex, tex_coord0_w));
+    set_attribute(ATTRIBUTE_NORMQUAT, MTLVertexFormatFloat4, offsetof(HardwareVertex, normquat));
+    set_attribute(ATTRIBUTE_VIEW, MTLVertexFormatFloat3, offsetof(HardwareVertex, view));
+    desc.layouts[MSL::VS_BUFFER_VERTEX_BASE].stride = sizeof(HardwareVertex);
+    desc.layouts[MSL::VS_BUFFER_VERTEX_BASE].stepFunction = MTLVertexStepFunctionPerVertex;
+    return desc;
+}
+
+void RasterizerMetal::TickFrame() {
+    res_cache.TickFrame();
+}
+
+void RasterizerMetal::LoadDefaultDiskResources(
+    const std::atomic_bool& stop_loading, const VideoCore::DiskResourceLoadCallback& callback) {
+    // TODO: Persist compiled pipelines with MTLBinaryArchive.
+    if (callback) {
+        callback(VideoCore::LoadCallbackStage::Prepare, 0, 0, "");
+        callback(VideoCore::LoadCallbackStage::Complete, 0, 0, "");
+    }
+}
+
+void RasterizerMetal::SyncFixedState(const Framebuffer& framebuffer, u64 fs_hash, PipelineKey& key,
+                                     DepthStencilKey& ds_key) const {
+    const auto& output_merger = regs.framebuffer.output_merger;
+    const auto& fb_regs = regs.framebuffer.framebuffer;
+
+    key = {};
+    key.fs_hash = fs_hash;
+
+    const bool shadow_rendering = regs.framebuffer.IsShadowRendering();
+    id<MTLTexture> color = framebuffer.Attachment(SurfaceType::Color);
+    id<MTLTexture> depth = framebuffer.Attachment(SurfaceType::Depth);
+    key.color_format = static_cast<u32>(
+        (color != nil && !shadow_rendering) ? color.pixelFormat : MTLPixelFormatInvalid);
+    key.depth_format = static_cast<u32>(
+        (depth != nil && !shadow_rendering) ? depth.pixelFormat : MTLPixelFormatInvalid);
+    key.stencil_format = static_cast<u32>((depth != nil && !shadow_rendering &&
+                                           depth.pixelFormat == MTLPixelFormatDepth32Float_Stencil8)
+                                              ? depth.pixelFormat
+                                              : MTLPixelFormatInvalid);
+
+    // Blending
+    bool rgb_emulation = false;
+    bool alpha_emulation = false;
+    pipeline_cache.QueryBlendEmulation(regs, rgb_emulation, alpha_emulation);
+
+    const auto& blending = output_merger.alpha_blending;
+    key.blend_enable = output_merger.alphablend_enable;
+    key.rgb_op = static_cast<u8>(PicaToMTL::BlendEquation(blending.blend_equation_rgb));
+    key.alpha_op = static_cast<u8>(PicaToMTL::BlendEquation(blending.blend_equation_a));
+    key.src_rgb = static_cast<u8>(PicaToMTL::BlendFunc(blending.factor_source_rgb));
+    key.dst_rgb = static_cast<u8>(PicaToMTL::BlendFunc(blending.factor_dest_rgb));
+    key.src_alpha = static_cast<u8>(PicaToMTL::BlendFunc(blending.factor_source_a));
+    key.dst_alpha = static_cast<u8>(PicaToMTL::BlendFunc(blending.factor_dest_a));
+    if (rgb_emulation) {
+        // The fragment shader computes the blended color through framebuffer fetch.
+        key.rgb_op = static_cast<u8>(MTLBlendOperationAdd);
+        key.src_rgb = static_cast<u8>(MTLBlendFactorOne);
+        key.dst_rgb = static_cast<u8>(MTLBlendFactorZero);
+    }
+    if (alpha_emulation) {
+        key.alpha_op = static_cast<u8>(MTLBlendOperationAdd);
+        key.src_alpha = static_cast<u8>(MTLBlendFactorOne);
+        key.dst_alpha = static_cast<u8>(MTLBlendFactorZero);
+    }
+
+    const u32 color_mask =
+        fb_regs.allow_color_write != 0 ? (output_merger.depth_color_mask >> 8) & 0xF : 0;
+    key.write_mask =
+        static_cast<u8>(shadow_rendering ? MTLColorWriteMaskNone : ColorWriteMask(color_mask));
+
+    // Depth test
+    const bool depth_test = output_merger.depth_test_enable == 1;
+    const bool depth_write =
+        fb_regs.allow_depth_stencil_write != 0 && output_merger.depth_write_enable == 1;
+    ds_key = {};
+    ds_key.depth_compare =
+        static_cast<u8>(depth_test ? PicaToMTL::CompareFunc(output_merger.depth_test_func.Value())
+                                   : MTLCompareFunctionAlways);
+    ds_key.depth_write = depth_write && key.depth_format != MTLPixelFormatInvalid;
+
+    // Stencil test
+    const auto& stencil_test = output_merger.stencil_test;
+    const bool stencil_enable = stencil_test.enable && regs.framebuffer.HasStencil() &&
+                                key.stencil_format != MTLPixelFormatInvalid;
+    ds_key.stencil_enable = stencil_enable;
+    if (stencil_enable) {
+        ds_key.stencil_compare = static_cast<u8>(PicaToMTL::CompareFunc(stencil_test.func));
+        ds_key.stencil_fail =
+            static_cast<u8>(PicaToMTL::StencilOp(stencil_test.action_stencil_fail));
+        ds_key.depth_fail = static_cast<u8>(PicaToMTL::StencilOp(stencil_test.action_depth_fail));
+        ds_key.depth_pass = static_cast<u8>(PicaToMTL::StencilOp(stencil_test.action_depth_pass));
+        ds_key.read_mask = static_cast<u8>(stencil_test.input_mask);
+        ds_key.write_mask =
+            fb_regs.allow_depth_stencil_write != 0 ? static_cast<u8>(stencil_test.write_mask) : 0;
+    }
+}
+
+void RasterizerMetal::DrawTriangles() {
+    if (vertex_batch.empty()) {
+        return;
+    }
+    Draw();
+    vertex_batch.clear();
+}
+
+bool RasterizerMetal::Draw() {
+    MICROPROFILE_SCOPE(Metal_Drawing);
+    SyncDrawUniforms();
+
+    const auto& output_merger = regs.framebuffer.output_merger;
+    const auto& fb_regs = regs.framebuffer.framebuffer;
+    const bool shadow_rendering = regs.framebuffer.IsShadowRendering();
+    const bool has_stencil = regs.framebuffer.HasStencil();
+
+    const u32 color_mask =
+        fb_regs.allow_color_write != 0 ? (output_merger.depth_color_mask >> 8) & 0xF : 0;
+    const bool write_color_fb = shadow_rendering || color_mask != 0;
+    const bool write_depth_fb =
+        fb_regs.allow_depth_stencil_write != 0 && output_merger.depth_write_enable;
+    const bool stencil_test = output_merger.stencil_test.enable && has_stencil;
+    const bool using_color_fb = fb_regs.GetColorBufferPhysicalAddress() != 0 && write_color_fb;
+    const bool using_depth_fb =
+        !shadow_rendering && fb_regs.GetDepthBufferPhysicalAddress() != 0 &&
+        (write_depth_fb || output_merger.depth_test_enable != 0 || stencil_test);
+
+    const auto fb_helper = res_cache.GetFramebufferSurfaces(using_color_fb, using_depth_fb);
+    const Framebuffer* framebuffer = fb_helper.Framebuffer();
+    if (!framebuffer->IsValid()) {
+        return true;
+    }
+
+    const auto draw_rect = fb_helper.DrawRect();
+    if (draw_rect.GetArea() == 0) {
+        return true;
+    }
+
+    // Update scissor uniforms
+    const auto [scissor_x1, scissor_y2, scissor_x2, scissor_y1] = fb_helper.Scissor();
+    fs_data.scissor_x1 = scissor_x1;
+    fs_data.scissor_x2 = scissor_x2;
+    fs_data.scissor_y1 = scissor_y1;
+    fs_data.scissor_y2 = scissor_y2;
+
+    // Sync the texture units. This may record blits so it must happen before rendering begins.
+    SyncTextureUnits(*framebuffer);
+
+    // Sync and compile the fragment shader
+    const bool has_color = framebuffer->Attachment(SurfaceType::Color) != nil && !shadow_rendering;
+    u64 fs_hash{};
+    id<MTLFunction> fragment =
+        pipeline_cache.UseFragmentShader(regs, user_config, has_color, fs_hash);
+
+    // Sync the LUTs within the texture buffers
+    SyncAndUploadLUTs();
+    SyncAndUploadLUTsLF();
+
+    if (fragment == nil) {
+        return true;
+    }
+
+    PipelineKey key;
+    DepthStencilKey ds_key;
+    SyncFixedState(*framebuffer, fs_hash, key, ds_key);
+    id<MTLRenderPipelineState> pipeline = pipeline_cache.GetPipeline(key, fragment);
+    if (pipeline == nil) {
+        return true;
+    }
+    id<MTLDepthStencilState> depth_stencil = pipeline_cache.GetDepthStencilState(ds_key);
+
+    // Upload the vertices before beginning rendering, as waiting on the stream buffer may
+    // submit the current command buffer.
+    const u32 vertex_count = static_cast<u32>(vertex_batch.size());
+    const u32 vertex_size = vertex_count * static_cast<u32>(sizeof(HardwareVertex));
+    const auto [vertex_data, vertex_offset, _] = vertex_buffer.Map(vertex_size, 16);
+    std::memcpy(vertex_data, vertex_batch.data(), vertex_size);
+    vertex_buffer.Commit(vertex_size);
+
+    // Clamp the scissor to the render area.
+    const RenderTarget& target = framebuffer->Target();
+    const u32 scissor_x = std::min(draw_rect.left, target.width);
+    const u32 scissor_y = std::min(draw_rect.bottom, target.height);
+    const u32 scissor_w = std::min(draw_rect.GetWidth(), target.width - scissor_x);
+    const u32 scissor_h = std::min(draw_rect.GetHeight(), target.height - scissor_y);
+    if (scissor_w == 0 || scissor_h == 0) {
+        return true;
+    }
+
+    id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(target);
+    if (scheduler.EncoderGeneration() != bound_generation) {
+        bound_generation = scheduler.EncoderGeneration();
+        [encoder setFragmentBuffer:texture_lf_buffer.Handle()
+                            offset:0
+                           atIndex:MSL::FS_BUFFER_LUT_LF];
+        [encoder setFragmentBuffer:texture_buffer.Handle() offset:0 atIndex:MSL::FS_BUFFER_LUT_RG];
+        [encoder setFragmentBuffer:texture_buffer.Handle()
+                            offset:0
+                           atIndex:MSL::FS_BUFFER_LUT_RGBA];
+        [encoder setVertexBuffer:vertex_buffer.Handle()
+                          offset:0
+                         atIndex:MSL::VS_BUFFER_VERTEX_BASE];
+    }
+
+    [encoder setRenderPipelineState:pipeline];
+    [encoder setDepthStencilState:depth_stencil];
+    [encoder setFrontFacingWinding:PicaToMTL::FrontFace(regs.rasterizer.cull_mode)];
+    [encoder setCullMode:PicaToMTL::CullMode(regs.rasterizer.cull_mode, fb_regs.IsFlipped())];
+    [encoder setStencilReferenceValue:output_merger.stencil_test.reference_value];
+    const auto blend_color = PicaToMTL::ColorRGBA8(output_merger.blend_const.raw);
+    [encoder setBlendColorRed:blend_color.x
+                        green:blend_color.y
+                         blue:blend_color.z
+                        alpha:blend_color.w];
+    fs_data.blend_color = blend_color;
+
+    const auto viewport = fb_helper.Viewport();
+    [encoder setViewport:MTLViewport{
+                             .originX = static_cast<double>(viewport.x),
+                             .originY = static_cast<double>(viewport.y),
+                             .width = static_cast<double>(viewport.width),
+                             .height = static_cast<double>(viewport.height),
+                             .znear = 0.0,
+                             .zfar = 1.0,
+                         }];
+    [encoder setScissorRect:MTLScissorRect{scissor_x, scissor_y, scissor_w, scissor_h}];
+
+    // Uniforms are small enough to be pushed inline with every draw.
+    [encoder setVertexBytes:&vs_data length:sizeof(vs_data) atIndex:MSL::VS_BUFFER_UNIFORMS];
+    [encoder setFragmentBytes:&fs_data length:sizeof(fs_data) atIndex:MSL::FS_BUFFER_UNIFORMS];
+    vs_data_dirty = false;
+    fs_data_dirty = false;
+
+    for (u32 slot = 0; slot < texture_bindings.size(); slot++) {
+        if (texture_bindings[slot].texture != nil) {
+            [encoder setFragmentTexture:texture_bindings[slot].texture atIndex:slot];
+        }
+    }
+    const auto bind_sampler = [&](u32 texture_slot, u32 sampler_slot) {
+        if (texture_bindings[texture_slot].sampler != nil) {
+            [encoder setFragmentSamplerState:texture_bindings[texture_slot].sampler
+                                     atIndex:sampler_slot];
+        }
+    };
+    bind_sampler(MSL::FS_TEXTURE_0, MSL::FS_SAMPLER_0);
+    bind_sampler(MSL::FS_TEXTURE_1, MSL::FS_SAMPLER_1);
+    bind_sampler(MSL::FS_TEXTURE_2, MSL::FS_SAMPLER_2);
+    if (shadow_rendering) {
+        [encoder setFragmentTexture:framebuffer->ShadowBuffer()
+                            atIndex:MSL::FS_TEXTURE_SHADOW_BUFFER];
+    }
+
+    [encoder setVertexBufferOffset:vertex_offset atIndex:MSL::VS_BUFFER_VERTEX_BASE];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertex_count];
+    return true;
+}
+
+void RasterizerMetal::SyncTextureUnits(const Framebuffer& framebuffer) {
+    const auto pica_textures = regs.texturing.GetTextures();
+    const auto texture0_type = regs.texturing.texture0.type.Value();
+
+    Surface& null_surface = res_cache.GetSurface(VideoCore::NULL_SURFACE_ID);
+    Surface& null_cube = res_cache.GetSurface(VideoCore::NULL_SURFACE_CUBE_ID);
+    Sampler& null_sampler = res_cache.GetSampler(VideoCore::NULL_SAMPLER_ID);
+    id<MTLTexture> color_attachment = framebuffer.Attachment(SurfaceType::Color);
+
+    texture_bindings = {};
+
+    const auto bind_2d = [&](u32 slot, const Pica::TexturingRegs::FullTextureConfig& texture) {
+        if (!texture.enabled) {
+            texture_bindings[slot] = {null_surface.Texture(), null_sampler.Handle()};
+            return;
+        }
+        Surface& surface = res_cache.GetTextureSurface(texture);
+        Sampler& sampler = res_cache.GetSampler(texture.config);
+        id<MTLTexture> view = surface.Texture();
+        if (view == nil) {
+            view = null_surface.Texture();
+        } else if (view == color_attachment) {
+            // Sampling the render target being drawn to is undefined, sample a copy instead.
+            view = surface.CopyTexture();
+        }
+        texture_bindings[slot] = {view, sampler.Handle()};
+    };
+
+    switch (texture0_type) {
+    case TextureType::Texture2D:
+    case TextureType::Projection2D:
+        bind_2d(MSL::FS_TEXTURE_0, pica_textures[0]);
+        break;
+    case TextureType::TextureCube:
+        if (pica_textures[0].enabled) {
+            BindTextureCube(pica_textures[0]);
+        } else {
+            texture_bindings[MSL::FS_TEXTURE_0] = {null_cube.Texture(), null_sampler.Handle()};
+        }
+        break;
+    case TextureType::Shadow2D:
+        if (pica_textures[0].enabled) {
+            Surface& surface = res_cache.GetTextureSurface(pica_textures[0]);
+            surface.flags |= VideoCore::SurfaceFlagBits::ShadowSource;
+            id<MTLTexture> storage = surface.StorageTexture();
+            texture_bindings[MSL::FS_TEXTURE_0].texture =
+                storage != nil ? storage : null_surface.StorageTexture();
+        } else {
+            texture_bindings[MSL::FS_TEXTURE_0].texture = null_surface.StorageTexture();
+        }
+        break;
+    case TextureType::ShadowCube:
+        if (pica_textures[0].enabled) {
+            BindShadowCube(pica_textures[0]);
+        } else {
+            for (u32 face = 0; face < 6; face++) {
+                texture_bindings[MSL::FS_TEXTURE_0 + face].texture = null_surface.StorageTexture();
+            }
+        }
+        break;
+    default:
+        break;
+    }
+
+    bind_2d(MSL::FS_TEXTURE_1, pica_textures[1]);
+    bind_2d(MSL::FS_TEXTURE_2, pica_textures[2]);
+}
+
+void RasterizerMetal::BindShadowCube(const Pica::TexturingRegs::FullTextureConfig& texture) {
+    using CubeFace = Pica::TexturingRegs::CubeFace;
+    auto info = Pica::Texture::TextureInfo::FromPicaRegister(texture.config, texture.format);
+    constexpr std::array faces = {
+        CubeFace::PositiveX, CubeFace::NegativeX, CubeFace::PositiveY,
+        CubeFace::NegativeY, CubeFace::PositiveZ, CubeFace::NegativeZ,
+    };
+
+    Surface& null_surface = res_cache.GetSurface(VideoCore::NULL_SURFACE_ID);
+    for (CubeFace face : faces) {
+        const u32 binding = static_cast<u32>(face);
+        info.physical_address = regs.texturing.GetCubePhysicalAddress(face);
+
+        const VideoCore::SurfaceId surface_id = res_cache.GetTextureSurface(info);
+        Surface& surface = res_cache.GetSurface(surface_id);
+        surface.flags |= VideoCore::SurfaceFlagBits::ShadowSource;
+        id<MTLTexture> storage = surface.StorageTexture();
+        texture_bindings[MSL::FS_TEXTURE_0 + binding].texture =
+            storage != nil ? storage : null_surface.StorageTexture();
+    }
+}
+
+void RasterizerMetal::BindTextureCube(const Pica::TexturingRegs::FullTextureConfig& texture) {
+    using CubeFace = Pica::TexturingRegs::CubeFace;
+    const VideoCore::TextureCubeConfig config = {
+        .px = regs.texturing.GetCubePhysicalAddress(CubeFace::PositiveX),
+        .nx = regs.texturing.GetCubePhysicalAddress(CubeFace::NegativeX),
+        .py = regs.texturing.GetCubePhysicalAddress(CubeFace::PositiveY),
+        .ny = regs.texturing.GetCubePhysicalAddress(CubeFace::NegativeY),
+        .pz = regs.texturing.GetCubePhysicalAddress(CubeFace::PositiveZ),
+        .nz = regs.texturing.GetCubePhysicalAddress(CubeFace::NegativeZ),
+        .width = texture.config.width,
+        .levels = texture.config.lod.max_level + 1,
+        .format = texture.format,
+    };
+
+    Surface& surface = res_cache.GetTextureCube(config);
+    Sampler& sampler = res_cache.GetSampler(texture.config);
+    texture_bindings[MSL::FS_TEXTURE_0] = {surface.Texture(), sampler.Handle()};
+}
+
+void RasterizerMetal::SyncAndUploadLUTsLF() {
+    constexpr std::size_t max_size =
+        sizeof(Common::Vec2f) * 256 * Pica::LightingRegs::NumLightingSampler +
+        sizeof(Common::Vec2f) * 128; // fog
+
+    if (!pica.lighting.lut_dirty && !pica.fog.lut_dirty) {
+        return;
+    }
+
+    std::size_t bytes_used = 0;
+    auto [buffer, offset, invalidate] = texture_lf_buffer.Map(max_size, sizeof(Common::Vec4f));
+
+    if (invalidate) {
+        pica.lighting.lut_dirty = pica.lighting.LutAllDirty;
+        pica.fog.lut_dirty = true;
+    }
+
+    // Sync the lighting luts
+    while (pica.lighting.lut_dirty) {
+        u32 index = std::countr_zero(pica.lighting.lut_dirty);
+        pica.lighting.lut_dirty &= ~(1 << index);
+
+        Common::Vec2f* new_data = reinterpret_cast<Common::Vec2f*>(buffer + bytes_used);
+        const auto& source_lut = pica.lighting.luts[index];
+        for (u32 i = 0; i < source_lut.size(); i++) {
+            new_data[i] = {source_lut[i].ToFloat(), source_lut[i].DiffToFloat()};
+        }
+        fs_data.lighting_lut_offset[index / 4][index % 4] =
+            static_cast<int>((offset + bytes_used) / sizeof(Common::Vec2f));
+        bytes_used += source_lut.size() * sizeof(Common::Vec2f);
+    }
+
+    // Sync the fog lut
+    if (pica.fog.lut_dirty) {
+        Common::Vec2f* new_data = reinterpret_cast<Common::Vec2f*>(buffer + bytes_used);
+        for (u32 i = 0; i < pica.fog.lut.size(); i++) {
+            new_data[i] = {pica.fog.lut[i].ToFloat(), pica.fog.lut[i].DiffToFloat()};
+        }
+        fs_data.fog_lut_offset = static_cast<int>((offset + bytes_used) / sizeof(Common::Vec2f));
+        bytes_used += pica.fog.lut.size() * sizeof(Common::Vec2f);
+        pica.fog.lut_dirty = false;
+    }
+
+    texture_lf_buffer.Commit(static_cast<u32>(bytes_used));
+}
+
+void RasterizerMetal::SyncAndUploadLUTs() {
+    const auto& proctex = pica.proctex;
+    constexpr std::size_t max_size =
+        sizeof(Common::Vec2f) * 128 * 3 + // proctex: noise + color + alpha
+        sizeof(Common::Vec4f) * 256 +     // proctex
+        sizeof(Common::Vec4f) * 256;      // proctex diff
+
+    if (!pica.proctex.table_dirty) {
+        return;
+    }
+
+    std::size_t bytes_used = 0;
+    auto [buffer, offset, invalidate] = texture_buffer.Map(max_size, sizeof(Common::Vec4f));
+
+    if (invalidate) {
+        pica.proctex.table_dirty = pica.proctex.TableAllDirty;
+    }
+
+    // helper function for SyncProcTexNoiseLUT/ColorMap/AlphaMap
+    const auto sync_proctex_value_lut =
+        [&](const std::array<Pica::PicaCore::ProcTex::ValueEntry, 128>& lut, int& lut_offset) {
+            Common::Vec2f* new_data = reinterpret_cast<Common::Vec2f*>(buffer + bytes_used);
+            for (u32 i = 0; i < lut.size(); i++) {
+                new_data[i] = {lut[i].ToFloat(), lut[i].DiffToFloat()};
+            }
+            lut_offset = static_cast<int>((offset + bytes_used) / sizeof(Common::Vec2f));
+            bytes_used += lut.size() * sizeof(Common::Vec2f);
+        };
+
+    if (pica.proctex.noise_lut_dirty) {
+        sync_proctex_value_lut(proctex.noise_table, fs_data.proctex_noise_lut_offset);
+    }
+    if (pica.proctex.color_map_dirty) {
+        sync_proctex_value_lut(proctex.color_map_table, fs_data.proctex_color_map_offset);
+    }
+    if (pica.proctex.alpha_map_dirty) {
+        sync_proctex_value_lut(proctex.alpha_map_table, fs_data.proctex_alpha_map_offset);
+    }
+
+    // The float4 tables must be aligned to their element size since they share the buffer.
+    bytes_used = Common::AlignUp(bytes_used, sizeof(Common::Vec4f));
+
+    if (pica.proctex.color_lut_dirty) {
+        Common::Vec4f* new_data = reinterpret_cast<Common::Vec4f*>(buffer + bytes_used);
+        for (u32 i = 0; i < proctex.color_table.size(); i++) {
+            new_data[i] = proctex.color_table[i].ToVector() / 255.0f;
+        }
+        fs_data.proctex_lut_offset =
+            static_cast<int>((offset + bytes_used) / sizeof(Common::Vec4f));
+        bytes_used += proctex.color_table.size() * sizeof(Common::Vec4f);
+    }
+
+    if (pica.proctex.color_diff_lut_dirty) {
+        Common::Vec4f* new_data = reinterpret_cast<Common::Vec4f*>(buffer + bytes_used);
+        for (u32 i = 0; i < proctex.color_diff_table.size(); i++) {
+            new_data[i] = proctex.color_diff_table[i].ToVector() / 255.0f;
+        }
+        fs_data.proctex_diff_lut_offset =
+            static_cast<int>((offset + bytes_used) / sizeof(Common::Vec4f));
+        bytes_used += proctex.color_diff_table.size() * sizeof(Common::Vec4f);
+    }
+
+    pica.proctex.table_dirty = 0;
+    texture_buffer.Commit(static_cast<u32>(bytes_used));
+}
+
+void RasterizerMetal::FlushAll() {
+    res_cache.FlushAll();
+}
+
+void RasterizerMetal::FlushRegion(PAddr addr, u32 size) {
+    res_cache.FlushRegion(addr, size);
+}
+
+void RasterizerMetal::InvalidateRegion(PAddr addr, u32 size) {
+    res_cache.InvalidateRegion(addr, size);
+}
+
+void RasterizerMetal::FlushAndInvalidateRegion(PAddr addr, u32 size) {
+    res_cache.FlushRegion(addr, size);
+    res_cache.InvalidateRegion(addr, size);
+}
+
+void RasterizerMetal::ClearAll(bool flush) {
+    res_cache.ClearAll(flush);
+}
+
+bool RasterizerMetal::AccelerateDisplayTransfer(const Pica::DisplayTransferConfig& config) {
+    return res_cache.AccelerateDisplayTransfer(config);
+}
+
+bool RasterizerMetal::AccelerateTextureCopy(const Pica::DisplayTransferConfig& config) {
+    return res_cache.AccelerateTextureCopy(config);
+}
+
+bool RasterizerMetal::AccelerateFill(const Pica::MemoryFillConfig& config) {
+    return res_cache.AccelerateFill(config);
+}
+
+bool RasterizerMetal::AccelerateDisplay(const Pica::FramebufferConfig& config,
+                                        PAddr framebuffer_addr, u32 pixel_stride,
+                                        ScreenInfo& screen_info) {
+    if (framebuffer_addr == 0) [[unlikely]] {
+        return false;
+    }
+
+    VideoCore::SurfaceParams src_params;
+    src_params.addr = framebuffer_addr;
+    src_params.width = std::min(config.width.Value(), pixel_stride);
+    src_params.height = config.height;
+    src_params.stride = pixel_stride;
+    src_params.is_tiled = false;
+    src_params.pixel_format = VideoCore::PixelFormatFromGPUPixelFormat(config.color_format);
+    src_params.UpdateParams();
+
+    const auto [src_surface_id, src_rect] =
+        res_cache.GetSurfaceSubRect(src_params, VideoCore::ScaleMatch::Ignore, true);
+
+    if (!src_surface_id) {
+        return false;
+    }
+
+    Surface& src_surface = res_cache.GetSurface(src_surface_id);
+    const u32 scaled_width = src_surface.GetScaledWidth();
+    const u32 scaled_height = src_surface.GetScaledHeight();
+
+    screen_info.texcoords = Common::Rectangle<f32>(
+        (float)src_rect.bottom / (float)scaled_height, (float)src_rect.left / (float)scaled_width,
+        (float)src_rect.top / (float)scaled_height, (float)src_rect.right / (float)scaled_width);
+    screen_info.texture = src_surface.Texture();
+    screen_info.width = config.width;
+    screen_info.height = config.height;
+    return true;
+}
+
+} // namespace Metal
