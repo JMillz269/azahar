@@ -724,6 +724,7 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         case ProcTexFilter::Linear:
         case ProcTexFilter::LinearMipmapLinear:
         case ProcTexFilter::LinearMipmapNearest:
+        default: // Undefined filter values (6, 7) behave like linear filtering here.
             out += "        int lut_index_i = int(lut_coord) + lut_offset;\n";
             out += "        float lut_index_f = fract(lut_coord);\n";
             out += "        return lut_rgba[lut_index_i + fs.proctex_lut_offset] + "
@@ -791,6 +792,7 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         switch (config.proctex.lut_filter) {
         case ProcTexFilter::Linear:
         case ProcTexFilter::Nearest:
+        default: // Undefined filter values (6, 7) sample the base level.
             out += "        float4 final_color = SampleProcTexColor(lut_coord, 0);\n";
             break;
         case ProcTexFilter::NearestMipmapNearest:
@@ -1692,9 +1694,11 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
             LOG_CRITICAL(Render, "Unimplemented gas mode");
             // Replace the output color with a transparent pixel, (just discarding the pixel
             // causes graphical issues in some MH games).
-            out += "        fs_out.color = float4(0.0f);\n"
-                   "        fs_out.depth = depth;\n"
-                   "        return fs_out;\n    }\n";
+            out += "        fs_out.color = float4(0.0f);\n";
+            if (!config.framebuffer.shadow_rendering) {
+                out += "        fs_out.depth = depth;\n";
+            }
+            out += "        return fs_out;\n    }\n";
             return;
         default:
             break;
