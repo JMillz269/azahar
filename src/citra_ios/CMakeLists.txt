@@ -63,6 +63,7 @@ set(APP_SWIFT_SOURCES
     App/ContentView.swift
     App/Core/AppSettings.swift
     App/Core/ConsoleInput.swift
+    App/Core/DocumentImporter.swift
     App/Core/EmulationSession.swift
     App/Core/FileLocations.swift
     App/Core/GameLibrary.swift

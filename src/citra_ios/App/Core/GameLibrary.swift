@@ -31,14 +31,20 @@ struct Game: Identifiable, Hashable {
 final class GameLibrary: ObservableObject {
     @Published private(set) var games: [Game] = []
     @Published private(set) var isScanning = false
+    @Published private(set) var isImporting = false
     @Published var importError: String?
+    /// Set when a refresh was requested during a scan, so the files added meanwhile are not missed.
+    private var needsRescan = false
 
     init() {
         refresh()
     }
 
     func refresh() {
-        guard !isScanning else { return }
+        guard !isScanning else {
+            needsRescan = true
+            return
+        }
         isScanning = true
         let directory = FileLocations.romsDirectory
         Task.detached(priority: .userInitiated) {
@@ -46,34 +52,81 @@ final class GameLibrary: ObservableObject {
             await MainActor.run {
                 self.games = games
                 self.isScanning = false
+                if self.needsRescan {
+                    self.needsRescan = false
+                    self.refresh()
+                }
             }
         }
     }
 
-    /// Copies (or moves, for files already inside our sandbox inbox) the provided files into the
-    /// ROMs directory.
+    /// Imports the provided files into the ROMs directory. Files that live in this app's temporary
+    /// directory (the copies made by the document picker) are moved, everything else is copied.
     func importFiles(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        isImporting = true
         let destination = FileLocations.romsDirectory
+        Task.detached(priority: .userInitiated) {
+            let failures = GameLibrary.importItems(urls, into: destination)
+            await MainActor.run {
+                self.isImporting = false
+                if !failures.isEmpty {
+                    self.importError = failures.joined(separator: "\n")
+                }
+                self.refresh()
+            }
+        }
+    }
+
+    /// Returns a description of every file that could not be imported.
+    nonisolated private static func importItems(_ urls: [URL], into destination: URL) -> [String] {
+        let fileManager = FileManager.default
+        do {
+            try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        } catch {
+            return ["Could not create the games folder: \(error.localizedDescription)"]
+        }
+
         var failures: [String] = []
         for url in urls {
+            let name = url.lastPathComponent
+            guard FileLocations.bootableExtensions.contains(url.pathExtension.lowercased()) else {
+                failures.append("\(name): unsupported file type. Supported types: "
+                    + FileLocations.bootableExtensions.sorted().joined(separator: ", "))
+                continue
+            }
+
+            // Files provided by other apps may need security scoped access; the copies made by
+            // the document picker do not, in which case this simply returns false.
             let accessing = url.startAccessingSecurityScopedResource()
             defer { if accessing { url.stopAccessingSecurityScopedResource() } }
 
-            let target = destination.appendingPathComponent(url.lastPathComponent)
+            let target = destination.appendingPathComponent(name)
             guard target.standardizedFileURL != url.standardizedFileURL else { continue }
             do {
-                if FileManager.default.fileExists(atPath: target.path) {
-                    try FileManager.default.removeItem(at: target)
+                if fileManager.fileExists(atPath: target.path) {
+                    try fileManager.removeItem(at: target)
                 }
-                try FileManager.default.copyItem(at: url, to: target)
+                if isInTemporaryDirectory(url) {
+                    do {
+                        try fileManager.moveItem(at: url, to: target)
+                        continue
+                    } catch {
+                        // Fall through to a plain copy.
+                    }
+                }
+                try fileManager.copyItem(at: url, to: target)
             } catch {
-                failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                failures.append("\(name): \(error.localizedDescription)")
             }
         }
-        if !failures.isEmpty {
-            importError = failures.joined(separator: "\n")
-        }
-        refresh()
+        return failures
+    }
+
+    nonisolated private static func isInTemporaryDirectory(_ url: URL) -> Bool {
+        let temporary = FileManager.default.temporaryDirectory.standardizedFileURL.resolvingSymlinksInPath()
+        let file = url.standardizedFileURL.resolvingSymlinksInPath()
+        return file.path.hasPrefix(temporary.path + "/")
     }
 
     func delete(_ game: Game) {

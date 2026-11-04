@@ -11,10 +11,20 @@ struct GamesListView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var session: EmulationSession
 
-    @State private var showingImporter = false
     @State private var searchText = ""
     @State private var gamePendingDeletion: Game?
     @State private var selectedGameInfo: Game?
+
+    /// Shows the file picker. The picked files are copied by the system first, so a failure can
+    /// only happen before the import starts.
+    private func importGames() {
+        let presented = DocumentImporter.present { urls in
+            library.importFiles(urls)
+        }
+        if !presented {
+            library.importError = "The file picker could not be opened."
+        }
+    }
 
     private var filteredGames: [Game] {
         guard !searchText.isEmpty else { return library.games }
@@ -28,7 +38,7 @@ struct GamesListView: View {
         NavigationStack {
             Group {
                 if library.games.isEmpty && !library.isScanning {
-                    EmptyLibraryView { showingImporter = true }
+                    EmptyLibraryView { importGames() }
                 } else if settings.libraryStyle == .grid {
                     gridView
                 } else {
@@ -55,7 +65,7 @@ struct GamesListView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        showingImporter = true
+                        importGames()
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -63,15 +73,13 @@ struct GamesListView: View {
                 }
             }
             .overlay {
-                if library.isScanning && library.games.isEmpty {
+                if library.isImporting {
+                    ProgressView("Importing…")
+                        .padding(24)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                } else if library.isScanning && library.games.isEmpty {
                     ProgressView("Scanning…")
                 }
-            }
-        }
-        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.item],
-                      allowsMultipleSelection: true) { result in
-            if case let .success(urls) = result {
-                library.importFiles(urls)
             }
         }
         .alert("Delete Game?", isPresented: Binding(
