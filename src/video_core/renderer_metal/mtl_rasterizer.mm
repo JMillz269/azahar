@@ -342,23 +342,28 @@ void RasterizerMetal::SyncTextureUnits(const Framebuffer& framebuffer) {
     const auto pica_textures = regs.texturing.GetTextures();
     const auto texture0_type = regs.texturing.texture0.type.Value();
 
-    Surface& null_surface = res_cache.GetSurface(VideoCore::NULL_SURFACE_ID);
-    Surface& null_cube = res_cache.GetSurface(VideoCore::NULL_SURFACE_CUBE_ID);
-    Sampler& null_sampler = res_cache.GetSampler(VideoCore::NULL_SAMPLER_ID);
+    // Take the fallback resources by value. Looking up a texture surface or sampler below may
+    // create a new cache entry and grow the slot storage, which moves every entry and leaves
+    // references to cache entries dangling.
+    id<MTLTexture> null_texture = res_cache.GetSurface(VideoCore::NULL_SURFACE_ID).Texture();
+    id<MTLTexture> null_storage = res_cache.GetSurface(VideoCore::NULL_SURFACE_ID).StorageTexture();
+    id<MTLTexture> null_cube_texture =
+        res_cache.GetSurface(VideoCore::NULL_SURFACE_CUBE_ID).Texture();
+    id<MTLSamplerState> null_sampler = res_cache.GetSampler(VideoCore::NULL_SAMPLER_ID).Handle();
     id<MTLTexture> color_attachment = framebuffer.Attachment(SurfaceType::Color);
 
     texture_bindings = {};
 
     const auto bind_2d = [&](u32 slot, const Pica::TexturingRegs::FullTextureConfig& texture) {
         if (!texture.enabled) {
-            texture_bindings[slot] = {null_surface.Texture(), null_sampler.Handle()};
+            texture_bindings[slot] = {null_texture, null_sampler};
             return;
         }
         Surface& surface = res_cache.GetTextureSurface(texture);
         Sampler& sampler = res_cache.GetSampler(texture.config);
         id<MTLTexture> view = surface.Texture();
         if (view == nil) {
-            view = null_surface.Texture();
+            view = null_texture;
         } else if (view == color_attachment) {
             // Sampling the render target being drawn to is undefined, sample a copy instead.
             view = surface.CopyTexture();
@@ -375,7 +380,7 @@ void RasterizerMetal::SyncTextureUnits(const Framebuffer& framebuffer) {
         if (pica_textures[0].enabled) {
             BindTextureCube(pica_textures[0]);
         } else {
-            texture_bindings[MSL::FS_TEXTURE_0] = {null_cube.Texture(), null_sampler.Handle()};
+            texture_bindings[MSL::FS_TEXTURE_0] = {null_cube_texture, null_sampler};
         }
         break;
     case TextureType::Shadow2D:
@@ -383,18 +388,17 @@ void RasterizerMetal::SyncTextureUnits(const Framebuffer& framebuffer) {
             Surface& surface = res_cache.GetTextureSurface(pica_textures[0]);
             surface.flags |= VideoCore::SurfaceFlagBits::ShadowSource;
             id<MTLTexture> storage = surface.StorageTexture();
-            texture_bindings[MSL::FS_TEXTURE_0].texture =
-                storage != nil ? storage : null_surface.StorageTexture();
+            texture_bindings[MSL::FS_TEXTURE_0].texture = storage != nil ? storage : null_storage;
         } else {
-            texture_bindings[MSL::FS_TEXTURE_0].texture = null_surface.StorageTexture();
+            texture_bindings[MSL::FS_TEXTURE_0].texture = null_storage;
         }
         break;
     case TextureType::ShadowCube:
         if (pica_textures[0].enabled) {
-            BindShadowCube(pica_textures[0]);
+            BindShadowCube(pica_textures[0], null_storage);
         } else {
             for (u32 face = 0; face < 6; face++) {
-                texture_bindings[MSL::FS_TEXTURE_0 + face].texture = null_surface.StorageTexture();
+                texture_bindings[MSL::FS_TEXTURE_0 + face].texture = null_storage;
             }
         }
         break;
@@ -406,7 +410,8 @@ void RasterizerMetal::SyncTextureUnits(const Framebuffer& framebuffer) {
     bind_2d(MSL::FS_TEXTURE_2, pica_textures[2]);
 }
 
-void RasterizerMetal::BindShadowCube(const Pica::TexturingRegs::FullTextureConfig& texture) {
+void RasterizerMetal::BindShadowCube(const Pica::TexturingRegs::FullTextureConfig& texture,
+                                     id<MTLTexture> null_storage) {
     using CubeFace = Pica::TexturingRegs::CubeFace;
     auto info = Pica::Texture::TextureInfo::FromPicaRegister(texture.config, texture.format);
     constexpr std::array faces = {
@@ -414,7 +419,6 @@ void RasterizerMetal::BindShadowCube(const Pica::TexturingRegs::FullTextureConfi
         CubeFace::NegativeY, CubeFace::PositiveZ, CubeFace::NegativeZ,
     };
 
-    Surface& null_surface = res_cache.GetSurface(VideoCore::NULL_SURFACE_ID);
     for (CubeFace face : faces) {
         const u32 binding = static_cast<u32>(face);
         info.physical_address = regs.texturing.GetCubePhysicalAddress(face);
@@ -424,7 +428,7 @@ void RasterizerMetal::BindShadowCube(const Pica::TexturingRegs::FullTextureConfi
         surface.flags |= VideoCore::SurfaceFlagBits::ShadowSource;
         id<MTLTexture> storage = surface.StorageTexture();
         texture_bindings[MSL::FS_TEXTURE_0 + binding].texture =
-            storage != nil ? storage : null_surface.StorageTexture();
+            storage != nil ? storage : null_storage;
     }
 }
 

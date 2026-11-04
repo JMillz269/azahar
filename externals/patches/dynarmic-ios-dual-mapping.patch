@@ -29,3 +29,68 @@ index 2c7ae77..029799c 100644
          c.set_xptr(reinterpret_cast<u32*>(entry_point + ptr_offset));
  
          switch (type) {
+diff --git a/src/dynarmic/common/spin_lock_arm64.cpp b/src/dynarmic/common/spin_lock_arm64.cpp
+index ccf807e..63a5492 100644
+--- a/src/dynarmic/common/spin_lock_arm64.cpp
++++ b/src/dynarmic/common/spin_lock_arm64.cpp
+@@ -3,6 +3,7 @@
+  * SPDX-License-Identifier: 0BSD
+  */
+ 
++#include <memory>
+ #include <mutex>
+ 
+ #include <oaknut/code_block.hpp>
+@@ -38,12 +39,12 @@ void EmitSpinLockUnlock(oaknut::CodeGenerator& code, oaknut::XReg ptr) {
+ namespace {
+ 
+ struct SpinLockImpl {
+-    SpinLockImpl();
+-
+     void Initialize();
+ 
+-    oaknut::CodeBlock mem;
+-    oaknut::CodeGenerator code;
++    // Allocated on first use rather than at static initialization: on iOS the memory for
++    // generated code is handed out by the debugger once the application has started.
++    std::unique_ptr<oaknut::CodeBlock> mem;
++    std::unique_ptr<oaknut::CodeGenerator> code;
+ 
+     void (*lock)(volatile int*);
+     void (*unlock)(volatile int*);
+@@ -52,23 +53,22 @@ struct SpinLockImpl {
+ std::once_flag flag;
+ SpinLockImpl impl;
+ 
+-SpinLockImpl::SpinLockImpl()
+-        : mem{4096}
+-        , code{mem.ptr(), mem.ptr()} {}
+-
+ void SpinLockImpl::Initialize() {
+-    mem.unprotect();
++    mem = std::make_unique<oaknut::CodeBlock>(4096);
++    code = std::make_unique<oaknut::CodeGenerator>(mem->wptr(), mem->ptr());
++
++    mem->unprotect();
+ 
+-    lock = code.xptr<void (*)(volatile int*)>();
+-    EmitSpinLockLock(code, X0);
+-    code.RET();
++    lock = code->xptr<void (*)(volatile int*)>();
++    EmitSpinLockLock(*code, X0);
++    code->RET();
+ 
+-    unlock = code.xptr<void (*)(volatile int*)>();
+-    EmitSpinLockUnlock(code, X0);
+-    code.RET();
++    unlock = code->xptr<void (*)(volatile int*)>();
++    EmitSpinLockUnlock(*code, X0);
++    code->RET();
+ 
+-    mem.protect();
+-    mem.invalidate_all();
++    mem->protect();
++    mem->invalidate_all();
+ }
+ 
+ }  // namespace

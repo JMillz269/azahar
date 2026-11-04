@@ -151,7 +151,13 @@ public:
 
     bool Allocate(std::size_t size, void** wmem, void** xmem) {
         std::scoped_lock lock{mutex};
-        if (mode != Mode::DualMapping) {
+        if (mode == Mode::Unavailable) {
+            // Memory mapped by the app itself never becomes executable without a debugger, fail
+            // here instead of crashing later when the generated code is run.
+            LOG_ERROR(Common, "JIT: code memory requested while JIT is not available");
+            return false;
+        }
+        if (mode == Mode::SingleMapping) {
             // Same allocation as upstream oaknut, the code block flips it to RW while writing.
             void* const mem =
                 mmap(nullptr, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);

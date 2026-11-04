@@ -73,7 +73,8 @@ private:
     void SyncTextureUnits(const Framebuffer& framebuffer);
 
     /// Binds the PICA shadow cube or texture cube to texture unit 0
-    void BindShadowCube(const Pica::TexturingRegs::FullTextureConfig& texture);
+    void BindShadowCube(const Pica::TexturingRegs::FullTextureConfig& texture,
+                        id<MTLTexture> null_storage);
     void BindTextureCube(const Pica::TexturingRegs::FullTextureConfig& texture);
 
     /// Syncs and uploads the lighting, fog and proctex LUTs
