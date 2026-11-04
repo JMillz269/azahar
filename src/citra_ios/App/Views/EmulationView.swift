@@ -20,10 +20,11 @@ struct EmulationView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
+            // Stays inside the safe area so the screens do not go under the notch or the Dynamic
+            // Island. The black background behind it still fills the whole display.
             MetalView {
                 session.renderSurfaceReady()
             }
-            .ignoresSafeArea()
 
             if settings.showController && controllerVisible {
                 ControllerOverlay(opacity: settings.controllerOpacity,
