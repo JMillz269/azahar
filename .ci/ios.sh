@@ -24,8 +24,19 @@ configure)
         -DENABLE_IOS_APP=ON
     ;;
 build)
+    # Keep going after errors so a single CI run reports every failing file.
+    set +e
     cmake --build "$BUILD_DIR" --config "$CONFIG" --target azahar_ios -- \
-        -sdk iphoneos -quiet CODE_SIGNING_ALLOWED=NO
+        -sdk iphoneos -quiet -IDEBuildingContinueBuildingAfterErrors=YES \
+        CODE_SIGNING_ALLOWED=NO 2>&1 | tee build.log
+    status=${PIPESTATUS[0]}
+    set -e
+    if [ "$status" -ne 0 ]; then
+        echo "::group::Error summary"
+        grep -E "(error|fatal error):" build.log | sort -u | head -n 100
+        echo "::endgroup::"
+    fi
+    exit "$status"
     ;;
 package)
     APP=$(find "$BUILD_DIR" -name "Azahar.app" -type d -path "*$CONFIG*" | head -n 1)
