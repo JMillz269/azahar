@@ -7,11 +7,13 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <pthread.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include "citra_ios/Bridge/emu_window_ios.h"
@@ -24,6 +26,7 @@
 #include "common/settings.h"
 #include "core/core.h"
 #include "core/frontend/applets/default_applets.h"
+#include "core/hle/service/service.h"
 #include "core/loader/loader.h"
 #include "video_core/gpu.h"
 #include "video_core/renderer_base.h"
@@ -71,6 +74,28 @@ NSString* DescribeResult(Core::System::ResultStatus result, const std::string& d
         stringWithFormat:@"Emulation failed with error %u.", static_cast<unsigned>(result)];
 }
 
+/**
+ * Returns true if the process can generate code at runtime. A debugger must be attached
+ * (CS_DEBUGGED), and the kernel/TXM must actually allow flipping a page between writable and
+ * executable, which is what the ARM and shader JITs do. Devices with TXM can report CS_DEBUGGED
+ * while still refusing those changes, so probe them instead of trusting the flag alone.
+ */
+[[maybe_unused]] bool ProbeJIT() {
+    uint32_t flags = 0;
+    if (csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags)) != 0 || !(flags & CS_DEBUGGED)) {
+        return false;
+    }
+    const size_t size = static_cast<size_t>(getpagesize());
+    void* page = mmap(nullptr, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+    if (page == MAP_FAILED) {
+        return false;
+    }
+    const bool writable = mprotect(page, size, PROT_READ | PROT_WRITE) == 0;
+    const bool executable = writable && mprotect(page, size, PROT_READ | PROT_EXEC) == 0;
+    munmap(page, size);
+    return writable && executable;
+}
+
 NSError* MakeError(NSInteger code, NSString* description) {
     return [NSError errorWithDomain:AZEmulatorErrorDomain
                                code:code
@@ -113,11 +138,12 @@ NSError* MakeError(NSInteger code, NSString* description) {
 #if TARGET_OS_SIMULATOR
     return YES;
 #else
-    uint32_t flags = 0;
-    if (csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags)) != 0) {
-        return NO;
-    }
-    return (flags & CS_DEBUGGED) != 0;
+    static BOOL available = NO;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      available = ProbeJIT();
+    });
+    return available;
 #endif
 }
 
@@ -175,6 +201,14 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
     IOSInput::Init();
     IOSInput::BindInputProfile();
+
+    // The core looks up every service module in lle_modules (Service::AttemptLLE uses .at()), the
+    // other frontends fill it from their config. Use the HLE implementations of all modules.
+    for (const auto& service_module : Service::service_module_map) {
+        Settings::values.lle_modules.emplace(service_module.name, false);
+    }
+    // No camera support yet, avoid "unknown camera" errors.
+    Settings::values.camera_name.fill("blank");
 
     // The native Metal renderer is the only hardware renderer on iOS.
     Settings::values.graphics_api = Settings::GraphicsAPI::Metal;
@@ -297,6 +331,24 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
 - (void)emulationThread:(std::string)filepath {
     pthread_setname_np("EmuThread");
+
+    // An exception escaping this thread would terminate the app. Report it as an emulation error
+    // instead so the user gets a message and the log records what happened.
+    NSError* error = nil;
+    try {
+        error = [self runEmulation:filepath];
+    } catch (const std::exception& e) {
+        LOG_CRITICAL(Frontend, "Unhandled exception during emulation: {}", e.what());
+        error = MakeError(-1, [NSString stringWithFormat:@"Emulation failed: %s", e.what()]);
+    } catch (...) {
+        LOG_CRITICAL(Frontend, "Unhandled unknown exception during emulation");
+        error = MakeError(-1, @"Emulation failed with an unknown error.");
+    }
+    [self finishWithError:error];
+}
+
+/// Boots the title and runs the emulation loop. Returns the error that stopped emulation, if any.
+- (NSError*)runEmulation:(const std::string&)filepath {
     Core::System& system = Core::System::GetInstance();
 
     u64 program_id{};
@@ -314,10 +366,8 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
     const Core::System::ResultStatus load_result = system.Load(*_window, filepath);
     if (load_result != Core::System::ResultStatus::Success) {
-        NSError* error = MakeError(static_cast<NSInteger>(load_result),
-                                   DescribeResult(load_result, system.GetStatusDetails()));
-        [self finishWithError:error];
-        return;
+        return MakeError(static_cast<NSInteger>(load_result),
+                         DescribeResult(load_result, system.GetStatusDetails()));
     }
 
     system.GPU().ApplyPerProgramSettings(program_id);
@@ -360,8 +410,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
             _fps = stats.game_fps;
         }
     }
-
-    [self finishWithError:error];
+    return error;
 }
 
 - (void)finishWithError:(NSError*)error {
