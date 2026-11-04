@@ -64,13 +64,16 @@ id<MTLLibrary> PipelineCache::Compile(const std::string& source, std::string_vie
 
 id<MTLFunction> PipelineCache::UseFragmentShader(const Pica::RegsInternal& regs,
                                                  const Pica::Shader::UserConfig& user,
-                                                 bool has_color_attachment, u64& fs_hash) {
+                                                 bool has_color_attachment,
+                                                 bool has_depth_attachment, u64& fs_hash) {
     const Pica::Shader::FSConfig fs_config{regs};
     MSL::MetalFSConfig metal_config{};
     metal_config.has_color_attachment = has_color_attachment;
+    metal_config.has_depth_attachment = has_depth_attachment;
 
     fs_hash = Common::HashCombine(fs_config.Hash(), static_cast<u64>(user.raw),
-                                  static_cast<u64>(has_color_attachment));
+                                  static_cast<u64>(has_color_attachment),
+                                  static_cast<u64>(has_depth_attachment));
     if (const auto it = fragment_functions.find(fs_hash); it != fragment_functions.end()) {
         return it->second;
     }

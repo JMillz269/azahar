@@ -188,6 +188,9 @@ public:
         use_framebuffer_fetch = metal.has_color_attachment &&
                                 !config.framebuffer.shadow_rendering &&
                                 (needs_logic_op || needs_minmax);
+        // A [[depth]] output is only valid when a depth attachment is bound. Shadow rendering
+        // writes depth through the shadow buffer image instead.
+        write_fragment_depth = metal.has_depth_attachment && !config.framebuffer.shadow_rendering;
     }
 
     std::string Generate() {
@@ -233,12 +236,11 @@ private:
 
     void DefineOutput() {
         out += "\nstruct FSOutput {\n";
-        if (!config.framebuffer.shadow_rendering) {
-            out += "    float4 color [[color(0)]];\n";
+        out += "    float4 color [[color(0)]];\n";
+        // Shadow rendering writes only through the shadow buffer image, and a [[depth]] output is
+        // only legal when a depth attachment is bound.
+        if (write_fragment_depth) {
             out += "    float depth [[depth(any)]];\n";
-        } else {
-            // Shadow rendering writes only through the shadow buffer image.
-            out += "    float4 color [[color(0)]];\n";
         }
         out += "};\n";
     }
@@ -1649,7 +1651,7 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         float4 primary_fragment_color = float4(0.0f);
         float4 secondary_fragment_color = float4(0.0f);
 )";
-        if (!config.framebuffer.shadow_rendering) {
+        if (write_fragment_depth) {
             out += "        fs_out.depth = frag_coord.z;\n";
         }
 
@@ -1695,7 +1697,7 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
             // Replace the output color with a transparent pixel, (just discarding the pixel
             // causes graphical issues in some MH games).
             out += "        fs_out.color = float4(0.0f);\n";
-            if (!config.framebuffer.shadow_rendering) {
+            if (write_fragment_depth) {
                 out += "        fs_out.depth = depth;\n";
             }
             out += "        return fs_out;\n    }\n";
@@ -1707,7 +1709,9 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         if (config.framebuffer.shadow_rendering) {
             WriteShadow();
         } else {
-            out += "        fs_out.depth = depth;\n";
+            if (write_fragment_depth) {
+                out += "        fs_out.depth = depth;\n";
+            }
             // Round the final fragment color to maintain the PICA's 8 bits of precision
             out += "        combiner_output = byteround(combiner_output);\n";
             WriteBlending();
@@ -1726,6 +1730,7 @@ private:
     std::string out;
     std::vector<std::pair<std::string, std::string>> ctor_members;
     bool use_framebuffer_fetch{};
+    bool write_fragment_depth{};
 };
 
 } // Anonymous namespace

@@ -81,6 +81,7 @@ int main(int argc, char** argv) {
 
         MSL::MetalFSConfig metal_config{};
         metal_config.has_color_attachment = (i % 5) != 0;
+        metal_config.has_depth_attachment = (i % 3) != 0;
 
         Write(out_dir, "fs_random_" + std::to_string(i) + ".metal",
               MSL::GenerateFragmentShader(config, user, profile, metal_config));

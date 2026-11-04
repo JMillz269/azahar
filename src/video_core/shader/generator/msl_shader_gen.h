@@ -65,6 +65,10 @@ struct MetalFSConfig {
     /// True if a color attachment is bound, so framebuffer fetch ([[color(0)]]) can be used to
     /// emulate logic ops and min/max blending with factors.
     bool has_color_attachment = true;
+    /// True if a depth attachment is bound. Metal rejects a pipeline whose fragment shader declares
+    /// a [[depth]] output when no depth attachment is present, so the output is only emitted when a
+    /// depth buffer will be attached.
+    bool has_depth_attachment = true;
 };
 
 /// Returns the vertex shader used by the software (CPU) vertex processing path.

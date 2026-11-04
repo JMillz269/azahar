@@ -77,7 +77,8 @@ public:
      */
     id<MTLFunction> UseFragmentShader(const Pica::RegsInternal& regs,
                                       const Pica::Shader::UserConfig& user,
-                                      bool has_color_attachment, u64& fs_hash);
+                                      bool has_color_attachment, bool has_depth_attachment,
+                                      u64& fs_hash);
 
     /// Returns the pipeline state for the provided key and fragment function.
     id<MTLRenderPipelineState> GetPipeline(const PipelineKey& key, id<MTLFunction> fragment);

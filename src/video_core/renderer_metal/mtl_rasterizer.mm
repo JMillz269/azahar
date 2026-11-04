@@ -230,9 +230,10 @@ bool RasterizerMetal::Draw() {
 
     // Sync and compile the fragment shader
     const bool has_color = framebuffer->Attachment(SurfaceType::Color) != nil && !shadow_rendering;
+    const bool has_depth = framebuffer->Attachment(SurfaceType::Depth) != nil && !shadow_rendering;
     u64 fs_hash{};
     id<MTLFunction> fragment =
-        pipeline_cache.UseFragmentShader(regs, user_config, has_color, fs_hash);
+        pipeline_cache.UseFragmentShader(regs, user_config, has_color, has_depth, fs_hash);
 
     // Sync the LUTs within the texture buffers
     SyncAndUploadLUTs();
