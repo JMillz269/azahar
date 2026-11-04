@@ -108,5 +108,8 @@ endif()
 # fortification, -stdlib=libc++, NAME=VALUE definitions). Keep them away from swiftc.
 set_property(TARGET azahar_ios PROPERTY COMPILE_OPTIONS "")
 set_property(TARGET azahar_ios PROPERTY COMPILE_DEFINITIONS "")
+# src/ is a global include directory. On the case-insensitive macOS file system its
+# network/network.h shadows the SDK's <Network/Network.h>, which breaks importing AVFoundation.
+set_property(TARGET azahar_ios PROPERTY INCLUDE_DIRECTORIES "")
 
 target_link_libraries(azahar_ios PRIVATE azahar_ios_bridge "-lc++")

@@ -18,6 +18,7 @@
 #include "video_core/renderer_metal/mtl_scheduler.h"
 #include "video_core/renderer_metal/pica_to_mtl.h"
 #include "video_core/shader/generator/msl_shader_gen.h"
+#include "video_core/shader/generator/shader_gen.h"
 #include "video_core/texture/texture_decode.h"
 
 MICROPROFILE_DEFINE(Metal_Drawing, "Metal", "Drawing", MP_RGB(128, 128, 192));

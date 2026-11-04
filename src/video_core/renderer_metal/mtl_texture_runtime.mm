@@ -675,7 +675,7 @@ id<MTLTexture> Surface::CreateTexture(u32 tex_width, u32 tex_height, MTLPixelFor
 
 id<MTLTexture> Surface::CopyTexture() {
     id<MTLTexture> src = Texture();
-    id<MTLTexture>& copy = textures[Type::Copy];
+    __strong id<MTLTexture>& copy = textures[Type::Copy];
     if (!copy || copy.width != src.width || copy.height != src.height) {
         copy = CreateTexture(static_cast<u32>(src.width), static_cast<u32>(src.height),
                              src.pixelFormat, "copy");
