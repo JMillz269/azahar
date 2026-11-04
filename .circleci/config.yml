@@ -54,6 +54,22 @@ executors:
       HOMEBREW_NO_ENV_HINTS: "1"
 
 commands:
+  metal-toolchain:
+    description: >
+      Installs Xcode's Metal toolchain, which Xcode 26 no longer bundles (GitHub's runner images
+      preinstall it). Needed to compile the generated shaders with the offline compiler.
+    steps:
+      - run:
+          name: Install the Metal toolchain
+          no_output_timeout: 20m
+          command: |
+            if xcrun -sdk iphoneos metal --version >/dev/null 2>&1; then
+              echo "The Metal toolchain is already installed"
+            else
+              xcodebuild -downloadComponent MetalToolchain
+            fi
+            xcrun -sdk iphoneos metal --version
+
   show-toolchain:
     description: Prints the toolchain versions and installs CMake if the image lacks it.
     steps:
@@ -98,6 +114,7 @@ jobs:
       - run:
           name: Generate shaders
           command: ./msl_corpus msl_out 512 2>/dev/null
+      - metal-toolchain
       - run:
           name: Compile shaders (iOS, MSL 2.4)
           command: ./.ci/ios-validate-msl.sh msl_out
