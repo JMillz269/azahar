@@ -171,6 +171,8 @@ void EmuWindow_LibRetro::SwapBuffers() {
             free(data);
         break;
     }
+    default:
+        break;
     }
 }
 

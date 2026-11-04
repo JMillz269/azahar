@@ -46,6 +46,7 @@ struct Profile {
     std::array<VKFormatTraits, 16> vk_format_traits{};
 
     u8 is_vulkan{};
+    u8 is_metal{};
 
     auto operator<=>(const Profile&) const = default;
 };

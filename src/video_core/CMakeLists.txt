@@ -72,6 +72,8 @@ add_library(video_core STATIC EXCLUDE_FROM_ALL
     shader/generator/glsl_fs_shader_gen.h
     shader/generator/glsl_shader_decompiler.cpp
     shader/generator/glsl_shader_decompiler.h
+    shader/generator/msl_shader_gen.cpp
+    shader/generator/msl_shader_gen.h
     shader/generator/glsl_shader_gen.cpp
     shader/generator/glsl_shader_gen.h
     shader/generator/pica_fs_config.cpp
@@ -203,6 +205,46 @@ if (ENABLE_VULKAN)
         shader/generator/spv_fs_shader_gen.h
     )
     target_link_libraries(video_core PRIVATE vulkan-headers vma sirit SPIRV glslang)
+endif()
+
+if (ENABLE_METAL)
+    target_sources(video_core PRIVATE
+        renderer_metal/mtl_common.h
+        renderer_metal/mtl_instance.h
+        renderer_metal/mtl_instance.mm
+        renderer_metal/mtl_pipeline_cache.h
+        renderer_metal/mtl_pipeline_cache.mm
+        renderer_metal/mtl_rasterizer.h
+        renderer_metal/mtl_rasterizer.mm
+        renderer_metal/mtl_rasterizer_cache.mm
+        renderer_metal/mtl_scheduler.h
+        renderer_metal/mtl_scheduler.mm
+        renderer_metal/mtl_stream_buffer.h
+        renderer_metal/mtl_stream_buffer.mm
+        renderer_metal/mtl_texture_runtime.h
+        renderer_metal/mtl_texture_runtime.mm
+        renderer_metal/mtl_utility_shaders.h
+        renderer_metal/pica_to_mtl.h
+        renderer_metal/renderer_metal.h
+        renderer_metal/renderer_metal.mm
+    )
+    set(METAL_OBJCXX_SOURCES
+        renderer_metal/mtl_instance.mm
+        renderer_metal/mtl_pipeline_cache.mm
+        renderer_metal/mtl_rasterizer.mm
+        renderer_metal/mtl_rasterizer_cache.mm
+        renderer_metal/mtl_scheduler.mm
+        renderer_metal/mtl_stream_buffer.mm
+        renderer_metal/mtl_texture_runtime.mm
+        renderer_metal/renderer_metal.mm
+    )
+    # The Metal backend is Objective-C++ with ARC. Precompiled headers are C++ only.
+    set_source_files_properties(${METAL_OBJCXX_SOURCES} PROPERTIES
+        COMPILE_OPTIONS "-fobjc-arc"
+        SKIP_PRECOMPILE_HEADERS ON
+    )
+    target_link_libraries(video_core PRIVATE "-framework Metal" "-framework QuartzCore"
+                                             "-framework Foundation")
 endif()
 
 if(ENABLE_SDL2)

@@ -45,8 +45,9 @@ void FramebufferConfig::ApplyProfile(const Profile& profile) {
     if (profile.has_blend_minmax_factor) {
         requested_rgb_blend.SetMinMaxEmulationDisabled();
         requested_alpha_blend.SetMinMaxEmulationDisabled();
-    } else if (profile.is_vulkan) {
-        // VK_BLEND_OP_MIN/MAX ignore the blend factors, unlike the PICA hardware.
+    } else if (profile.is_vulkan || profile.is_metal) {
+        // VK_BLEND_OP_MIN/MAX and MTLBlendOperationMin/Max ignore the blend factors, unlike the
+        // PICA hardware.
         if (requested_rgb_blend.UsesNoOpFactors()) {
             requested_rgb_blend.SetMinMaxEmulationDisabled();
         }

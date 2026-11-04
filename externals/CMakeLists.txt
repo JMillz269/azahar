@@ -102,6 +102,32 @@ if ("x86_64" IN_LIST ARCHITECTURE)
     endif()
 endif()
 
+# iOS devices with TXM only execute JIT code from memory mapped by a debugger, which has to be
+# written through a second, writable mapping. Teach oaknut and dynarmic to use separate views,
+# see src/common/apple_jit.h. The submodules are patched in place at configure time.
+if (IOS AND NOT USE_SYSTEM_OAKNUT AND NOT USE_SYSTEM_DYNARMIC)
+    find_package(Git REQUIRED)
+    function(azahar_apply_patch source_dir patch_file)
+        execute_process(COMMAND ${GIT_EXECUTABLE} apply --reverse --check ${patch_file}
+                        WORKING_DIRECTORY ${source_dir}
+                        RESULT_VARIABLE already_applied OUTPUT_QUIET ERROR_QUIET)
+        if (already_applied EQUAL 0)
+            return()
+        endif()
+        execute_process(COMMAND ${GIT_EXECUTABLE} apply ${patch_file}
+                        WORKING_DIRECTORY ${source_dir}
+                        RESULT_VARIABLE apply_result)
+        if (NOT apply_result EQUAL 0)
+            message(FATAL_ERROR "Failed to apply ${patch_file} to ${source_dir}")
+        endif()
+        message(STATUS "Applied ${patch_file}")
+    endfunction()
+    azahar_apply_patch(${CMAKE_CURRENT_SOURCE_DIR}/oaknut
+                       ${CMAKE_CURRENT_SOURCE_DIR}/patches/oaknut-ios-dual-mapping.patch)
+    azahar_apply_patch(${CMAKE_CURRENT_SOURCE_DIR}/dynarmic
+                       ${CMAKE_CURRENT_SOURCE_DIR}/patches/dynarmic-ios-dual-mapping.patch)
+endif()
+
 # Oaknut
 if ("arm64" IN_LIST ARCHITECTURE)
     if(USE_SYSTEM_OAKNUT)

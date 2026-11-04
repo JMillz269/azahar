@@ -36,6 +36,8 @@ std::string_view GetGraphicsAPIName(GraphicsAPI api) {
         return "OpenGL";
     case GraphicsAPI::Vulkan:
         return "Vulkan";
+    case GraphicsAPI::Metal:
+        return "Metal";
     default:
         return "Invalid";
     }

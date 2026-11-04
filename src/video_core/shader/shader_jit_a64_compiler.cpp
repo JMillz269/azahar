@@ -1054,7 +1054,12 @@ void JitShader::Compile(const std::array<u32, MAX_PROGRAM_CODE_LENGTH>* program_
                                                 program_offset);
 
     // Copy to executable memory
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    // Written through the writable alias, see common/apple_jit.h
+    std::memcpy(code_mem->wptr(), code_vec.data(), code_vec.size() * sizeof(u32));
+#else
     std::memcpy(code_mem->ptr(), code_vec.data(), code_vec.size() * sizeof(u32));
+#endif
 
     // Memory is ready to execute
     code_mem->protect();

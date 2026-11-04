@@ -1,0 +1,89 @@
+diff --git a/include/oaknut/code_block.hpp b/include/oaknut/code_block.hpp
+index bfa87d9..792daa9 100644
+--- a/include/oaknut/code_block.hpp
++++ b/include/oaknut/code_block.hpp
+@@ -21,6 +21,13 @@
+ #    include <sys/mman.h>
+ #endif
+ 
++#if defined(__APPLE__) && TARGET_OS_IPHONE
++// Provided by the application. Devices with TXM only execute code from memory mapped by a
++// debugger, which then has to be written through a separate writable mapping.
++extern "C" bool oaknut_ios_jit_alloc(std::size_t size, void** wmem, void** xmem);
++extern "C" void oaknut_ios_jit_free(void* wmem, void* xmem, std::size_t size);
++#endif
++
+ namespace oaknut {
+ 
+ class CodeBlock {
+@@ -32,7 +39,12 @@ public:
+         m_memory = (std::uint32_t*)VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+ #elif defined(__APPLE__)
+ #    if TARGET_OS_IPHONE
+-        m_memory = (std::uint32_t*)mmap(nullptr, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
++        void* wmem = nullptr;
++        void* xmem = nullptr;
++        if (!oaknut_ios_jit_alloc(size, &wmem, &xmem))
++            throw std::bad_alloc{};
++        m_memory = (std::uint32_t*)xmem;
++        m_wmemory = (std::uint32_t*)wmem;
+ #    else
+         m_memory = (std::uint32_t*)mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE | MAP_JIT, -1, 0);
+ #    endif
+@@ -46,6 +58,9 @@ public:
+ 
+         if (m_memory == nullptr)
+             throw std::bad_alloc{};
++#if !(defined(__APPLE__) && TARGET_OS_IPHONE)
++        m_wmemory = m_memory;
++#endif
+     }
+ 
+     ~CodeBlock()
+@@ -55,6 +70,8 @@ public:
+ 
+ #if defined(_WIN32)
+         VirtualFree((void*)m_memory, 0, MEM_RELEASE);
++#elif defined(__APPLE__) && TARGET_OS_IPHONE
++        oaknut_ios_jit_free(m_wmemory, m_memory, m_size);
+ #else
+         munmap(m_memory, m_size);
+ #endif
+@@ -70,10 +87,19 @@ public:
+         return m_memory;
+     }
+ 
++    // Writable view of ptr(). The same pointer unless the memory is dual mapped.
++    std::uint32_t* wptr() const
++    {
++        return m_wmemory;
++    }
++
+     void protect()
+     {
+ #if defined(__APPLE__) && !TARGET_OS_IPHONE
+         pthread_jit_write_protect_np(1);
++#elif defined(__APPLE__) && TARGET_OS_IPHONE
++        if (m_wmemory == m_memory)
++            mprotect(m_memory, m_size, PROT_READ | PROT_EXEC);
+ #elif defined(__APPLE__) || defined(__NetBSD__) || defined(__OpenBSD__)
+         mprotect(m_memory, m_size, PROT_READ | PROT_EXEC);
+ #endif
+@@ -83,6 +109,9 @@ public:
+     {
+ #if defined(__APPLE__) && !TARGET_OS_IPHONE
+         pthread_jit_write_protect_np(0);
++#elif defined(__APPLE__) && TARGET_OS_IPHONE
++        if (m_wmemory == m_memory)
++            mprotect(m_memory, m_size, PROT_READ | PROT_WRITE);
+ #elif defined(__APPLE__) || defined(__NetBSD__) || defined(__OpenBSD__)
+         mprotect(m_memory, m_size, PROT_READ | PROT_WRITE);
+ #endif
+@@ -137,6 +166,7 @@ public:
+ 
+ protected:
+     std::uint32_t* m_memory;
++    std::uint32_t* m_wmemory = nullptr;
+     std::size_t m_size = 0;
+ };
+ 

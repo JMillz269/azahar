@@ -131,6 +131,14 @@ if (APPLE AND NOT ENABLE_LIBRETRO)
   )
 endif()
 
+# Executable memory for the JITs on iOS, see apple_jit.h
+if (IOS)
+  target_sources(citra_common PRIVATE
+    apple_jit.cpp
+    apple_jit.h
+  )
+endif()
+
 # Android storage is only used for non-libretro Android builds
 if (ANDROID AND NOT ENABLE_LIBRETRO)
   target_sources(citra_common PRIVATE

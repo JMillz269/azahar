@@ -1,0 +1,35 @@
+// Copyright 2026 Citra Emulator Project / Azahar Emulator Project
+// Licensed under GPLv3 or any later version
+// Refer to the LICENSE.txt file included.
+
+import AVFoundation
+import AzaharCore
+import SwiftUI
+
+@main
+struct AzaharApp: App {
+    @StateObject private var settings = AppSettings()
+    @StateObject private var library = GameLibrary()
+    @StateObject private var session = EmulationSession()
+
+    init() {
+        FileLocations.createDirectories()
+        AZEmulator.shared.setUp(userDirectory: FileLocations.userDirectory.path)
+
+        let audioSession = AVAudioSession.sharedInstance()
+        try? audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        try? audioSession.setActive(true)
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .environmentObject(settings)
+                .environmentObject(library)
+                .environmentObject(session)
+                .onOpenURL { url in
+                    library.importFiles([url])
+                }
+        }
+    }
+}
