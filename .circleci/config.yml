@@ -54,18 +54,6 @@ executors:
       HOMEBREW_NO_ENV_HINTS: "1"
 
 commands:
-  require-ios-port:
-    description: Fails early with a clear message on branches that do not have the iOS port.
-    steps:
-      - run:
-          name: Check the branch contains the iOS port
-          command: |
-            if [ ! -d src/citra_ios ]; then
-              echo "Branch '$CIRCLE_BRANCH' does not contain the iOS port (src/citra_ios)."
-              echo "Trigger the pipeline on the ios-port branch."
-              exit 1
-            fi
-
   show-toolchain:
     description: Prints the toolchain versions and installs CMake if the image lacks it.
     steps:
@@ -82,7 +70,6 @@ commands:
     description: Checks out the repository with all of its submodules.
     steps:
       - checkout
-      - require-ios-port
       - run:
           name: Fetch submodules
           command: |
@@ -95,7 +82,6 @@ jobs:
     executor: macos
     steps:
       - checkout
-      - require-ios-port
       - run:
           name: Fetch headers needed by the shader generator
           command: git submodule update --init --depth 1 externals/fmt externals/boost externals/xxHash
