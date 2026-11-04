@@ -6,6 +6,9 @@
 #include <cstring>
 #include <dynarmic/interface/A32/a32.h>
 #include <dynarmic/interface/optimization_flags.h>
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#endif
 #include "common/assert.h"
 #include "common/microprofile.h"
 #include "core/arm/dynarmic/arm_dynarmic.h"
@@ -369,6 +372,11 @@ std::unique_ptr<Dynarmic::A32::Jit> ARM_Dynarmic::MakeJit() {
     // Multi-process state
     config.processor_id = GetID();
     config.global_monitor = &exclusive_monitor.monitor;
+
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+    // Code caches come from a fixed size executable arena on iOS, see common/apple_jit.h
+    config.code_cache_size = 32 * 1024 * 1024;
+#endif
 
     return std::make_unique<Dynarmic::A32::Jit>(config);
 }

@@ -4,6 +4,7 @@
 
 #import <AzaharCore/AZConfiguration.h>
 #import <AzaharCore/AZEmulator.h>
+#import <Metal/Metal.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -13,11 +14,11 @@
 #include <string>
 #include <thread>
 #include <pthread.h>
-#include <sys/mman.h>
 #include <unistd.h>
 
 #include "citra_ios/Bridge/emu_window_ios.h"
 #include "citra_ios/Bridge/input_ios.h"
+#include "common/apple_jit.h"
 #include "common/common_paths.h"
 #include "common/file_util.h"
 #include "common/logging/backend.h"
@@ -33,12 +34,7 @@
 
 NSErrorDomain const AZEmulatorErrorDomain = @"org.azahar-emu.AzaharCore";
 
-extern "C" int csops(pid_t pid, unsigned int ops, void* useraddr, size_t usersize);
-
 namespace {
-
-constexpr unsigned int CS_OPS_STATUS = 0;
-constexpr uint32_t CS_DEBUGGED = 0x10000000;
 
 NSString* DescribeResult(Core::System::ResultStatus result, const std::string& details) {
     using ResultStatus = Core::System::ResultStatus;
@@ -74,26 +70,78 @@ NSString* DescribeResult(Core::System::ResultStatus result, const std::string& d
         stringWithFormat:@"Emulation failed with error %u.", static_cast<unsigned>(result)];
 }
 
+NSString* FindEntryWithLength(NSString* directory, NSUInteger length) {
+    NSArray<NSString*>* contents =
+        [[NSFileManager defaultManager] contentsOfDirectoryAtPath:directory error:nil];
+    for (NSString* name in contents) {
+        if (name.length == length) {
+            return [directory stringByAppendingPathComponent:name];
+        }
+    }
+    return nil;
+}
+
+/// Looks for the TXM firmware image in the preboot volume.
+bool HasTXMFirmware() {
+    NSString* const firmware = @"usr/standalone/firmware/FUD/Ap,TrustedExecutionMonitor.img4";
+    NSString* boot = FindEntryWithLength(@"/System/Volumes/Preboot", 36);
+    NSString* image =
+        boot ? FindEntryWithLength([boot stringByAppendingPathComponent:@"boot"], 96) : nil;
+    if (!image) {
+        image = FindEntryWithLength(@"/private/preboot", 96);
+    }
+    if (!image) {
+        return false;
+    }
+    return access([image stringByAppendingPathComponent:firmware].fileSystemRepresentation, F_OK) ==
+           0;
+}
+
+/// Parses the chip family and generation from the GPU name, for example "Apple A18 Pro GPU".
+bool GetChip(unichar* series, NSInteger* number) {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) {
+        return false;
+    }
+    NSString* name = device.name.uppercaseString;
+    NSRegularExpression* regex =
+        [NSRegularExpression regularExpressionWithPattern:@"APPLE\\s+([MA])(\\d+)"
+                                                  options:0
+                                                    error:nil];
+    NSTextCheckingResult* match = [regex firstMatchInString:name
+                                                    options:0
+                                                      range:NSMakeRange(0, name.length)];
+    if (!match) {
+        return false;
+    }
+    *series = [name characterAtIndex:[match rangeAtIndex:1].location];
+    *number = [[name substringWithRange:[match rangeAtIndex:2]] integerValue];
+    return true;
+}
+
 /**
- * Returns true if the process can generate code at runtime. A debugger must be attached
- * (CS_DEBUGGED), and the kernel/TXM must actually allow flipping a page between writable and
- * executable, which is what the ARM and shader JITs do. Devices with TXM can report CS_DEBUGGED
- * while still refusing those changes, so probe them instead of trusting the flag alone.
+ * Returns true if the device has the Trusted Execution Monitor. With TXM, executable memory has to
+ * be mapped by the debugger (StikDebug universal JIT script), mprotect alone does not work.
+ * Same detection as MeloCafe.
  */
-[[maybe_unused]] bool ProbeJIT() {
-    uint32_t flags = 0;
-    if (csops(getpid(), CS_OPS_STATUS, &flags, sizeof(flags)) != 0 || !(flags & CS_DEBUGGED)) {
+bool DeviceHasTXM() {
+    if (NSProcessInfo.processInfo.isiOSAppOnMac) {
         return false;
     }
-    const size_t size = static_cast<size_t>(getpagesize());
-    void* page = mmap(nullptr, size, PROT_READ | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (page == MAP_FAILED) {
-        return false;
+    unichar series = 0;
+    NSInteger number = 0;
+    const bool has_chip = GetChip(&series, &number);
+    if (@available(iOS 27, *)) {
+        // Everything newer than the A12 has TXM on iOS 27.
+        return !(has_chip && series == 'A') || number > 12;
     }
-    const bool writable = mprotect(page, size, PROT_READ | PROT_WRITE) == 0;
-    const bool executable = writable && mprotect(page, size, PROT_READ | PROT_EXEC) == 0;
-    munmap(page, size);
-    return writable && executable;
+    const bool firmware = HasTXMFirmware();
+    if (@available(iOS 26.6, *)) {
+        if (!firmware) {
+            return has_chip && (series == 'M' ? number >= 2 : number >= 15);
+        }
+    }
+    return firmware;
 }
 
 NSError* MakeError(NSInteger code, NSString* description) {
@@ -138,12 +186,14 @@ NSError* MakeError(NSInteger code, NSString* description) {
 #if TARGET_OS_SIMULATOR
     return YES;
 #else
-    static BOOL available = NO;
+    static bool has_txm = false;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-      available = ProbeJIT();
+      has_txm = DeviceHasTXM();
+      LOG_INFO(Frontend, "Trusted Execution Monitor: {}", has_txm ? "yes" : "no");
     });
-    return available;
+    // Retried on every call, so a debugger attached after launch still enables the JIT.
+    return Common::AppleJIT::Initialize(has_txm) != Common::AppleJIT::Mode::Unavailable;
 #endif
 }
 
@@ -217,7 +267,11 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
     LOG_INFO(Frontend, "Azahar {} for iOS, user directory: {}", Common::g_build_fullname,
              path.UTF8String);
-    LOG_INFO(Frontend, "JIT is {}", AZEmulator.isJITAvailable ? "available" : "not available");
+    // Ask for executable memory as early as possible: on TXM devices the debugger provides it and
+    // is detached afterwards.
+    const bool jit = AZEmulator.isJITAvailable;
+    LOG_INFO(Frontend, "JIT is {} ({})", jit ? "available" : "not available",
+             Common::AppleJIT::GetModeName(Common::AppleJIT::GetMode()));
 }
 
 - (void)applyConfiguration:(AZConfiguration*)configuration {
