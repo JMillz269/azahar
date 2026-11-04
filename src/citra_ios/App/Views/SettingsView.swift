@@ -200,16 +200,26 @@ struct SystemSettingsView: View {
 
 struct ControlsSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var layout: ControllerLayoutStore
+    @State private var confirmingLayoutReset = false
 
     var body: some View {
         Form {
-            Section("On-Screen Controller") {
+            Section {
                 Toggle("Show Controller", isOn: $settings.showController)
                 VStack(alignment: .leading) {
                     LabeledContent("Opacity", value: "\(Int(settings.controllerOpacity * 100))%")
                     Slider(value: $settings.controllerOpacity, in: 0.1...1)
                 }
                 Toggle("Haptic Feedback", isOn: $settings.hapticFeedback)
+                Button("Reset Controller Layout", role: .destructive) {
+                    confirmingLayoutReset = true
+                }
+            } header: {
+                Text("On-Screen Controller")
+            } footer: {
+                Text("While playing, open the menu and choose Edit Controller Layout to move and "
+                     + "resize the buttons.")
             }
             Section {
                 Toggle("Motion Controls", isOn: $settings.useMotion)
@@ -226,6 +236,13 @@ struct ControlsSettingsView: View {
             }
         }
         .navigationTitle("Controls")
+        .confirmationDialog("Reset the controller layout?", isPresented: $confirmingLayoutReset,
+                            titleVisibility: .visible) {
+            Button("Reset", role: .destructive) { layout.resetEverything() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every button goes back to its default position and size.")
+        }
     }
 }
 

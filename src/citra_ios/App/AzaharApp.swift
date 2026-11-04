@@ -11,6 +11,7 @@ struct AzaharApp: App {
     @StateObject private var settings = AppSettings()
     @StateObject private var library = GameLibrary()
     @StateObject private var session = EmulationSession()
+    @StateObject private var controllerLayout = ControllerLayoutStore()
 
     init() {
         FileLocations.createDirectories()
@@ -27,6 +28,7 @@ struct AzaharApp: App {
                 .environmentObject(settings)
                 .environmentObject(library)
                 .environmentObject(session)
+                .environmentObject(controllerLayout)
                 .onOpenURL { url in
                     library.importFiles([url])
                 }

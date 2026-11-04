@@ -7,6 +7,7 @@
 #import <Metal/Metal.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <exception>
 #include <memory>
@@ -429,7 +430,10 @@ NSError* MakeError(NSInteger code, NSString* description) {
     system.RegisterCoreLoopThreadId();
 
     NSError* error = nil;
-    u32 frame_counter = 0;
+    // The performance counters only update when they are collected, which resets them. Collect
+    // them once per second of wall time and publish the result.
+    using StatsClock = std::chrono::steady_clock;
+    auto last_stats_time = StatsClock::now();
     while (!_stopRequested) {
         [self applyPendingSurfaceChanges];
 
@@ -446,6 +450,9 @@ NSError* MakeError(NSInteger code, NSString* description) {
                 break;
             }
             _state = AZEmulationStateRunning;
+            // Do not count the time spent paused in the speed.
+            [[maybe_unused]] const auto discarded = system.GetAndResetPerfStats();
+            last_stats_time = StatsClock::now();
         }
 
         const auto result = system.RunLoop();
@@ -458,8 +465,10 @@ NSError* MakeError(NSInteger code, NSString* description) {
             break;
         }
 
-        if (++frame_counter % 64 == 0) {
-            const auto stats = system.GetLastPerfStats();
+        const auto now = StatsClock::now();
+        if (now - last_stats_time >= std::chrono::seconds(1)) {
+            last_stats_time = now;
+            const auto stats = system.GetAndResetPerfStats();
             _speed = stats.emulation_speed * 100.0;
             _fps = stats.game_fps;
         }

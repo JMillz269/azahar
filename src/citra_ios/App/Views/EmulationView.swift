@@ -13,6 +13,8 @@ struct EmulationView: View {
     @State private var showingMenu = false
     @State private var controllerVisible = true
     @State private var pausedForBackground = false
+    @State private var editingLayout = false
+    @State private var resumeAfterEditing = false
 
     var body: some View {
         ZStack {
@@ -25,7 +27,8 @@ struct EmulationView: View {
 
             if settings.showController && controllerVisible {
                 ControllerOverlay(opacity: settings.controllerOpacity,
-                                  haptics: settings.hapticFeedback)
+                                  haptics: settings.hapticFeedback,
+                                  isEditing: $editingLayout)
             }
 
             VStack {
@@ -34,22 +37,24 @@ struct EmulationView: View {
                         PerformanceOverlay(fps: session.fps, speed: session.speed)
                     }
                     Spacer()
-                    Button {
-                        showingMenu = true
-                    } label: {
-                        Image(systemName: "ellipsis.circle.fill")
-                            .font(.system(size: 28))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white)
-                            .padding(8)
+                    if !editingLayout {
+                        Button {
+                            showingMenu = true
+                        } label: {
+                            Image(systemName: "ellipsis.circle.fill")
+                                .font(.system(size: 28))
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(.white)
+                                .padding(8)
+                        }
+                        .accessibilityLabel("Emulation menu")
                     }
-                    .accessibilityLabel("Emulation menu")
                 }
                 Spacer()
             }
             .padding(.horizontal, 8)
 
-            if session.isPaused {
+            if session.isPaused && !editingLayout {
                 Text("Paused")
                     .font(.headline)
                     .padding(.horizontal, 16)
@@ -65,12 +70,23 @@ struct EmulationView: View {
             Button(controllerVisible ? "Hide Controller" : "Show Controller") {
                 controllerVisible.toggle()
             }
+            if settings.showController {
+                Button("Edit Controller Layout") { beginEditingLayout() }
+            }
             Button("Swap Screens") {
                 settings.swapScreens.toggle()
                 session.apply(settings: settings)
             }
             Button("Stop Emulation", role: .destructive) { session.stop() }
             Button("Cancel", role: .cancel) {}
+        }
+        .onChange(of: editingLayout) { editing in
+            if !editing && resumeAfterEditing {
+                resumeAfterEditing = false
+                if session.isPaused {
+                    session.togglePause()
+                }
+            }
         }
         .onChange(of: scenePhase) { phase in
             switch phase {
@@ -88,6 +104,18 @@ struct EmulationView: View {
                 break
             }
         }
+    }
+}
+
+extension EmulationView {
+    /// Pauses the game and lets the controller be moved and resized.
+    fileprivate func beginEditingLayout() {
+        controllerVisible = true
+        if !session.isPaused {
+            session.togglePause()
+            resumeAfterEditing = true
+        }
+        editingLayout = true
     }
 }
 
