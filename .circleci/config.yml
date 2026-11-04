@@ -57,16 +57,39 @@ commands:
   metal-toolchain:
     description: >
       Installs Xcode's Metal toolchain, which Xcode 26 no longer bundles (GitHub's runner images
-      preinstall it). Needed to compile the generated shaders with the offline compiler.
+      install it the same way). Needed to compile the generated shaders with the offline compiler.
     steps:
       - run:
           name: Install the Metal toolchain
           no_output_timeout: 20m
           command: |
-            if xcrun -sdk iphoneos metal --version >/dev/null 2>&1; then
+            metal_ok() { xcrun -sdk iphoneos metal --version >/dev/null 2>&1; }
+
+            if metal_ok; then
               echo "The Metal toolchain is already installed"
-            else
-              xcodebuild -downloadComponent MetalToolchain
+              exit 0
+            fi
+
+            echo "Developer directory: $(xcode-select -p)"
+            sudo xcodebuild -runFirstLaunch || true
+
+            for attempt in 1 2; do
+              echo "Downloading the Metal toolchain (attempt $attempt)"
+              xcodebuild -downloadComponent MetalToolchain || true
+              # The component may take a moment to be mounted after the download finished.
+              for i in $(seq 1 24); do
+                if metal_ok; then break 2; fi
+                sleep 5
+              done
+            done
+
+            if ! metal_ok; then
+              echo "The Metal compiler is still not available, diagnostics:"
+              xcrun --sdk iphoneos --find metal || true
+              ls -la "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/metal" || true
+              mount | grep -i -E "metal|cryptex" || true
+              ls -R /System/Library/AssetsV2/com_apple_MobileAsset_MetalToolchain 2>/dev/null | head -n 30 || true
+              exit 1
             fi
             xcrun -sdk iphoneos metal --version
 
@@ -191,11 +214,11 @@ workflows:
   ios:
     when:
       equal: [0, << pipeline.parameters.symbolicate_job_number >>]
+    # The IPA build does not use the Metal compiler (shaders are compiled at runtime on the
+    # device), so it does not wait for the shader validation, which needs the Metal toolchain.
     jobs:
       - msl-validation
-      - ios-build:
-          requires:
-            - msl-validation
+      - ios-build
 
   symbolicate:
     when:
