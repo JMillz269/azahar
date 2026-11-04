@@ -1,0 +1,188 @@
+# CircleCI pipeline for the native iOS app (SwiftUI frontend + Metal renderer).
+#
+# It mirrors .github/workflows/ios.yml so it can replace GitHub's macOS runners when those are
+# busy:
+#   * msl-validation: generates the Metal shaders the renderer can emit and compiles every one of
+#     them with Apple's offline compiler.
+#   * ios-build: builds the app with the Xcode generator and packages an unsigned IPA, which is
+#     uploaded as an artifact (ios/Azahar-unsigned.ipa) to be signed by a sideloading tool.
+#   * symbolicate: maps the offsets of a crash report to functions using the IPA of an earlier
+#     build. Started by passing symbolicate_job_number when triggering the pipeline.
+#
+# Notes:
+#   * CircleCI skips pipelines for commits containing [skip ci] or [ci skip], like GitHub does.
+#     Use "Trigger Pipeline" (or the API) to run those commits.
+#   * Turn on "Auto-cancel redundant workflows" under Project Settings > Advanced so a newer push
+#     replaces a build that is still running.
+#   * Set xcode_version and resource_class (below) to values listed as supported for macOS in your
+#     CircleCI plan. They are parameters so they can be overridden when triggering a pipeline.
+
+version: 2.1
+
+parameters:
+  # Xcode image of the macOS executor, see CircleCI's list of supported Xcode versions. The app
+  # builds with Xcode 16 or newer, use the newest image available to match the GitHub workflow.
+  xcode_version:
+    type: string
+    default: "26.0.0"
+  # Apple silicon resource class, for example m4pro.medium or m4pro.large.
+  resource_class:
+    type: string
+    default: "m4pro.medium"
+  # Set to the number of a finished ios-build job to symbolicate a crash report instead of
+  # building. Needs a personal API token in the CIRCLE_TOKEN project environment variable.
+  symbolicate_job_number:
+    type: integer
+    default: 0
+  # Space separated imageOffset values (decimal) of the Azahar frames of the crash report.
+  symbolicate_offsets:
+    type: string
+    default: ""
+  # Project slug used to find the artifacts of the build to symbolicate.
+  project_slug:
+    type: string
+    default: "gh/JMillz269/azahar"
+
+executors:
+  macos:
+    macos:
+      xcode: << pipeline.parameters.xcode_version >>
+    resource_class: << pipeline.parameters.resource_class >>
+    environment:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+
+commands:
+  show-toolchain:
+    description: Prints the toolchain versions and installs CMake if the image lacks it.
+    steps:
+      - run:
+          name: Toolchain
+          command: |
+            sw_vers
+            xcodebuild -version
+            xcrun --sdk iphoneos --show-sdk-version
+            command -v cmake >/dev/null || brew install cmake
+            cmake --version | head -n 1
+
+  checkout-submodules:
+    description: Checks out the repository with all of its submodules.
+    steps:
+      - checkout
+      - run:
+          name: Fetch submodules
+          command: |
+            git submodule sync --recursive
+            git submodule update --init --recursive --jobs 8 --depth 1 \
+              || git submodule update --init --recursive --jobs 8
+
+jobs:
+  msl-validation:
+    executor: macos
+    steps:
+      - checkout
+      - run:
+          name: Fetch headers needed by the shader generator
+          command: git submodule update --init --depth 1 externals/fmt externals/boost externals/xxHash
+      - run:
+          name: Build MSL corpus generator
+          command: |
+            clang++ -std=c++20 -O1 -Isrc -Iexternals/fmt/include -Iexternals/boost -Iexternals/xxHash \
+              -DFMT_HEADER_ONLY -DXXH_INLINE_ALL \
+              src/video_core/renderer_metal/tests/msl_corpus.cpp \
+              src/video_core/renderer_metal/tests/log_stub.cpp \
+              src/video_core/shader/generator/msl_shader_gen.cpp \
+              src/video_core/shader/generator/pica_fs_config.cpp \
+              -o msl_corpus
+      - run:
+          name: Generate shaders
+          command: ./msl_corpus msl_out 512 2>/dev/null
+      - run:
+          name: Compile shaders (iOS, MSL 2.4)
+          command: ./.ci/ios-validate-msl.sh msl_out
+
+  ios-build:
+    executor: macos
+    environment:
+      BUILD_DIR: build/ios
+    steps:
+      - checkout-submodules
+      - show-toolchain
+      - run:
+          name: Configure
+          no_output_timeout: 30m
+          command: ./.ci/ios.sh configure
+      # The build step records its status instead of failing right away, so that build.log is
+      # still uploaded when the build fails.
+      - run:
+          name: Build
+          no_output_timeout: 60m
+          command: |
+            set +e
+            ./.ci/ios.sh build
+            echo $? > /tmp/build-status
+            exit 0
+      - store_artifacts:
+          path: build.log
+          destination: logs/build.log
+      - run:
+          name: Fail if the build failed
+          command: |
+            status=$(cat /tmp/build-status)
+            if [ "$status" -ne 0 ]; then
+              echo "The build failed with status $status, see the Build step or logs/build.log"
+              exit "$status"
+            fi
+      - run:
+          name: Package
+          command: ./.ci/ios.sh package
+      - store_artifacts:
+          path: artifacts/Azahar-unsigned.ipa
+          destination: ios/Azahar-unsigned.ipa
+
+  symbolicate:
+    executor: macos
+    environment:
+      OFFSETS: "<< pipeline.parameters.symbolicate_offsets >>"
+    steps:
+      - run:
+          name: Download the IPA of the build
+          command: |
+            : "${CIRCLE_TOKEN:?Add a personal API token as the CIRCLE_TOKEN project environment variable}"
+            api="https://circleci.com/api/v2/project/<< pipeline.parameters.project_slug >>/<< pipeline.parameters.symbolicate_job_number >>/artifacts"
+            curl -fsSL -H "Circle-Token: $CIRCLE_TOKEN" "$api" -o artifacts.json
+            url=$(python3 -c 'import json; print(next(i["url"] for i in json.load(open("artifacts.json"))["items"] if i["path"].endswith("Azahar-unsigned.ipa")))')
+            mkdir ipa
+            curl -fsSL -H "Circle-Token: $CIRCLE_TOKEN" "$url" -o ipa/Azahar-unsigned.ipa
+      - run:
+          name: Symbolicate
+          command: |
+            cd ipa
+            unzip -q Azahar-unsigned.ipa
+            BIN=Payload/Azahar.app/Azahar
+            echo "Binary UUID:"
+            dwarfdump --uuid "$BIN"
+            TEXT_VMADDR=$(otool -l "$BIN" | awk '/segname __TEXT$/{found=1} found && /vmaddr/{print $2; exit}')
+            echo "__TEXT vmaddr: $TEXT_VMADDR"
+            for offset in $OFFSETS; do
+              address=$(printf "0x%x" $((TEXT_VMADDR + offset)))
+              echo "$offset -> $(atos -o "$BIN" -arch arm64 -l "$TEXT_VMADDR" "$address")"
+            done
+
+workflows:
+  ios:
+    when:
+      equal: [0, << pipeline.parameters.symbolicate_job_number >>]
+    jobs:
+      - msl-validation
+      - ios-build:
+          requires:
+            - msl-validation
+
+  symbolicate:
+    when:
+      not:
+        equal: [0, << pipeline.parameters.symbolicate_job_number >>]
+    jobs:
+      - symbolicate
