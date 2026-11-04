@@ -1,0 +1,44 @@
+name: ios-symbolicate
+
+# Symbolicates addresses from an iOS crash report against the IPA built by an earlier "ios" run.
+# Usage: run manually with the run ID of the build that was installed and the "imageOffset"
+# values of the Azahar frames from the crash report.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID of the ios workflow run that built the crashing IPA"
+        required: true
+      offsets:
+        description: "Space separated imageOffset values (decimal) of the Azahar frames"
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  symbolicate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ipa
+      - name: Symbolicate
+        env:
+          OFFSETS: ${{ inputs.offsets }}
+        run: |
+          cd ipa
+          unzip -q Azahar-unsigned.ipa
+          BIN=Payload/Azahar.app/Azahar
+          echo "Binary UUID:"
+          dwarfdump --uuid "$BIN"
+          TEXT_VMADDR=$(otool -l "$BIN" | awk '/segname __TEXT$/{found=1} found && /vmaddr/{print $2; exit}')
+          echo "__TEXT vmaddr: $TEXT_VMADDR"
+          for offset in $OFFSETS; do
+            address=$(printf "0x%x" $((TEXT_VMADDR + offset)))
+            echo "$offset -> $(atos -o "$BIN" -arch arm64 -l "$TEXT_VMADDR" "$address")"
+          done
