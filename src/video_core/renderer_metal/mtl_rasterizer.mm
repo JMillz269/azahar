@@ -58,8 +58,7 @@ RasterizerMetal::RasterizerMetal(Memory::MemorySystem& memory, Pica::PicaCore& p
                                  VideoCore::CustomTexManager& custom_tex_manager,
                                  VideoCore::RendererBase& renderer, const Instance& instance_,
                                  Scheduler& scheduler_)
-    : RasterizerAccelerated{memory, pica}, instance{instance_}, scheduler{scheduler_},
-      runtime{instance_, scheduler_},
+    : RasterizerAccelerated{memory, pica}, scheduler{scheduler_}, runtime{instance_, scheduler_},
       res_cache{memory, custom_tex_manager, runtime, regs, renderer},
       pipeline_cache{instance_, MakeVertexDescriptor()},
       vertex_buffer{instance_, scheduler_, VERTEX_BUFFER_SIZE, "Vertex buffer"},

@@ -30,9 +30,8 @@ inline NSString* ToNSString(std::string_view str) {
                                   encoding:NSUTF8StringEncoding];
 }
 
-/// Sets the debug label of a Metal object when the string is not empty.
-template <typename T>
-inline void SetLabel(T object, std::string_view label) {
+/// Sets the debug label of a Metal resource when the string is not empty.
+inline void SetLabel(id<MTLResource> object, std::string_view label) {
     if (!label.empty()) {
         object.label = ToNSString(label);
     }

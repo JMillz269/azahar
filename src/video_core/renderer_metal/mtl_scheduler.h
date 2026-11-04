@@ -122,7 +122,6 @@ private:
     void PruneInFlight();
 
 private:
-    const Instance& instance;
     id<MTLCommandQueue> queue;
     id<MTLCommandBuffer> command_buffer = nil;
     id<MTLRenderCommandEncoder> render_encoder = nil;

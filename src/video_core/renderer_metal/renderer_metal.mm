@@ -101,7 +101,6 @@ private:
     bool layer_dirty{};
 
     id<MTLRenderPipelineState> present_pipeline = nil;
-    id<MTLRenderPipelineState> screenshot_pipeline = nil;
     std::array<id<MTLSamplerState>, 2> present_samplers{};
 
     std::array<ScreenInfo, 3> screen_infos{};
@@ -142,7 +141,6 @@ void RendererMetal::CompilePresentPipelines() {
         return pipeline;
     };
     present_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm);
-    screenshot_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm);
 
     MTLSamplerDescriptor* sampler_desc = [MTLSamplerDescriptor new];
     sampler_desc.sAddressMode = MTLSamplerAddressModeClampToEdge;

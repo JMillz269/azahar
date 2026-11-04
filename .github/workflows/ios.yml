@@ -8,6 +8,11 @@ on:
     branches: [ master ]
   workflow_dispatch:
 
+# macOS runners are scarce, only build the latest push of each branch.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   msl-validation:
     # Compiles every Metal shader the renderer can generate with Apple's offline compiler.

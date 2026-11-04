@@ -14,8 +14,7 @@ MICROPROFILE_DEFINE(Metal_Submit, "Metal", "Submit", MP_RGB(255, 192, 255));
 
 namespace Metal {
 
-Scheduler::Scheduler(const Instance& instance_)
-    : instance{instance_}, queue{instance_.GetCommandQueue()} {}
+Scheduler::Scheduler(const Instance& instance) : queue{instance.GetCommandQueue()} {}
 
 Scheduler::~Scheduler() {
     Finish();

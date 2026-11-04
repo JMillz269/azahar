@@ -84,7 +84,6 @@ private:
     bool Draw();
 
 private:
-    const Instance& instance;
     Scheduler& scheduler;
     TextureRuntime runtime;
     RasterizerCache res_cache;
