@@ -1844,8 +1844,9 @@ static float LoadComponent(device const uchar* data, uint address, uint format) 
     }
 }
 
+// Note: `vertex` is a keyword in MSL.
 static float4 LoadAttribute(constant VertexLayout& layout, device const uchar* data, uint reg,
-                            uint vertex) {
+                            uint vertex_index) {
     const uint format = layout.attributes[reg].format;
     if (format > 3u) {
         return layout.defaults[reg];
@@ -1853,7 +1854,8 @@ static float4 LoadAttribute(constant VertexLayout& layout, device const uchar* d
     const uint element = format == 3u ? 4u : (format == 2u ? 2u : 1u);
     const uint size = min(layout.attributes[reg].size, 4u);
     const uint address =
-        layout.attributes[reg].offset + (vertex - layout.vertex_min) * layout.attributes[reg].stride;
+        layout.attributes[reg].offset +
+        (vertex_index - layout.vertex_min) * layout.attributes[reg].stride;
     float4 value = float4(0.0, 0.0, 0.0, 1.0);
     for (uint i = 0u; i < size; ++i) {
         value[i] = LoadComponent(data, address + i * element, format);
@@ -1945,11 +1947,12 @@ std::string GenerateVertexShader(const Pica::ShaderSetup& setup, const PicaVSCon
     out += "\n";
     out += program_source;
 
-    out += "    void Load(constant VertexLayout& layout, device const uchar* data, uint vertex) {\n";
+    out += "    void Load(constant VertexLayout& layout, device const uchar* data, "
+           "uint vertex_index) {\n";
     for (u32 i = 0; i < used_regs.size(); ++i) {
         if (used_regs[i]) {
-            out += fmt::format("        vs_in_reg{0} = LoadAttribute(layout, data, {0}u, vertex);\n",
-                               i);
+            out += fmt::format(
+                "        vs_in_reg{0} = LoadAttribute(layout, data, {0}u, vertex_index);\n", i);
         }
     }
     out += "    }\n\n";
