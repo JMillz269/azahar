@@ -77,6 +77,7 @@ struct ControllerOverlay: View {
     @Binding var isEditing: Bool
 
     @EnvironmentObject private var layout: ControllerLayoutStore
+    @StateObject private var touchState = ControllerTouchState()
     @State private var selected: ControlID?
 
     var body: some View {
@@ -98,11 +99,24 @@ struct ControllerOverlay: View {
                         let frame = metrics.frame(of: id, placement: placement)
                         content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
                             .frame(width: frame.width, height: frame.height)
-                            .allowsHitTesting(!isEditing)
                             .position(x: frame.midX, y: frame.midY)
                     }
                 }
+                .allowsHitTesting(false)
                 .opacity(isEditing ? 1 : opacity)
+
+                if !isEditing {
+                    ControllerTouchLayer(
+                        regions: ControlID.allCases.map { id in
+                            let placement = layout.placement(for: id, portrait: portrait)
+                            return TouchRegion(id: id,
+                                               frame: metrics.frame(of: id, placement: placement),
+                                               scale: CGFloat(placement.scale))
+                        },
+                        haptics: haptics,
+                        state: touchState)
+                    .allowsHitTesting(false)
+                }
 
                 if isEditing {
                     ForEach(ControlID.allCases) { id in
@@ -122,31 +136,32 @@ struct ControllerOverlay: View {
 
     @ViewBuilder
     private func content(of id: ControlID, scale: CGFloat, unit: CGFloat) -> some View {
+        let pressed = touchState.pressed
         switch id {
         case .shoulderLeft:
             VStack(spacing: 8 * scale) {
-                PillButton(label: "ZL", button: .zl, scale: scale, haptics: haptics)
-                PillButton(label: "L", button: .l, scale: scale, haptics: haptics)
+                PillButton(label: "ZL", scale: scale, pressed: pressed.contains(.zl))
+                PillButton(label: "L", scale: scale, pressed: pressed.contains(.l))
             }
         case .shoulderRight:
             VStack(spacing: 8 * scale) {
-                PillButton(label: "ZR", button: .zr, scale: scale, haptics: haptics)
-                PillButton(label: "R", button: .r, scale: scale, haptics: haptics)
+                PillButton(label: "ZR", scale: scale, pressed: pressed.contains(.zr))
+                PillButton(label: "R", scale: scale, pressed: pressed.contains(.r))
             }
         case .circlePad:
-            CirclePad(stick: .circlePad, size: unit * 2.1 * scale)
+            CirclePad(size: unit * 2.1 * scale, knob: touchState.sticks[.circlePad] ?? .zero)
         case .dpad:
-            DPad(size: unit * 2.1 * scale, haptics: haptics)
+            DPad(size: unit * 2.1 * scale, pressed: pressed)
         case .faceButtons:
-            FaceButtons(size: unit * 2.2 * scale, haptics: haptics)
+            FaceButtons(size: unit * 2.2 * scale, pressed: pressed)
         case .cStick:
-            CirclePad(stick: .cStick, size: unit * 1.2 * scale)
+            CirclePad(size: unit * 1.2 * scale, knob: touchState.sticks[.cStick] ?? .zero)
         case .systemButtons:
             HStack(spacing: 16 * scale) {
-                SmallButton(systemImage: "minus", button: .select, scale: scale, haptics: haptics)
-                SmallButton(systemImage: "house.fill", button: .home, scale: scale,
-                            haptics: haptics)
-                SmallButton(systemImage: "plus", button: .start, scale: scale, haptics: haptics)
+                SmallButton(systemImage: "minus", scale: scale, pressed: pressed.contains(.select))
+                SmallButton(systemImage: "house.fill", scale: scale,
+                            pressed: pressed.contains(.home))
+                SmallButton(systemImage: "plus", scale: scale, pressed: pressed.contains(.start))
             }
         }
     }
@@ -272,187 +287,392 @@ private struct EditHandle: View {
     }
 }
 
-// MARK: - Button primitives
+// MARK: - Touch handling
 
-/// Tracks press/release of a 3DS button with a zero distance drag gesture, which supports
-/// pressing several buttons at once with multiple fingers.
-private struct PressGesture: ViewModifier {
-    let button: ConsoleButton
-    let haptics: Bool
-    @Binding var pressed: Bool
-    @State private var isDown = false
-    @State private var downAt = Date.distantPast
-    @State private var generation = 0
+/// What the on-screen controller is currently doing, for drawing it.
+final class ControllerTouchState: ObservableObject {
+    @Published fileprivate(set) var pressed: Set<ConsoleButton> = []
+    /// Knob position of each stick, x and y in [-1, 1] with +y down (screen coordinates).
+    @Published fileprivate(set) var sticks: [ConsoleStick: CGPoint] = [:]
+}
 
-    func body(content: Content) -> some View {
-        content.gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard !isDown else { return }
-                    isDown = true
-                    generation += 1
-                    downAt = Date()
-                    pressed = true
-                    button.set(true)
-                    if haptics {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                }
-                .onEnded { _ in
-                    isDown = false
-                    // The emulator reads the buttons once per frame. A quick tap that is released
-                    // before then would never be seen (and never drawn), so keep the button down
-                    // for a minimum time.
-                    let remaining = ControllerTiming.minimumPress - Date().timeIntervalSince(downAt)
-                    guard remaining > 0 else {
-                        pressed = false
-                        button.set(false)
-                        return
-                    }
-                    let token = generation
-                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
-                        guard token == generation, !isDown else { return }
-                        pressed = false
-                        button.set(false)
-                    }
-                }
-        )
+/// One control as seen by the touch view.
+private struct TouchRegion {
+    let id: ControlID
+    let frame: CGRect
+    let scale: CGFloat
+}
+
+/// Handles every touch on the on-screen controller in UIKit instead of with SwiftUI gestures.
+/// The view the game is drawn in receives all touches and offers each new one here first; the
+/// ones that do not land on a control go to the emulated touch screen. Touches are handled as
+/// soon as they arrive, any number of fingers work at once, a finger can slide from one button
+/// to another, and a cancelled touch always lets go.
+@MainActor
+final class ControllerTouchHandler {
+    static let shared = ControllerTouchHandler()
+
+    /// Controls in window coordinates. Empty while the controller is hidden or being edited.
+    fileprivate var regions: [TouchRegion] = [] {
+        didSet { if regions.isEmpty { releaseAll() } }
+    }
+    fileprivate weak var state: ControllerTouchState?
+    var haptics = true
+
+    private enum Binding {
+        case buttons(Set<ConsoleButton>)
+        case stick(ConsoleStick, ControlID)
+    }
+
+    private var bindings: [ObjectIdentifier: Binding] = [:]
+    private var pressed: Set<ConsoleButton> = []
+    private let impact = UIImpactFeedbackGenerator(style: .light)
+
+    private init() {}
+
+    // MARK: Touch events
+
+    /// Takes the touches that start on a control and returns the others.
+    func began(_ touches: Set<UITouch>) -> Set<UITouch> {
+        var unclaimed = Set<UITouch>()
+        for touch in touches {
+            let point = touch.location(in: nil)
+            guard let region = region(at: point) else {
+                unclaimed.insert(touch)
+                continue
+            }
+            switch region.id {
+            case .circlePad:
+                bindings[ObjectIdentifier(touch)] = .stick(.circlePad, region.id)
+                updateStick(for: touch)
+            case .cStick:
+                bindings[ObjectIdentifier(touch)] = .stick(.cStick, region.id)
+                updateStick(for: touch)
+            default:
+                bindings[ObjectIdentifier(touch)] = .buttons(buttons(at: point))
+            }
+        }
+        commit()
+        return unclaimed
+    }
+
+    func moved(_ touches: Set<UITouch>) {
+        var changed = false
+        for touch in touches {
+            guard let binding = bindings[ObjectIdentifier(touch)] else { continue }
+            switch binding {
+            case .buttons:
+                bindings[ObjectIdentifier(touch)] = .buttons(buttons(at: touch.location(in: nil)))
+                changed = true
+            case .stick:
+                updateStick(for: touch)
+            }
+        }
+        if changed {
+            commit()
+        }
+    }
+
+    /// For touches that ended or were cancelled.
+    func ended(_ touches: Set<UITouch>) {
+        var changed = false
+        for touch in touches {
+            guard let binding = bindings.removeValue(forKey: ObjectIdentifier(touch)) else {
+                continue
+            }
+            changed = true
+            if case let .stick(stick, _) = binding {
+                stick.set(x: 0, y: 0)
+                state?.sticks[stick] = nil
+            }
+        }
+        if changed {
+            commit()
+        }
+    }
+
+    func releaseAll() {
+        for case let .stick(stick, _) in bindings.values {
+            stick.set(x: 0, y: 0)
+        }
+        bindings.removeAll()
+        if state?.sticks.isEmpty == false {
+            state?.sticks.removeAll()
+        }
+        commit()
+    }
+
+    /// Sends the buttons that changed to the emulator.
+    private func commit() {
+        var now: Set<ConsoleButton> = []
+        for case let .buttons(buttons) in bindings.values {
+            now.formUnion(buttons)
+        }
+        guard now != pressed else { return }
+        for button in pressed.subtracting(now) {
+            button.set(false)
+        }
+        let added = now.subtracting(pressed)
+        for button in added {
+            button.set(true)
+        }
+        if haptics && !added.isEmpty {
+            impact.impactOccurred()
+            impact.prepare()
+        }
+        pressed = now
+        state?.pressed = now
+    }
+
+    // MARK: Geometry
+
+    /// Touch area of a control: a little larger than what is drawn so presses near the edge
+    /// still count.
+    private func hitFrame(of region: TouchRegion) -> CGRect {
+        let margin: CGFloat
+        switch region.id {
+        case .circlePad, .cStick: margin = 6
+        default: margin = 10 * region.scale
+        }
+        return region.frame.insetBy(dx: -margin, dy: -margin)
+    }
+
+    private func region(at point: CGPoint) -> TouchRegion? {
+        // Prefer a control that is actually under the finger over one whose margin it is in.
+        regions.first(where: { $0.frame.contains(point) })
+            ?? regions.first(where: { hitFrame(of: $0).contains(point) })
+    }
+
+    /// The buttons under a finger, looking at every button control so a finger can slide across.
+    private func buttons(at point: CGPoint) -> Set<ConsoleButton> {
+        guard let region = region(at: point) else { return [] }
+        let frame = region.frame
+        let local = CGPoint(x: point.x - frame.midX, y: point.y - frame.midY)
+        switch region.id {
+        case .shoulderLeft:
+            return [local.y < 0 ? .zl : .l]
+        case .shoulderRight:
+            return [local.y < 0 ? .zr : .r]
+        case .systemButtons:
+            let third = frame.width / 3
+            let x = point.x - frame.minX
+            return [x < third ? .select : (x < 2 * third ? .home : .start)]
+        case .dpad:
+            let deadzone = frame.width * 0.12
+            var result: Set<ConsoleButton> = []
+            if local.x < -deadzone { result.insert(.left) }
+            if local.x > deadzone { result.insert(.right) }
+            if local.y < -deadzone { result.insert(.up) }
+            if local.y > deadzone { result.insert(.down) }
+            return result
+        case .faceButtons:
+            return faceButtons(at: local, size: frame.width)
+        case .circlePad, .cStick:
+            return []
+        }
+    }
+
+    /// Face buttons around a point relative to the middle of the cluster. A finger between two
+    /// buttons presses both, like rolling a thumb across them on the real console.
+    private func faceButtons(at local: CGPoint, size: CGFloat) -> Set<ConsoleButton> {
+        let offset = size * FaceButtons.offset
+        let radius = size * FaceButtons.diameter / 2
+        let centers: [(ConsoleButton, CGPoint)] = [
+            (.x, CGPoint(x: 0, y: -offset)), (.b, CGPoint(x: 0, y: offset)),
+            (.y, CGPoint(x: -offset, y: 0)), (.a, CGPoint(x: offset, y: 0)),
+        ]
+        let distances = centers.map { entry in
+            (entry.0, hypot(local.x - entry.1.x, local.y - entry.1.y))
+        }
+        let close = Set(distances.filter { $0.1 <= radius * 1.15 }.map { $0.0 })
+        if !close.isEmpty {
+            return close
+        }
+        // In the gap between the buttons: the nearest one.
+        if let nearest = distances.min(by: { $0.1 < $1.1 }), nearest.1 <= radius * 1.6 {
+            return [nearest.0]
+        }
+        return []
+    }
+
+    private func updateStick(for touch: UITouch) {
+        guard case let .stick(stick, id)? = bindings[ObjectIdentifier(touch)],
+              let region = regions.first(where: { $0.id == id }) else { return }
+        let point = touch.location(in: nil)
+        let radius = region.frame.width / 2
+        var dx = (point.x - region.frame.midX) / radius
+        var dy = (point.y - region.frame.midY) / radius
+        let length = hypot(dx, dy)
+        if length > 1 {
+            dx /= length
+            dy /= length
+        }
+        stick.set(x: Float(dx), y: Float(-dy))
+        state?.sticks[stick] = CGPoint(x: dx, y: dy)
     }
 }
 
-enum ControllerTiming {
-    /// Shortest time a touch press is held for the game, in seconds (about four frames).
-    static let minimumPress: TimeInterval = 0.07
+/// Invisible view laid over the controller that tells the touch handler where the controls are
+/// on screen. It does not take touches itself.
+private final class ControllerRegionView: UIView {
+    var regions: [TouchRegion] = [] {
+        didSet { publish() }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        publish()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        publish()
+    }
+
+    func publish() {
+        guard window != nil, bounds.width > 0 else {
+            ControllerTouchHandler.shared.regions = []
+            return
+        }
+        ControllerTouchHandler.shared.regions = regions.map {
+            TouchRegion(id: $0.id, frame: convert($0.frame, to: nil), scale: $0.scale)
+        }
+    }
 }
+
+private struct ControllerTouchLayer: UIViewRepresentable {
+    let regions: [TouchRegion]
+    let haptics: Bool
+    let state: ControllerTouchState
+
+    func makeUIView(context: Context) -> ControllerRegionView {
+        ControllerRegionView()
+    }
+
+    func updateUIView(_ view: ControllerRegionView, context: Context) {
+        let handler = ControllerTouchHandler.shared
+        handler.haptics = haptics
+        handler.state = state
+        view.regions = regions
+    }
+
+    static func dismantleUIView(_ view: ControllerRegionView, coordinator: ()) {
+        ControllerTouchHandler.shared.regions = []
+    }
+}
+
+// MARK: - Drawing
+
+private let idleFill = Color.white.opacity(0.22)
+private let pressedFill = Color.white.opacity(0.55)
 
 private struct RoundButton: View {
     let label: String
-    let button: ConsoleButton
     let size: CGFloat
-    let haptics: Bool
-    @State private var pressed = false
+    let pressed: Bool
 
     var body: some View {
         Circle()
-            .fill(pressed ? Color.white.opacity(0.55) : Color.white.opacity(0.22))
+            .fill(pressed ? pressedFill : idleFill)
             .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 1.5))
             .overlay(
                 Text(label)
                     .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
                     .foregroundStyle(.white))
             .frame(width: size, height: size)
-            .contentShape(Circle())
-            .modifier(PressGesture(button: button, haptics: haptics, pressed: $pressed))
-            .accessibilityLabel(label)
     }
 }
 
 private struct PillButton: View {
     let label: String
-    let button: ConsoleButton
     let scale: CGFloat
-    let haptics: Bool
-    @State private var pressed = false
+    let pressed: Bool
 
     var body: some View {
         Text(label)
             .font(.system(size: 15 * scale, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
             .frame(width: 64 * scale, height: 32 * scale)
-            .background(
-                Capsule().fill(pressed ? Color.white.opacity(0.55) : Color.white.opacity(0.22)))
+            .background(Capsule().fill(pressed ? pressedFill : idleFill))
             .overlay(Capsule().stroke(Color.white.opacity(0.6), lineWidth: 1.5))
-            .contentShape(Capsule())
-            .modifier(PressGesture(button: button, haptics: haptics, pressed: $pressed))
-            .accessibilityLabel(label)
     }
 }
 
 private struct SmallButton: View {
     let systemImage: String
-    let button: ConsoleButton
     let scale: CGFloat
-    let haptics: Bool
-    @State private var pressed = false
+    let pressed: Bool
 
     var body: some View {
         Image(systemName: systemImage)
             .font(.system(size: 13 * scale, weight: .bold))
             .foregroundStyle(.white)
             .frame(width: 40 * scale, height: 26 * scale)
-            .background(
-                Capsule().fill(pressed ? Color.white.opacity(0.55) : Color.white.opacity(0.22)))
+            .background(Capsule().fill(pressed ? pressedFill : idleFill))
             .overlay(Capsule().stroke(Color.white.opacity(0.6), lineWidth: 1))
-            .contentShape(Capsule())
-            .modifier(PressGesture(button: button, haptics: haptics, pressed: $pressed))
     }
 }
 
 private struct FaceButtons: View {
+    /// Distance of each button from the middle and button diameter, relative to the cluster.
+    static let offset: CGFloat = 0.32
+    static let diameter: CGFloat = 0.36
+
     let size: CGFloat
-    let haptics: Bool
+    let pressed: Set<ConsoleButton>
 
     var body: some View {
-        let button = size * 0.36
+        let button = size * Self.diameter
+        let offset = size * Self.offset
         ZStack {
-            RoundButton(label: "X", button: .x, size: button, haptics: haptics)
-                .offset(y: -size * 0.32)
-            RoundButton(label: "B", button: .b, size: button, haptics: haptics)
-                .offset(y: size * 0.32)
-            RoundButton(label: "Y", button: .y, size: button, haptics: haptics)
-                .offset(x: -size * 0.32)
-            RoundButton(label: "A", button: .a, size: button, haptics: haptics)
-                .offset(x: size * 0.32)
+            RoundButton(label: "X", size: button, pressed: pressed.contains(.x))
+                .offset(y: -offset)
+            RoundButton(label: "B", size: button, pressed: pressed.contains(.b))
+                .offset(y: offset)
+            RoundButton(label: "Y", size: button, pressed: pressed.contains(.y))
+                .offset(x: -offset)
+            RoundButton(label: "A", size: button, pressed: pressed.contains(.a))
+                .offset(x: offset)
         }
         .frame(width: size, height: size)
     }
 }
 
-/// D-pad that supports sliding between directions (including diagonals).
 private struct DPad: View {
     let size: CGFloat
-    let haptics: Bool
-    @State private var active: Set<ConsoleButton> = []
-    @State private var lastPress = Date.distantPast
-    @State private var releaseToken = 0
+    let pressed: Set<ConsoleButton>
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(0.22))
+                .fill(idleFill)
                 .frame(width: size * 0.34, height: size)
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.white.opacity(0.22))
+                .fill(idleFill)
                 .frame(width: size, height: size * 0.34)
             ForEach([ConsoleButton.up, .down, .left, .right], id: \.self) { direction in
+                let active = pressed.contains(direction)
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(active ? pressedFill : Color.clear)
+                    .frame(width: size * 0.34, height: size * 0.34)
+                    .offset(offset(for: direction, distance: size * 0.33))
                 Image(systemName: arrow(for: direction))
                     .font(.system(size: size * 0.16, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(active.contains(direction) ? 1.0 : 0.7))
-                    .offset(offset(for: direction))
+                    .foregroundStyle(Color.white.opacity(active ? 1.0 : 0.7))
+                    .offset(offset(for: direction, distance: size * 0.33))
             }
         }
         .frame(width: size, height: size)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    releaseToken += 1
-                    update(location: value.location)
-                }
-                .onEnded { _ in
-                    // Keep a quick tap down long enough for the game to see it.
-                    let remaining = ControllerTiming.minimumPress - Date().timeIntervalSince(lastPress)
-                    releaseToken += 1
-                    let token = releaseToken
-                    if remaining > 0 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
-                            if token == releaseToken { update(directions: []) }
-                        }
-                    } else {
-                        update(directions: [])
-                    }
-                }
-        )
     }
 
     private func arrow(for direction: ConsoleButton) -> String {
@@ -464,8 +684,7 @@ private struct DPad: View {
         }
     }
 
-    private func offset(for direction: ConsoleButton) -> CGSize {
-        let distance = size * 0.33
+    private func offset(for direction: ConsoleButton, distance: CGFloat) -> CGSize {
         switch direction {
         case .up: return CGSize(width: 0, height: -distance)
         case .down: return CGSize(width: 0, height: distance)
@@ -473,42 +692,13 @@ private struct DPad: View {
         default: return CGSize(width: distance, height: 0)
         }
     }
-
-    private func update(location: CGPoint) {
-        let dx = location.x - size / 2
-        let dy = location.y - size / 2
-        let deadzone = size * 0.12
-        var directions: Set<ConsoleButton> = []
-        if dx < -deadzone { directions.insert(.left) }
-        if dx > deadzone { directions.insert(.right) }
-        if dy < -deadzone { directions.insert(.up) }
-        if dy > deadzone { directions.insert(.down) }
-        update(directions: directions)
-    }
-
-    private func update(directions: Set<ConsoleButton>) {
-        guard directions != active else { return }
-        for released in active.subtracting(directions) {
-            released.set(false)
-        }
-        for pressed in directions.subtracting(active) {
-            pressed.set(true)
-        }
-        if !directions.subtracting(active).isEmpty {
-            lastPress = Date()
-            if haptics {
-                UISelectionFeedbackGenerator().selectionChanged()
-            }
-        }
-        active = directions
-    }
 }
 
 /// Analog stick used for the circle pad and the C-stick.
 private struct CirclePad: View {
-    let stick: ConsoleStick
     let size: CGFloat
-    @State private var knob: CGSize = .zero
+    /// Knob position, x and y in [-1, 1].
+    let knob: CGPoint
 
     var body: some View {
         ZStack {
@@ -518,28 +708,8 @@ private struct CirclePad: View {
             Circle()
                 .fill(Color.white.opacity(0.45))
                 .frame(width: size * 0.5, height: size * 0.5)
-                .offset(knob)
+                .offset(x: knob.x * size / 2, y: knob.y * size / 2)
         }
         .frame(width: size, height: size)
-        .contentShape(Circle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let radius = size / 2
-                    var dx = value.location.x - radius
-                    var dy = value.location.y - radius
-                    let length = sqrt(dx * dx + dy * dy)
-                    if length > radius {
-                        dx = dx / length * radius
-                        dy = dy / length * radius
-                    }
-                    knob = CGSize(width: dx, height: dy)
-                    stick.set(x: Float(dx / radius), y: Float(-dy / radius))
-                }
-                .onEnded { _ in
-                    knob = .zero
-                    stick.set(x: 0, y: 0)
-                }
-        )
     }
 }

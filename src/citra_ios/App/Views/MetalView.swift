@@ -7,8 +7,9 @@ import QuartzCore
 import SwiftUI
 import UIKit
 
-/// UIView backed by the CAMetalLayer the emulator renders into. Touches that are not consumed by
-/// the controller overlay are forwarded to the emulated touch screen.
+/// UIView backed by the CAMetalLayer the emulator renders into. It receives every touch on the
+/// game: those on the on-screen controller go to `ControllerTouchHandler`, the others to the
+/// emulated touch screen.
 final class EmulatorLayerView: UIView {
     override class var layerClass: AnyClass { CAMetalLayer.self }
 
@@ -60,18 +61,24 @@ final class EmulatorLayerView: UIView {
         return CGPoint(x: point.x * scale, y: point.y * scale)
     }
 
+    // Touches on the on-screen controller go to its handler, the rest drive the 3DS touch screen
+    // (one finger at a time).
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard activeTouch == nil, let touch = touches.first else { return }
+        let unclaimed = ControllerTouchHandler.shared.began(touches)
+        guard activeTouch == nil, let touch = unclaimed.first else { return }
         activeTouch = touch
         AZEmulator.shared.touchBegan(at: pixelLocation(of: touch))
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        ControllerTouchHandler.shared.moved(touches)
         guard let touch = activeTouch, touches.contains(touch) else { return }
         AZEmulator.shared.touchMoved(to: pixelLocation(of: touch))
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        ControllerTouchHandler.shared.ended(touches)
         guard let touch = activeTouch, touches.contains(touch) else { return }
         activeTouch = nil
         AZEmulator.shared.touchEnded()

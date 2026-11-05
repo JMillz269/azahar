@@ -66,6 +66,10 @@ struct EmulationView: View {
         }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        // Without this iOS holds back touches near the screen edges until it knows they are not
+        // a system swipe (Home, Control Center, Notification Center), then delivers the press
+        // and the release together, so the game never sees a quick tap on the controller.
+        .defersSystemGestures(on: .all)
         .confirmationDialog(session.currentGame?.title ?? "Emulation",
                             isPresented: $showingMenu, titleVisibility: .visible) {
             Button(session.isPaused ? "Resume" : "Pause") { session.togglePause() }

@@ -15,8 +15,16 @@ namespace IOSInput {
 
 namespace {
 
+/// A press is reported for at least this many reads by the emulated console (HID samples the
+/// buttons 234 times per emulated second, so this is about one 60 fps frame). Without it a tap
+/// that starts and ends between two samples, or while emulation is briefly behind, would never
+/// reach the game. Holding a button longer than that is not affected at all.
+constexpr int MinimumPressReads = 4;
+
 struct ButtonState {
     std::array<std::atomic<bool>, Settings::NativeButton::NumButtons> pressed{};
+    /// Reads left before a release may be reported, see MinimumPressReads.
+    std::array<std::atomic<int>, Settings::NativeButton::NumButtons> pending_reads{};
 };
 
 struct AnalogState {
@@ -41,6 +49,12 @@ class Button final : public Input::ButtonDevice {
 public:
     explicit Button(int code_) : code{code_} {}
     bool GetStatus() const override {
+        auto& pending = g_buttons.pending_reads[code];
+        int reads = pending.load(std::memory_order_relaxed);
+        if (reads > 0) {
+            pending.compare_exchange_strong(reads, reads - 1, std::memory_order_relaxed);
+            return true;
+        }
         return g_buttons.pressed[code].load(std::memory_order_relaxed);
     }
 
@@ -135,6 +149,9 @@ void BindInputProfile() {
 
 void SetButton(int button, bool pressed) {
     if (button >= 0 && button < Settings::NativeButton::NumButtons) {
+        if (pressed && !g_buttons.pressed[button].load(std::memory_order_relaxed)) {
+            g_buttons.pending_reads[button].store(MinimumPressReads, std::memory_order_relaxed);
+        }
         g_buttons.pressed[button].store(pressed, std::memory_order_relaxed);
     }
 }
