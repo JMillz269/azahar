@@ -47,7 +47,7 @@ target_include_directories(azahar_ios_bridge
 
 target_link_libraries(azahar_ios_bridge PRIVATE
     citra_common citra_core video_core audio_core input_common fmt
-    "-framework Foundation" "-framework Metal" "-framework QuartzCore"
+    "-framework Foundation" "-framework Metal" "-framework QuartzCore" "-weak_framework MetalFX"
 )
 
 set_target_properties(azahar_ios_bridge PROPERTIES

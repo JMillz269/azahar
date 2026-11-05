@@ -27,6 +27,20 @@ class RendererBase;
 
 namespace Metal {
 
+/// How the 3DS screens are scaled up to the display.
+enum class UpscalerMode : int {
+    /// Plain texture filtering.
+    Off = 0,
+    /// MetalFX spatial upscaling: each screen is rendered at the game's internal resolution and
+    /// scaled to its size on the display by the GPU's upscaler. Applies from the next frame.
+    Spatial = 1,
+};
+
+void SetUpscalerMode(UpscalerMode mode);
+
+/// Whether MetalFX upscaling can be used on this device.
+bool IsUpscalingSupported();
+
 /**
  * Creates the Metal renderer. The render surface of the window (WindowSystemInfo::render_surface)
  * must be a CAMetalLayer, which the renderer configures and presents to.

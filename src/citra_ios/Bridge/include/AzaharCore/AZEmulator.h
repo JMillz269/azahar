@@ -55,6 +55,9 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 /// True when the process can generate code at runtime (a debugger enabled JIT).
 @property(class, nonatomic, readonly) BOOL isJITAvailable;
 
+/// True when MetalFX upscaling can be used on this device.
+@property(class, nonatomic, readonly) BOOL isUpscalingSupported;
+
 /// Version string of the emulator core.
 @property(class, nonatomic, readonly) NSString* versionString;
 

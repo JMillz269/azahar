@@ -3,7 +3,10 @@
 // Refer to the LICENSE.txt file included.
 
 #include <array>
+#include <atomic>
+#include <cmath>
 #include <cstring>
+#include <vector>
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
@@ -20,6 +23,14 @@
 #include "video_core/renderer_metal/mtl_scheduler.h"
 #include "video_core/renderer_metal/mtl_utility_shaders.h"
 #include "video_core/renderer_metal/renderer_metal.h"
+
+// MetalFX is weakly linked, the spatial scaler needs iOS 16 / macOS 13.
+#if __has_include(<MetalFX/MetalFX.h>)
+#import <MetalFX/MetalFX.h>
+#define AZAHAR_HAS_METALFX 1
+#else
+#define AZAHAR_HAS_METALFX 0
+#endif
 
 MICROPROFILE_DEFINE(Metal_RenderFrame, "Metal", "Render Frame", MP_RGB(128, 128, 64));
 
@@ -42,6 +53,62 @@ struct PresentUniforms {
     s32 pad[3];
 };
 static_assert(sizeof(PresentUniforms) == 48);
+
+std::atomic<int> g_upscaler_mode{static_cast<int>(UpscalerMode::Off)};
+
+/// Vertices that draw a screen texture (or the part of it given by `texcoords`) into a rectangle.
+/// The 3DS framebuffers are stored rotated, the orientation takes care of that.
+bool MakeScreenVertices(std::array<ScreenRectVertex, 4>& vertices,
+                        const Common::Rectangle<f32>& texcoords, float x, float y, float w,
+                        float h, Layout::DisplayOrientation orientation) {
+    switch (orientation) {
+    case Layout::DisplayOrientation::Landscape:
+        vertices = {{
+            ScreenRectVertex(x, y, texcoords.bottom, texcoords.left),
+            ScreenRectVertex(x + w, y, texcoords.bottom, texcoords.right),
+            ScreenRectVertex(x, y + h, texcoords.top, texcoords.left),
+            ScreenRectVertex(x + w, y + h, texcoords.top, texcoords.right),
+        }};
+        return true;
+    case Layout::DisplayOrientation::Portrait:
+        vertices = {{
+            ScreenRectVertex(x, y, texcoords.bottom, texcoords.right),
+            ScreenRectVertex(x + w, y, texcoords.top, texcoords.right),
+            ScreenRectVertex(x, y + h, texcoords.bottom, texcoords.left),
+            ScreenRectVertex(x + w, y + h, texcoords.top, texcoords.left),
+        }};
+        return true;
+    case Layout::DisplayOrientation::LandscapeFlipped:
+        vertices = {{
+            ScreenRectVertex(x, y, texcoords.top, texcoords.right),
+            ScreenRectVertex(x + w, y, texcoords.top, texcoords.left),
+            ScreenRectVertex(x, y + h, texcoords.bottom, texcoords.right),
+            ScreenRectVertex(x + w, y + h, texcoords.bottom, texcoords.left),
+        }};
+        return true;
+    case Layout::DisplayOrientation::PortraitFlipped:
+        vertices = {{
+            ScreenRectVertex(x, y, texcoords.top, texcoords.left),
+            ScreenRectVertex(x + w, y, texcoords.bottom, texcoords.left),
+            ScreenRectVertex(x, y + h, texcoords.top, texcoords.right),
+            ScreenRectVertex(x + w, y + h, texcoords.bottom, texcoords.right),
+        }};
+        return true;
+    default:
+        return false;
+    }
+}
+
+#if AZAHAR_HAS_METALFX
+/// Spatial scalers only exist on iOS 16 / macOS 13 and newer, and not on every GPU.
+bool MetalFXSupported(id<MTLDevice> device) {
+    if (@available(iOS 16.0, macOS 13.0, *)) {
+        return NSClassFromString(@"MTLFXSpatialScalerDescriptor") != nil &&
+               [MTLFXSpatialScalerDescriptor supportsDevice:device];
+    }
+    return false;
+}
+#endif
 
 class RendererMetal final : public VideoCore::RendererBase {
 public:
@@ -90,6 +157,38 @@ private:
                           float w, float h, Layout::DisplayOrientation orientation);
     void SetOpacity(id<MTLRenderCommandEncoder> encoder, float alpha);
     void LimitFramesAheadOfGpu();
+    void DrawQuad(id<MTLRenderCommandEncoder> encoder,
+                  const std::array<ScreenRectVertex, 4>& vertices, id<MTLTexture> texture,
+                  const PresentUniforms& uniforms);
+
+#if AZAHAR_HAS_METALFX
+    /// One screen draw that is run through the MetalFX spatial scaler.
+    struct UpscaleJob {
+        u32 screen_id{};
+        Layout::DisplayOrientation orientation{};
+        Common::Rectangle<f32> texcoords{};
+        u32 in_width{};
+        u32 in_height{};
+        u32 out_width{};
+        u32 out_height{};
+        bool eligible{};
+        bool ready{};
+    };
+    struct UpscaleSlot {
+        id<MTLFXSpatialScaler> scaler = nil;
+        id<MTLTexture> input = nil;
+        id<MTLTexture> output = nil;
+        u32 in_width{}, in_height{}, out_width{}, out_height{};
+        bool failed{};
+    };
+    enum class UpscalePass { Off, Collect, Draw };
+
+    bool UpscalingActive();
+    void PrepareUpscaling(const Layout::FramebufferLayout& layout);
+    bool EnsureUpscaleSlot(UpscaleSlot& slot, const UpscaleJob& job);
+    void DrawUpscaled(id<MTLRenderCommandEncoder> encoder, const UpscaleJob& job, float x,
+                      float y, float w, float h);
+#endif
 
 private:
     Pica::PicaCore& pica;
@@ -108,6 +207,14 @@ private:
     std::array<bool, 3> use_fill{};
     std::array<f32, 4> o_resolution{};
     u64 previous_frame_tick{};
+
+#if AZAHAR_HAS_METALFX
+    std::vector<UpscaleJob> upscale_jobs;
+    std::vector<UpscaleSlot> upscale_slots;
+    UpscalePass upscale_pass{UpscalePass::Off};
+    std::size_t upscale_cursor{};
+    int metalfx_support{-1}; // -1 unknown, 0 no, 1 yes
+#endif
 };
 
 void RendererMetal::CompilePresentPipelines() {
@@ -216,6 +323,20 @@ void RendererMetal::SetOpacity(id<MTLRenderCommandEncoder> encoder, float alpha)
     [encoder setBlendColorRed:0.0f green:0.0f blue:0.0f alpha:alpha];
 }
 
+void RendererMetal::DrawQuad(id<MTLRenderCommandEncoder> encoder,
+                             const std::array<ScreenRectVertex, 4>& vertices,
+                             id<MTLTexture> texture, const PresentUniforms& uniforms) {
+    [encoder setVertexBytes:vertices.data()
+                     length:sizeof(ScreenRectVertex) * vertices.size()
+                    atIndex:0];
+    [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    if (texture != nil) {
+        [encoder setFragmentTexture:texture atIndex:0];
+    }
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+}
+
 void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 screen_id, float x,
                                      float y, float w, float h,
                                      Layout::DisplayOrientation orientation) {
@@ -223,62 +344,222 @@ void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 sc
     if (!use_fill[screen_id] && screen_info.texture == nil) {
         return;
     }
-    const auto& texcoords = screen_info.texcoords;
+
+#if AZAHAR_HAS_METALFX
+    if (upscale_pass == UpscalePass::Collect) {
+        // Only records what would be drawn, the scaler runs before the actual draw.
+        UpscaleJob job;
+        job.screen_id = screen_id;
+        job.orientation = orientation;
+        job.texcoords = screen_info.texcoords;
+        id<MTLTexture> texture = screen_info.texture;
+        if (!use_fill[screen_id] && texture != nil && w >= 1.0f && h >= 1.0f) {
+            const bool swap = orientation == Layout::DisplayOrientation::Landscape ||
+                              orientation == Layout::DisplayOrientation::LandscapeFlipped;
+            const auto& tc = job.texcoords;
+            const float source_width =
+                std::abs(tc.bottom - tc.top) * static_cast<float>(texture.width);
+            const float source_height =
+                std::abs(tc.right - tc.left) * static_cast<float>(texture.height);
+            // Size of the screen at the resolution the game renders it in, in the orientation it
+            // is shown in.
+            job.in_width = static_cast<u32>(std::lround(swap ? source_height : source_width));
+            job.in_height = static_cast<u32>(std::lround(swap ? source_width : source_height));
+            job.out_width = static_cast<u32>(std::lround(w));
+            job.out_height = static_cast<u32>(std::lround(h));
+            // Only worth it, and only possible, when the screen is shown larger than it is drawn.
+            job.eligible = job.in_width >= 16 && job.in_height >= 16 &&
+                           job.out_width >= job.in_width && job.out_height >= job.in_height &&
+                           static_cast<u64>(job.out_width) * job.out_height >
+                               static_cast<u64>(job.in_width) * job.in_height * 11 / 10;
+        }
+        upscale_jobs.push_back(job);
+        return;
+    }
+    if (upscale_pass == UpscalePass::Draw) {
+        if (upscale_cursor < upscale_jobs.size()) {
+            const UpscaleJob& job = upscale_jobs[upscale_cursor++];
+            if (job.ready) {
+                DrawUpscaled(encoder, job, x, y, w, h);
+                return;
+            }
+        }
+    }
+#endif
 
     std::array<ScreenRectVertex, 4> vertices;
-    switch (orientation) {
-    case Layout::DisplayOrientation::Landscape:
-        vertices = {{
-            ScreenRectVertex(x, y, texcoords.bottom, texcoords.left),
-            ScreenRectVertex(x + w, y, texcoords.bottom, texcoords.right),
-            ScreenRectVertex(x, y + h, texcoords.top, texcoords.left),
-            ScreenRectVertex(x + w, y + h, texcoords.top, texcoords.right),
-        }};
-        break;
-    case Layout::DisplayOrientation::Portrait:
-        vertices = {{
-            ScreenRectVertex(x, y, texcoords.bottom, texcoords.right),
-            ScreenRectVertex(x + w, y, texcoords.top, texcoords.right),
-            ScreenRectVertex(x, y + h, texcoords.bottom, texcoords.left),
-            ScreenRectVertex(x + w, y + h, texcoords.top, texcoords.left),
-        }};
-        break;
-    case Layout::DisplayOrientation::LandscapeFlipped:
-        vertices = {{
-            ScreenRectVertex(x, y, texcoords.top, texcoords.right),
-            ScreenRectVertex(x + w, y, texcoords.top, texcoords.left),
-            ScreenRectVertex(x, y + h, texcoords.bottom, texcoords.right),
-            ScreenRectVertex(x + w, y + h, texcoords.bottom, texcoords.left),
-        }};
-        break;
-    case Layout::DisplayOrientation::PortraitFlipped:
-        vertices = {{
-            ScreenRectVertex(x, y, texcoords.top, texcoords.left),
-            ScreenRectVertex(x + w, y, texcoords.bottom, texcoords.left),
-            ScreenRectVertex(x, y + h, texcoords.top, texcoords.right),
-            ScreenRectVertex(x + w, y + h, texcoords.bottom, texcoords.right),
-        }};
-        break;
-    default:
+    if (!MakeScreenVertices(vertices, screen_info.texcoords, x, y, w, h, orientation)) {
         LOG_ERROR(Render, "Unknown DisplayOrientation: {}", orientation);
         return;
     }
-
     const PresentUniforms uniforms = {
         .o_resolution = o_resolution,
         .fill_color = fill_colors[screen_id],
         .use_fill = use_fill[screen_id] ? 1 : 0,
     };
-    [encoder setVertexBytes:vertices.data()
-                     length:sizeof(ScreenRectVertex) * vertices.size()
-                    atIndex:0];
-    [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
-    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
-    if (screen_info.texture != nil) {
-        [encoder setFragmentTexture:screen_info.texture atIndex:0];
-    }
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    DrawQuad(encoder, vertices, screen_info.texture, uniforms);
 }
+
+#if AZAHAR_HAS_METALFX
+
+bool RendererMetal::UpscalingActive() {
+    if (g_upscaler_mode.load(std::memory_order_relaxed) != static_cast<int>(UpscalerMode::Spatial)) {
+        return false;
+    }
+    if (metalfx_support < 0) {
+        metalfx_support = MetalFXSupported(instance.GetDevice()) ? 1 : 0;
+        LOG_INFO(Render, "MetalFX spatial upscaling is {}",
+                 metalfx_support ? "available" : "not available on this device");
+    }
+    return metalfx_support == 1;
+}
+
+bool RendererMetal::EnsureUpscaleSlot(UpscaleSlot& slot, const UpscaleJob& job) {
+    if (slot.in_width == job.in_width && slot.in_height == job.in_height &&
+        slot.out_width == job.out_width && slot.out_height == job.out_height) {
+        return !slot.failed;
+    }
+    slot = UpscaleSlot{};
+    slot.in_width = job.in_width;
+    slot.in_height = job.in_height;
+    slot.out_width = job.out_width;
+    slot.out_height = job.out_height;
+    slot.failed = true;
+
+    if (@available(iOS 16.0, macOS 13.0, *)) {
+        id<MTLDevice> device = instance.GetDevice();
+        MTLFXSpatialScalerDescriptor* desc = [MTLFXSpatialScalerDescriptor new];
+        desc.inputWidth = job.in_width;
+        desc.inputHeight = job.in_height;
+        desc.outputWidth = job.out_width;
+        desc.outputHeight = job.out_height;
+        desc.colorTextureFormat = MTLPixelFormatBGRA8Unorm;
+        desc.outputTextureFormat = MTLPixelFormatBGRA8Unorm;
+        desc.colorProcessingMode = MTLFXSpatialScalerColorProcessingModePerceptual;
+        id<MTLFXSpatialScaler> scaler = [desc newSpatialScalerWithDevice:device];
+        if (scaler == nil) {
+            LOG_WARNING(Render, "MetalFX refused to scale {}x{} to {}x{}, drawing it unscaled",
+                        job.in_width, job.in_height, job.out_width, job.out_height);
+            return false;
+        }
+
+        MTLTextureDescriptor* in_desc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                               width:job.in_width
+                                                              height:job.in_height
+                                                           mipmapped:NO];
+        in_desc.usage = MTLTextureUsageRenderTarget | scaler.colorTextureUsage;
+        in_desc.storageMode = MTLStorageModePrivate;
+        MTLTextureDescriptor* out_desc =
+            [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                               width:job.out_width
+                                                              height:job.out_height
+                                                           mipmapped:NO];
+        out_desc.usage = MTLTextureUsageShaderRead | scaler.outputTextureUsage;
+        out_desc.storageMode = MTLStorageModePrivate;
+        id<MTLTexture> input = [device newTextureWithDescriptor:in_desc];
+        id<MTLTexture> output = [device newTextureWithDescriptor:out_desc];
+        if (input == nil || output == nil) {
+            LOG_WARNING(Render, "Unable to allocate the MetalFX textures");
+            return false;
+        }
+        SetLabel(input, "MetalFX input");
+        SetLabel(output, "MetalFX output");
+        slot.scaler = scaler;
+        slot.input = input;
+        slot.output = output;
+        slot.failed = false;
+        LOG_INFO(Render, "MetalFX spatial scaler: {}x{} -> {}x{}", job.in_width, job.in_height,
+                 job.out_width, job.out_height);
+        return true;
+    }
+    return false;
+}
+
+void RendererMetal::PrepareUpscaling(const Layout::FramebufferLayout& layout) {
+    upscale_jobs.clear();
+    upscale_cursor = 0;
+    upscale_pass = UpscalePass::Off;
+    if (!UpscalingActive()) {
+        return;
+    }
+
+    // Find out which screens are drawn and how big, without drawing anything.
+    upscale_pass = UpscalePass::Collect;
+    DrawScreens(nil, layout);
+
+    if (upscale_slots.size() < upscale_jobs.size()) {
+        upscale_slots.resize(upscale_jobs.size());
+    }
+    bool any = false;
+    for (std::size_t i = 0; i < upscale_jobs.size(); i++) {
+        UpscaleJob& job = upscale_jobs[i];
+        if (!job.eligible || !EnsureUpscaleSlot(upscale_slots[i], job)) {
+            continue;
+        }
+        UpscaleSlot& slot = upscale_slots[i];
+
+        // Draw the screen at the resolution it is rendered in, in the orientation it is shown in.
+        // This also crops the part of the texture that is displayed and converts its format.
+        MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
+        desc.colorAttachments[0].texture = slot.input;
+        desc.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
+        const float width = static_cast<float>(job.in_width);
+        const float height = static_cast<float>(job.in_height);
+        std::array<ScreenRectVertex, 4> vertices;
+        if (!MakeScreenVertices(vertices, job.texcoords, 0.0f, 0.0f, width, height,
+                                job.orientation)) {
+            scheduler.EndEncoding();
+            continue;
+        }
+        [encoder setRenderPipelineState:present_pipeline];
+        [encoder setFragmentSamplerState:present_samplers[1] atIndex:0];
+        [encoder setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
+        SetOpacity(encoder, 1.0f);
+        const PresentUniforms uniforms = {
+            .o_resolution = {width, height, 1.0f / width, 1.0f / height},
+            .fill_color = {},
+            .use_fill = 0,
+        };
+        DrawQuad(encoder, vertices, screen_infos[job.screen_id].texture, uniforms);
+        scheduler.EndEncoding();
+
+        if (@available(iOS 16.0, macOS 13.0, *)) {
+            slot.scaler.colorTexture = slot.input;
+            slot.scaler.outputTexture = slot.output;
+            slot.scaler.inputContentWidth = job.in_width;
+            slot.scaler.inputContentHeight = job.in_height;
+            [slot.scaler encodeToCommandBuffer:scheduler.CommandBuffer()];
+            job.ready = true;
+            any = true;
+        }
+    }
+    upscale_pass = any ? UpscalePass::Draw : UpscalePass::Off;
+    upscale_cursor = 0;
+}
+
+void RendererMetal::DrawUpscaled(id<MTLRenderCommandEncoder> encoder, const UpscaleJob& job,
+                                 float x, float y, float w, float h) {
+    // The scaler output already has the right orientation and covers the whole rectangle.
+    const std::array<ScreenRectVertex, 4> vertices{{
+        ScreenRectVertex(x, y, 0.0f, 0.0f),
+        ScreenRectVertex(x + w, y, 1.0f, 0.0f),
+        ScreenRectVertex(x, y + h, 0.0f, 1.0f),
+        ScreenRectVertex(x + w, y + h, 1.0f, 1.0f),
+    }};
+    // Find the slot of this job: jobs and slots share their index.
+    const std::size_t index = static_cast<std::size_t>(&job - upscale_jobs.data());
+    const PresentUniforms uniforms = {
+        .o_resolution = o_resolution,
+        .fill_color = {},
+        .use_fill = 0,
+    };
+    DrawQuad(encoder, vertices, upscale_slots[index].output, uniforms);
+}
+
+#endif // AZAHAR_HAS_METALFX
 
 void RendererMetal::DrawTopScreen(id<MTLRenderCommandEncoder> encoder,
                                   const Layout::FramebufferLayout& layout,
@@ -418,6 +699,10 @@ void RendererMetal::RenderToLayer(const Layout::FramebufferLayout& layout) {
         return;
     }
 
+#if AZAHAR_HAS_METALFX
+    PrepareUpscaling(layout);
+#endif
+
     MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
     desc.colorAttachments[0].texture = drawable.texture;
     desc.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -430,6 +715,9 @@ void RendererMetal::RenderToLayer(const Layout::FramebufferLayout& layout) {
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
     scheduler.PresentDrawable(drawable);
+#if AZAHAR_HAS_METALFX
+    upscale_pass = UpscalePass::Off;
+#endif
 }
 
 void RendererMetal::RenderScreenshot() {
@@ -517,6 +805,19 @@ void RendererMetal::SwapBuffers() {
 }
 
 } // Anonymous namespace
+
+void SetUpscalerMode(UpscalerMode mode) {
+    g_upscaler_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
+}
+
+bool IsUpscalingSupported() {
+#if AZAHAR_HAS_METALFX
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    return device != nil && MetalFXSupported(device);
+#else
+    return false;
+#endif
+}
 
 std::unique_ptr<VideoCore::RendererBase> CreateRenderer(Core::System& system, Pica::PicaCore& pica,
                                                         Frontend::EmuWindow& window,

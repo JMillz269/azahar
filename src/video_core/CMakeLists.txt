@@ -243,8 +243,9 @@ if (ENABLE_METAL)
         COMPILE_OPTIONS "-fobjc-arc"
         SKIP_PRECOMPILE_HEADERS ON
     )
+    # MetalFX (spatial upscaling) is weakly linked, it only exists on iOS 16 / macOS 13 and newer.
     target_link_libraries(video_core PRIVATE "-framework Metal" "-framework QuartzCore"
-                                             "-framework Foundation")
+                                             "-framework Foundation" "-weak_framework MetalFX")
 endif()
 
 if(ENABLE_SDL2)

@@ -121,6 +121,24 @@ struct GraphicsSettingsView: View {
                 Toggle("Linear Screen Filtering", isOn: $settings.linearFiltering)
             }
 
+            Section {
+                Picker("Upscaling", selection: $settings.upscaling) {
+                    ForEach(UpscalingOption.allCases) { Text($0.title).tag($0) }
+                }
+                .disabled(!AZEmulator.isUpscalingSupported)
+            } header: {
+                Text("MetalFX")
+            } footer: {
+                if AZEmulator.isUpscalingSupported {
+                    Text("MetalFX Spatial scales each screen up to the size it is shown at with "
+                         + "Apple's GPU upscaler, which looks sharper than plain filtering and "
+                         + "lets you use a lower Internal Resolution (1x or 2x) for the same "
+                         + "picture. It applies to the next frame, you do not need to restart.")
+                } else {
+                    Text("MetalFX is not available on this device.")
+                }
+            }
+
             Section("Performance") {
                 Toggle("Skip Duplicate Frames", isOn: $settings.skipDuplicateFrames)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)

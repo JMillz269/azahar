@@ -14,6 +14,7 @@
     config.resolutionFactor = 1;
     config.linearFiltering = YES;
     config.textureFilter = 0;
+    config.upscaling = 0;
     config.skipDuplicateFrames = NO;
     config.layoutOption = AZLayoutOptionDefault;
     config.portraitLayoutOption = AZPortraitLayoutOptionTopFullWidth;

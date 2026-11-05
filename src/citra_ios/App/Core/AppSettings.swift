@@ -66,6 +66,14 @@ enum ConsoleRegion: Int, CaseIterable, Identifiable {
     }
 }
 
+enum UpscalingOption: Int, CaseIterable, Identifiable {
+    case off = 0
+    case spatial = 1
+
+    var id: Int { rawValue }
+    var title: String { self == .off ? "Off" : "MetalFX Spatial" }
+}
+
 enum TextureFilterOption: Int, CaseIterable, Identifiable {
     case none = 0
     case anime4k = 1
@@ -110,6 +118,7 @@ final class AppSettings: ObservableObject {
     @Published var linearFiltering: Bool { didSet { save(linearFiltering, "linearFiltering") } }
     @Published var textureFilter: TextureFilterOption { didSet { save(textureFilter.rawValue, "textureFilter") } }
     @Published var skipDuplicateFrames: Bool { didSet { save(skipDuplicateFrames, "skipDuplicateFrames") } }
+    @Published var upscaling: UpscalingOption { didSet { save(upscaling.rawValue, "upscaling") } }
 
     // Layout
     @Published var layout: ScreenLayout { didSet { save(layout.rawValue, "layout") } }
@@ -146,6 +155,7 @@ final class AppSettings: ObservableObject {
         linearFiltering = value("linearFiltering", true)
         textureFilter = TextureFilterOption(rawValue: value("textureFilter", 0)) ?? .none
         skipDuplicateFrames = value("skipDuplicateFrames", false)
+        upscaling = UpscalingOption(rawValue: value("upscaling", 0)) ?? .off
 
         layout = ScreenLayout(rawValue: value("layout", ScreenLayout.standard.rawValue)) ?? .standard
         portraitLayout = PortraitScreenLayout(rawValue: value("portraitLayout", 0)) ?? .topFullWidth
@@ -175,6 +185,7 @@ final class AppSettings: ObservableObject {
         config.linearFiltering = linearFiltering
         config.textureFilter = textureFilter.rawValue
         config.skipDuplicateFrames = skipDuplicateFrames
+        config.upscaling = upscaling.rawValue
         config.layoutOption = AZLayoutOption(rawValue: layout.rawValue) ?? .default
         config.portraitLayoutOption =
             AZPortraitLayoutOption(rawValue: portraitLayout.rawValue) ?? .topFullWidth

@@ -34,6 +34,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) NSInteger resolutionFactor;
 @property(nonatomic) BOOL linearFiltering;
 @property(nonatomic) NSInteger textureFilter;
+/// 0: off, 1: MetalFX spatial upscaling.
+@property(nonatomic) NSInteger upscaling;
 @property(nonatomic) BOOL skipDuplicateFrames;
 
 // Layout

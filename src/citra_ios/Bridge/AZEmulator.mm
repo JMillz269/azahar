@@ -32,6 +32,7 @@
 #include "core/loader/loader.h"
 #include "video_core/gpu.h"
 #include "video_core/renderer_base.h"
+#include "video_core/renderer_metal/renderer_metal.h"
 
 NSErrorDomain const AZEmulatorErrorDomain = @"org.azahar-emu.AzaharCore";
 
@@ -225,6 +226,15 @@ NSError* MakeError(NSInteger code, NSString* description) {
     return instance;
 }
 
++ (BOOL)isUpscalingSupported {
+    static BOOL supported = NO;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+      supported = Metal::IsUpscalingSupported();
+    });
+    return supported;
+}
+
 + (BOOL)isJITAvailable {
 #if TARGET_OS_SIMULATOR
     return YES;
@@ -330,6 +340,8 @@ NSError* MakeError(NSInteger code, NSString* description) {
     values.filter_mode = configuration.linearFiltering;
     values.texture_filter = static_cast<Settings::TextureFilter>(configuration.textureFilter);
     values.use_skip_duplicate_frames = configuration.skipDuplicateFrames;
+    Metal::SetUpscalerMode(configuration.upscaling == 1 ? Metal::UpscalerMode::Spatial
+                                                        : Metal::UpscalerMode::Off);
 
     values.layout_option = static_cast<Settings::LayoutOption>(configuration.layoutOption);
     values.portrait_layout_option =
