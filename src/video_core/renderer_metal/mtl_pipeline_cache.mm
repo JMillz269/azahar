@@ -2,9 +2,17 @@
 // Licensed under GPLv3 or any later version
 // Refer to the LICENSE.txt file included.
 
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <cstring>
+#include <thread>
+#include <fmt/format.h>
 #include "common/logging/log.h"
 #include "common/microprofile.h"
+#include "common/scm_rev.h"
 #include "common/settings.h"
+#include "common/zstd_compression.h"
 #include "video_core/pica/regs_internal.h"
 #include "video_core/pica/shader_setup.h"
 #include "video_core/renderer_metal/mtl_instance.h"
@@ -18,6 +26,65 @@ MICROPROFILE_DEFINE(Metal_PipelineBuild, "Metal", "Pipeline Build", MP_RGB(255, 
 namespace Metal {
 
 using namespace Pica::Shader::Generator;
+
+namespace {
+
+/// Disk cache file layout: a CacheHeader followed by records (RecordHeader + payload).
+constexpr u32 CACHE_MAGIC = 0x434C544D; // "MTLC"
+constexpr u32 CACHE_VERSION = 1;
+
+struct CacheHeader {
+    u32 magic;
+    u32 version;
+    u64 build_hash;
+    u64 profile_hash;
+};
+
+enum RecordType : u32 {
+    RECORD_SHADER = 1,   ///< u64 hash, u8 is_vertex, zstd compressed MSL source
+    RECORD_PIPELINE = 2, ///< PipelineKey
+};
+
+struct RecordHeader {
+    u32 type;
+    u32 size;
+};
+
+constexpr std::size_t SHADER_RECORD_PREFIX = sizeof(u64) + sizeof(u8);
+
+/// Cached programs are MSL produced by this exact build for this exact profile, anything else is
+/// regenerated.
+u64 BuildHash() {
+    return Common::ComputeHash64(Common::g_scm_rev, std::strlen(Common::g_scm_rev));
+}
+
+u64 ProfileHash(const Pica::Shader::Profile& profile) {
+    // The leading u8 flags are the ones the MSL generators look at. The rest of the struct has
+    // padding that is not guaranteed to be zero.
+    return Common::ComputeHash64(&profile, offsetof(Pica::Shader::Profile, vk_disable_spirv_optimizer));
+}
+
+} // Anonymous namespace
+
+struct PipelineCache::Shader {
+    u64 hash{};
+    bool is_vertex{};
+    std::string source;
+    std::once_flag once;
+    id<MTLFunction> function = nil;
+    std::atomic<bool> compiled{};
+    std::atomic<bool> failed{};
+};
+
+struct PipelineCache::Pipeline {
+    PipelineKey key{};
+    ShaderHandle vertex;
+    ShaderHandle fragment;
+    bool queued{}; ///< GPU thread only
+    std::once_flag once;
+    id<MTLRenderPipelineState> state = nil;
+    std::atomic<bool> done{};
+};
 
 PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* vertex_descriptor_)
     : instance{instance_}, vertex_descriptor{vertex_descriptor_} {
@@ -35,17 +102,30 @@ PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* ver
         compile_options.fastMathEnabled = NO;
     }
 
-    id<MTLLibrary> vs_library =
-        Compile(MSL::GenerateTrivialVertexShader(instance.GetProfile().has_clip_planes),
-                "trivial vertex shader");
-    ASSERT_MSG(vs_library, "Failed to compile the Metal vertex shader");
-    vertex_function = [vs_library newFunctionWithName:ToNSString(MSL::VS_ENTRY_POINT)];
+    trivial_vertex_shader =
+        MakeShader(0, true, MSL::GenerateTrivialVertexShader(GetProfile().has_clip_planes));
+    CompileShader(*trivial_vertex_shader);
+    ASSERT_MSG(!trivial_vertex_shader->failed, "Failed to compile the Metal vertex shader");
+
+    // Leave a core for the emulated CPU and one for the GPU thread.
+    const u32 cores = std::max(std::thread::hardware_concurrency(), 2u);
+    const std::size_t num_workers = std::clamp<u32>(cores - 2, 1, 4);
+    workers = std::make_unique<Common::ThreadWorker>(num_workers, "MetalShaderWorker");
 }
 
-PipelineCache::~PipelineCache() = default;
+PipelineCache::~PipelineCache() {
+    // Finish the build in progress, then keep what was built for the next run.
+    workers.reset();
+    SaveBinaryArchive();
+    CloseDiskCache();
+}
 
 const Pica::Shader::Profile& PipelineCache::GetProfile() const {
     return instance.GetProfile();
+}
+
+u64 PipelineCache::HashOf(const ShaderHandle& shader) {
+    return shader ? shader->hash : 0;
 }
 
 id<MTLLibrary> PipelineCache::Compile(const std::string& source, std::string_view name) {
@@ -64,102 +144,199 @@ id<MTLLibrary> PipelineCache::Compile(const std::string& source, std::string_vie
     return library;
 }
 
-id<MTLFunction> PipelineCache::UseFragmentShader(const Pica::RegsInternal& regs,
-                                                 const Pica::Shader::UserConfig& user,
-                                                 bool has_color_attachment,
-                                                 bool has_depth_attachment, u64& fs_hash) {
+PipelineCache::ShaderHandle PipelineCache::MakeShader(u64 hash, bool is_vertex,
+                                                      std::string source) {
+    auto shader = std::make_shared<Shader>();
+    shader->hash = hash;
+    shader->is_vertex = is_vertex;
+    shader->source = std::move(source);
+    return shader;
+}
+
+void PipelineCache::CompileShader(Shader& shader) {
+    std::call_once(shader.once, [&] {
+        id<MTLFunction> function = nil;
+        if (!shader.source.empty()) {
+            @autoreleasepool {
+                id<MTLLibrary> library =
+                    Compile(shader.source, shader.is_vertex ? "vertex shader" : "fragment shader");
+                if (library) {
+                    function = [library
+                        newFunctionWithName:ToNSString(shader.is_vertex ? MSL::VS_ENTRY_POINT
+                                                                        : MSL::FS_ENTRY_POINT)];
+                }
+            }
+        }
+        shader.function = function;
+        shader.source = {};
+        shader.failed.store(function == nil, std::memory_order_relaxed);
+        shader.compiled.store(true, std::memory_order_release);
+    });
+}
+
+PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInternal& regs,
+                                                             const Pica::Shader::UserConfig& user,
+                                                             bool has_color_attachment,
+                                                             bool has_depth_attachment) {
     const Pica::Shader::FSConfig fs_config{regs};
     MSL::MetalFSConfig metal_config{};
     metal_config.has_color_attachment = has_color_attachment;
     metal_config.has_depth_attachment = has_depth_attachment;
 
-    fs_hash = Common::HashCombine(fs_config.Hash(), static_cast<u64>(user.raw),
-                                  static_cast<u64>(has_color_attachment),
-                                  static_cast<u64>(has_depth_attachment));
-    if (const auto it = fragment_functions.find(fs_hash); it != fragment_functions.end()) {
+    u64 hash = Common::HashCombine(fs_config.Hash(), static_cast<u64>(user.raw),
+                                   static_cast<u64>(has_color_attachment),
+                                   static_cast<u64>(has_depth_attachment));
+    hash = hash == 0 ? 1 : hash;
+    if (const auto it = fragment_shaders.find(hash); it != fragment_shaders.end()) {
         return it->second;
     }
 
-    const std::string source =
-        MSL::GenerateFragmentShader(fs_config, user, instance.GetProfile(), metal_config);
-    id<MTLLibrary> library = Compile(source, "fragment shader");
-    id<MTLFunction> function =
-        library ? [library newFunctionWithName:ToNSString(MSL::FS_ENTRY_POINT)] : nil;
-    fragment_functions.emplace(fs_hash, function);
-    return function;
+    auto shader = MakeShader(
+        hash, false, MSL::GenerateFragmentShader(fs_config, user, GetProfile(), metal_config));
+    AppendShaderRecord(*shader);
+    fragment_shaders.emplace(hash, shader);
+    return shader;
 }
 
-id<MTLFunction> PipelineCache::UseVertexShader(const Pica::RegsInternal& regs,
-                                               Pica::ShaderSetup& setup, u64& vs_hash) {
+PipelineCache::ShaderHandle PipelineCache::UseVertexShader(const Pica::RegsInternal& regs,
+                                                           Pica::ShaderSetup& setup) {
     const PicaVSConfig config{regs, setup};
-    const bool use_clip_planes = instance.GetProfile().has_clip_planes;
-    const bool sanitize_mul = instance.GetProfile().enable_accurate_mul;
-    vs_hash = Common::HashCombine(config.Hash(), static_cast<u64>(use_clip_planes),
-                                  static_cast<u64>(sanitize_mul));
-    if (vs_hash == 0) {
-        vs_hash = 1;
-    }
-    if (const auto it = vertex_functions.find(vs_hash); it != vertex_functions.end()) {
-        return it->second;
+    const bool use_clip_planes = GetProfile().has_clip_planes;
+    const bool sanitize_mul = GetProfile().enable_accurate_mul;
+    u64 hash = Common::HashCombine(config.Hash(), static_cast<u64>(use_clip_planes),
+                                   static_cast<u64>(sanitize_mul));
+    hash = hash == 0 ? 1 : hash;
+    if (const auto it = vertex_shaders.find(hash); it != vertex_shaders.end()) {
+        const ShaderHandle& shader = it->second;
+        // A program whose compilation failed (possibly in the background) uses the CPU path.
+        return shader->failed.load(std::memory_order_relaxed) ? nullptr : shader;
     }
 
-    id<MTLFunction> function = nil;
-    const std::string source =
-        MSL::GenerateVertexShader(setup, config, use_clip_planes, sanitize_mul);
-    if (source.empty()) {
+    std::string source = MSL::GenerateVertexShader(setup, config, use_clip_planes, sanitize_mul);
+    auto shader = MakeShader(hash, true, std::move(source));
+    if (shader->source.empty()) {
         LOG_INFO(Render, "Vertex shader {:016x} cannot be translated, using the CPU for it",
                  config.state.program_hash);
-    } else if (id<MTLLibrary> library = Compile(source, "vertex shader")) {
-        function = [library newFunctionWithName:ToNSString(MSL::VS_ENTRY_POINT)];
+        // Remembered so the program is not translated again on every draw.
+        shader->failed = true;
+        shader->compiled = true;
+        vertex_shaders.emplace(hash, shader);
+        return nullptr;
     }
-    // Failures are cached too so the program is not translated again on every draw.
-    vertex_functions.emplace(vs_hash, function);
-    return function;
+    AppendShaderRecord(*shader);
+    vertex_shaders.emplace(hash, shader);
+    return shader;
+}
+
+void PipelineCache::BuildPipeline(Pipeline& pipeline) {
+    std::call_once(pipeline.once, [&] {
+        CompileShader(*pipeline.vertex);
+        CompileShader(*pipeline.fragment);
+        if (pipeline.vertex->failed || pipeline.fragment->failed) {
+            pipeline.done.store(true, std::memory_order_release);
+            return;
+        }
+
+        MICROPROFILE_SCOPE(Metal_PipelineBuild);
+        const PipelineKey& key = pipeline.key;
+        @autoreleasepool {
+            MTLRenderPipelineDescriptor* desc = [MTLRenderPipelineDescriptor new];
+            desc.fragmentFunction = pipeline.fragment->function;
+            desc.vertexFunction = pipeline.vertex->function;
+            if (key.vs_hash == 0) {
+                desc.vertexDescriptor = vertex_descriptor;
+            }
+            // Hardware vertex shaders fetch their inputs themselves.
+            desc.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
+            desc.rasterSampleCount = 1;
+
+            MTLRenderPipelineColorAttachmentDescriptor* color = desc.colorAttachments[0];
+            color.pixelFormat = static_cast<MTLPixelFormat>(key.color_format);
+            color.writeMask = static_cast<MTLColorWriteMask>(key.write_mask);
+            color.blendingEnabled = key.blend_enable && key.color_format != MTLPixelFormatInvalid;
+            color.rgbBlendOperation = static_cast<MTLBlendOperation>(key.rgb_op);
+            color.alphaBlendOperation = static_cast<MTLBlendOperation>(key.alpha_op);
+            color.sourceRGBBlendFactor = static_cast<MTLBlendFactor>(key.src_rgb);
+            color.destinationRGBBlendFactor = static_cast<MTLBlendFactor>(key.dst_rgb);
+            color.sourceAlphaBlendFactor = static_cast<MTLBlendFactor>(key.src_alpha);
+            color.destinationAlphaBlendFactor = static_cast<MTLBlendFactor>(key.dst_alpha);
+            desc.depthAttachmentPixelFormat = static_cast<MTLPixelFormat>(key.depth_format);
+            desc.stencilAttachmentPixelFormat = static_cast<MTLPixelFormat>(key.stencil_format);
+
+            id<MTLDevice> device = instance.GetDevice();
+            id<MTLRenderPipelineState> state = nil;
+            NSError* error = nil;
+
+            // Look the GPU binary up in the archive first. The archive is only touched with the
+            // mutex held, building a pipeline that is not in it happens without.
+            {
+                std::scoped_lock lock{archive_mutex};
+                if (binary_archive != nil) {
+                    desc.binaryArchives = @[ binary_archive ];
+                    state = [device newRenderPipelineStateWithDescriptor:desc
+                                                                 options:
+                                                                     MTLPipelineOptionFailOnBinaryArchiveMiss
+                                                              reflection:nil
+                                                                   error:nil];
+                    desc.binaryArchives = nil;
+                }
+            }
+
+            if (state == nil) {
+                state = [device newRenderPipelineStateWithDescriptor:desc error:&error];
+                if (state == nil) {
+                    LOG_CRITICAL(Render, "Failed to create Metal pipeline: {}",
+                                 error ? [error.localizedDescription UTF8String]
+                                       : "unknown error");
+                } else {
+                    std::scoped_lock lock{archive_mutex};
+                    if (binary_archive != nil) {
+                        NSError* archive_error = nil;
+                        if ([binary_archive addRenderPipelineFunctionsWithDescriptor:desc
+                                                                               error:&archive_error]) {
+                            archive_dirty.store(true, std::memory_order_relaxed);
+                        } else {
+                            LOG_DEBUG(Render, "Unable to add a pipeline to the binary archive: {}",
+                                      archive_error
+                                          ? [archive_error.localizedDescription UTF8String]
+                                          : "unknown error");
+                        }
+                    }
+                }
+            }
+            pipeline.state = state;
+        }
+        pipeline.done.store(true, std::memory_order_release);
+    });
 }
 
 id<MTLRenderPipelineState> PipelineCache::GetPipeline(const PipelineKey& key,
-                                                      id<MTLFunction> vertex,
-                                                      id<MTLFunction> fragment) {
+                                                      const ShaderHandle& vertex,
+                                                      const ShaderHandle& fragment, bool wait) {
     const u64 hash = key.Hash();
-    if (const auto it = pipelines.find(hash); it != pipelines.end()) {
-        return it->second;
+    auto& entry = pipelines[hash];
+    if (!entry) {
+        entry = std::make_shared<Pipeline>();
+        entry->key = key;
+        entry->vertex = vertex;
+        entry->fragment = fragment;
+        AppendRecord(RECORD_PIPELINE,
+                     {reinterpret_cast<const u8*>(&key), sizeof(PipelineKey)});
+    }
+    if (entry->done.load(std::memory_order_acquire)) {
+        return entry->state;
     }
 
-    MICROPROFILE_SCOPE(Metal_PipelineBuild);
-    MTLRenderPipelineDescriptor* desc = [MTLRenderPipelineDescriptor new];
-    desc.fragmentFunction = fragment;
-    if (key.vs_hash == 0) {
-        desc.vertexFunction = vertex_function;
-        desc.vertexDescriptor = vertex_descriptor;
-    } else {
-        // Hardware vertex shaders fetch their inputs themselves.
-        desc.vertexFunction = vertex;
+    if (wait || !Settings::values.async_shader_compilation.GetValue()) {
+        // Also waits for a worker that is already building it.
+        BuildPipeline(*entry);
+        return entry->state;
     }
-    desc.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
-    desc.rasterSampleCount = 1;
-
-    MTLRenderPipelineColorAttachmentDescriptor* color = desc.colorAttachments[0];
-    color.pixelFormat = static_cast<MTLPixelFormat>(key.color_format);
-    color.writeMask = static_cast<MTLColorWriteMask>(key.write_mask);
-    color.blendingEnabled = key.blend_enable && key.color_format != MTLPixelFormatInvalid;
-    color.rgbBlendOperation = static_cast<MTLBlendOperation>(key.rgb_op);
-    color.alphaBlendOperation = static_cast<MTLBlendOperation>(key.alpha_op);
-    color.sourceRGBBlendFactor = static_cast<MTLBlendFactor>(key.src_rgb);
-    color.destinationRGBBlendFactor = static_cast<MTLBlendFactor>(key.dst_rgb);
-    color.sourceAlphaBlendFactor = static_cast<MTLBlendFactor>(key.src_alpha);
-    color.destinationAlphaBlendFactor = static_cast<MTLBlendFactor>(key.dst_alpha);
-    desc.depthAttachmentPixelFormat = static_cast<MTLPixelFormat>(key.depth_format);
-    desc.stencilAttachmentPixelFormat = static_cast<MTLPixelFormat>(key.stencil_format);
-
-    NSError* error = nil;
-    id<MTLRenderPipelineState> pipeline =
-        [instance.GetDevice() newRenderPipelineStateWithDescriptor:desc error:&error];
-    if (!pipeline) {
-        LOG_CRITICAL(Render, "Failed to create Metal pipeline: {}",
-                     error ? [error.localizedDescription UTF8String] : "unknown error");
+    if (!entry->queued) {
+        entry->queued = true;
+        workers->QueueWork([this, pipeline = entry] { BuildPipeline(*pipeline); });
     }
-    pipelines.emplace(hash, pipeline);
-    return pipeline;
+    return nil;
 }
 
 id<MTLDepthStencilState> PipelineCache::GetDepthStencilState(const DepthStencilKey& key) {
@@ -194,6 +371,278 @@ void PipelineCache::QueryBlendEmulation(const Pica::RegsInternal& regs, bool& rg
     framebuffer_config.ApplyProfile(instance.GetProfile());
     rgb_emulation = framebuffer_config.requested_rgb_blend.RequiresMinMaxEmulation();
     alpha_emulation = framebuffer_config.requested_alpha_blend.RequiresMinMaxEmulation();
+}
+
+void PipelineCache::TickFrame() {
+    // Save new pipeline binaries every minute or so, in the background, so they are not lost if
+    // iOS terminates the app.
+    constexpr u32 SAVE_INTERVAL_FRAMES = 3600;
+    if (++frames_since_save < SAVE_INTERVAL_FRAMES) {
+        return;
+    }
+    frames_since_save = 0;
+    if (archive_dirty.load(std::memory_order_relaxed)) {
+        workers->QueueWork([this] { SaveBinaryArchive(); });
+    }
+}
+
+// Disk cache
+
+std::string PipelineCache::CachePath(std::string_view extension) const {
+    return fmt::format("{}metal/{:016X}.{}", FileUtil::GetUserPath(FileUtil::UserPath::ShaderDir),
+                       title_id, extension);
+}
+
+void PipelineCache::AppendRecord(u32 type, std::span<const u8> payload) {
+    if (!disk_cache_open || !cache_file.IsOpen()) {
+        return;
+    }
+    const RecordHeader header{type, static_cast<u32>(payload.size())};
+    cache_file.WriteBytes(&header, sizeof(header));
+    cache_file.WriteBytes(payload.data(), payload.size());
+    cache_file.Flush();
+}
+
+void PipelineCache::AppendShaderRecord(const Shader& shader) {
+    if (!disk_cache_open) {
+        return;
+    }
+    const auto compressed = Common::Compression::CompressDataZSTDDefault(
+        {reinterpret_cast<const u8*>(shader.source.data()), shader.source.size()});
+    std::vector<u8> payload(SHADER_RECORD_PREFIX + compressed.size());
+    std::memcpy(payload.data(), &shader.hash, sizeof(u64));
+    payload[sizeof(u64)] = shader.is_vertex ? 1 : 0;
+    std::memcpy(payload.data() + SHADER_RECORD_PREFIX, compressed.data(), compressed.size());
+    AppendRecord(RECORD_SHADER, payload);
+}
+
+void PipelineCache::CloseDiskCache() {
+    cache_file.Close();
+    disk_cache_open = false;
+}
+
+void PipelineCache::OpenDiskCache(u64 title_id_) {
+    title_id = title_id_;
+    FileUtil::CreateFullPath(CachePath("cache"));
+
+    const CacheHeader expected{
+        .magic = CACHE_MAGIC,
+        .version = CACHE_VERSION,
+        .build_hash = BuildHash(),
+        .profile_hash = ProfileHash(GetProfile()),
+    };
+
+    // Reuse the file when it was written by this build with the same profile, otherwise start over.
+    bool valid = false;
+    {
+        FileUtil::IOFile file{CachePath("cache"), "rb"};
+        CacheHeader header{};
+        valid = file.IsOpen() && file.ReadBytes(&header, sizeof(header)) == sizeof(header) &&
+                std::memcmp(&header, &expected, sizeof(header)) == 0;
+    }
+    if (!valid) {
+        FileUtil::Delete(CachePath("cache"));
+        FileUtil::IOFile file{CachePath("cache"), "wb"};
+        file.WriteBytes(&expected, sizeof(expected));
+    }
+    cache_file = FileUtil::IOFile{CachePath("cache"), "ab"};
+    disk_cache_open = cache_file.IsOpen();
+    if (!disk_cache_open) {
+        LOG_ERROR(Render, "Unable to open the Metal shader cache {}", CachePath("cache"));
+    }
+
+    // The binary archive keeps the GPU binaries of the pipelines.
+    if (@available(iOS 14.0, macOS 11.0, *)) {
+        const std::string archive_path = CachePath("binarchive");
+        if (!valid) {
+            FileUtil::Delete(archive_path);
+        }
+        id<MTLDevice> device = instance.GetDevice();
+        MTLBinaryArchiveDescriptor* desc = [MTLBinaryArchiveDescriptor new];
+        if (FileUtil::Exists(archive_path)) {
+            desc.url = [NSURL fileURLWithPath:ToNSString(archive_path)];
+        }
+        NSError* error = nil;
+        id<MTLBinaryArchive> archive = [device newBinaryArchiveWithDescriptor:desc error:&error];
+        if (archive == nil && desc.url != nil) {
+            // Written by another OS or GPU driver version.
+            LOG_INFO(Render, "Discarding the Metal binary archive: {}",
+                     error ? [error.localizedDescription UTF8String] : "unknown error");
+            FileUtil::Delete(archive_path);
+            desc.url = nil;
+            archive = [device newBinaryArchiveWithDescriptor:desc error:&error];
+        }
+        std::scoped_lock lock{archive_mutex};
+        binary_archive = archive;
+        archive_dirty.store(false, std::memory_order_relaxed);
+    }
+}
+
+void PipelineCache::SaveBinaryArchive() {
+    std::scoped_lock lock{archive_mutex};
+    if (binary_archive == nil || !archive_dirty.load(std::memory_order_relaxed)) {
+        return;
+    }
+    // Write next to the file the archive may have been loaded from, then replace it.
+    const std::string path = CachePath("binarchive");
+    const std::string temp_path = path + ".tmp";
+    NSError* error = nil;
+    if ([binary_archive serializeToURL:[NSURL fileURLWithPath:ToNSString(temp_path)]
+                                 error:&error]) {
+        FileUtil::Delete(path);
+        FileUtil::Rename(temp_path, path);
+        archive_dirty.store(false, std::memory_order_relaxed);
+    } else {
+        LOG_WARNING(Render, "Unable to save the Metal binary archive: {}",
+                    error ? [error.localizedDescription UTF8String] : "unknown error");
+        FileUtil::Delete(temp_path);
+    }
+}
+
+void PipelineCache::LoadDiskCache(u64 title_id_, const std::atomic_bool& stop_loading,
+                                  const VideoCore::DiskResourceLoadCallback& callback) {
+    using VideoCore::LoadCallbackStage;
+    if (!Settings::values.use_disk_shader_cache.GetValue() || title_id_ == 0) {
+        return;
+    }
+    title_id = title_id_;
+
+    // A loading flag left behind means building the cache crashed last time, so it is not trusted.
+    const std::string flag_path = CachePath("loading");
+    const bool crashed = FileUtil::Exists(flag_path);
+    if (crashed) {
+        LOG_WARNING(Render, "Building the shader cache of {:016X} did not finish last time, "
+                            "discarding it",
+                    title_id);
+        FileUtil::Delete(CachePath("cache"));
+        FileUtil::Delete(CachePath("binarchive"));
+        FileUtil::Delete(flag_path);
+    }
+
+    // Read the records before opening the file for appending.
+    std::vector<u8> contents;
+    {
+        FileUtil::IOFile file{CachePath("cache"), "rb"};
+        if (file.IsOpen()) {
+            contents.resize(file.GetSize());
+            contents.resize(file.ReadBytes(contents.data(), contents.size()));
+        }
+    }
+    OpenDiskCache(title_id);
+    if (!disk_cache_open) {
+        return;
+    }
+    const CacheHeader expected{CACHE_MAGIC, CACHE_VERSION, BuildHash(),
+                               ProfileHash(GetProfile())};
+    if (contents.size() < sizeof(CacheHeader) ||
+        std::memcmp(contents.data(), &expected, sizeof(CacheHeader)) != 0) {
+        return;
+    }
+
+    // Parse the records. A truncated record at the end (the app was killed while writing) ends
+    // the list.
+    std::vector<PipelineKey> keys;
+    std::size_t offset = sizeof(CacheHeader);
+    while (offset + sizeof(RecordHeader) <= contents.size()) {
+        RecordHeader header;
+        std::memcpy(&header, contents.data() + offset, sizeof(header));
+        offset += sizeof(header);
+        if (offset + header.size > contents.size()) {
+            break;
+        }
+        const std::span<const u8> payload{contents.data() + offset, header.size};
+        offset += header.size;
+
+        if (header.type == RECORD_SHADER && payload.size() > SHADER_RECORD_PREFIX) {
+            u64 hash;
+            std::memcpy(&hash, payload.data(), sizeof(hash));
+            const bool is_vertex = payload[sizeof(u64)] != 0;
+            const auto source =
+                Common::Compression::DecompressDataZSTD(payload.subspan(SHADER_RECORD_PREFIX));
+            if (source.empty()) {
+                continue;
+            }
+            auto& map = is_vertex ? vertex_shaders : fragment_shaders;
+            map.try_emplace(hash, MakeShader(hash, is_vertex,
+                                             std::string{source.begin(), source.end()}));
+        } else if (header.type == RECORD_PIPELINE && payload.size() == sizeof(PipelineKey)) {
+            PipelineKey key;
+            std::memcpy(&key, payload.data(), sizeof(key));
+            keys.push_back(key);
+        }
+    }
+
+    // Build every pipeline on the workers.
+    std::vector<std::shared_ptr<Pipeline>> to_build;
+    for (const PipelineKey& key : keys) {
+        const u64 hash = key.Hash();
+        if (pipelines.contains(hash)) {
+            continue;
+        }
+        ShaderHandle vertex = trivial_vertex_shader;
+        if (key.vs_hash != 0) {
+            const auto it = vertex_shaders.find(key.vs_hash);
+            if (it == vertex_shaders.end()) {
+                continue;
+            }
+            vertex = it->second;
+        }
+        const auto it = fragment_shaders.find(key.fs_hash);
+        if (it == fragment_shaders.end()) {
+            continue;
+        }
+        auto pipeline = std::make_shared<Pipeline>();
+        pipeline->key = key;
+        pipeline->vertex = vertex;
+        pipeline->fragment = it->second;
+        pipeline->queued = true;
+        pipelines.emplace(hash, pipeline);
+        to_build.push_back(std::move(pipeline));
+    }
+
+    const std::size_t total = to_build.size();
+    LOG_INFO(Render, "Building {} cached pipelines of {:016X} ({} fragment and {} vertex programs)",
+             total, title_id, fragment_shaders.size(), vertex_shaders.size());
+    if (total == 0) {
+        return;
+    }
+
+    FileUtil::CreateEmptyFile(flag_path);
+    if (callback) {
+        callback(LoadCallbackStage::Build, 0, total, "");
+    }
+    const auto start = std::chrono::steady_clock::now();
+    auto built = std::make_shared<std::atomic<std::size_t>>(0);
+    for (auto& pipeline : to_build) {
+        workers->QueueWork([this, pipeline, built] {
+            BuildPipeline(*pipeline);
+            built->fetch_add(1, std::memory_order_relaxed);
+        });
+    }
+    // Wait while reporting the progress. On stop the rest is built in the background.
+    std::size_t reported = 0;
+    while (!stop_loading) {
+        const std::size_t done = built->load(std::memory_order_relaxed);
+        if (callback && done != reported) {
+            callback(LoadCallbackStage::Build, done, total, "");
+            reported = done;
+        }
+        if (done >= total) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    // Only a crash while building leaves the flag behind; an early stop is not one.
+    FileUtil::Delete(flag_path);
+    if (built->load() >= total) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start);
+        LOG_INFO(Render, "Built {} cached pipelines in {} ms", total, elapsed.count());
+        SaveBinaryArchive();
+    }
+    if (callback) {
+        callback(LoadCallbackStage::Complete, 0, 0, "");
+    }
 }
 
 } // namespace Metal

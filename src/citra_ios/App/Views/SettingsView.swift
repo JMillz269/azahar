@@ -98,6 +98,7 @@ struct GeneralSettingsView: View {
 
 struct GraphicsSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @State private var clearedShaderCache = false
 
     var body: some View {
         Form {
@@ -143,6 +144,24 @@ struct GraphicsSettingsView: View {
                 } else {
                     Text("MetalFX is not available on this device.")
                 }
+            }
+
+            Section {
+                Toggle("Async Shader Compilation", isOn: $settings.asyncShaders)
+                Toggle("Disk Shader Cache", isOn: $settings.diskShaderCache)
+                Button("Clear Shader Cache", role: .destructive) {
+                    clearedShaderCache = FileLocations.clearShaderCache()
+                }
+            } header: {
+                Text("Shaders")
+            } footer: {
+                Text("Async Shader Compilation builds new shaders in the background instead of "
+                     + "pausing the game, an object may be missing for a moment instead. The disk "
+                     + "shader cache remembers the shaders of each game and builds them while it "
+                     + "boots, so they don't need to be built again during play.")
+            }
+            .alert("Shader Cache Cleared", isPresented: $clearedShaderCache) {
+                Button("OK", role: .cancel) {}
             }
 
             Section("Performance") {

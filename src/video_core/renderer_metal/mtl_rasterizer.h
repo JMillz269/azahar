@@ -86,8 +86,7 @@ private:
 
     /// A draw whose vertices are processed by a hardware vertex shader.
     struct HardwareDraw {
-        id<MTLFunction> function = nil;
-        u64 vs_hash{};
+        PipelineCache::ShaderHandle vertex;
         bool is_indexed{};
         VertexArrayInfo vertex_info{};
         u32 vertex_count{}; ///< Vertices drawn, three per triangle.

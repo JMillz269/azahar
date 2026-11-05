@@ -4,8 +4,17 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <span>
+#include <string>
 #include <unordered_map>
+#include "common/common_funcs.h"
+#include "common/file_util.h"
 #include "common/hash.h"
+#include "common/thread_worker.h"
+#include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_metal/mtl_common.h"
 #include "video_core/shader/generator/pica_fs_config.h"
 
@@ -63,40 +72,52 @@ static_assert(std::has_unique_object_representations_v<DepthStencilKey>);
 /**
  * Generates, compiles and caches the MSL programs and the pipeline/depth-stencil state objects
  * used by the rasterizer.
+ *
+ * Programs and pipelines can be built on worker threads (async shader compilation), in which case
+ * GetPipeline returns nil until the pipeline is ready and the draw is skipped. Every program and
+ * pipeline that is built is also recorded in a per title disk cache, which is built in advance
+ * the next time the title boots, and the GPU binaries of the pipelines are kept in a
+ * MTLBinaryArchive so building them again is cheap.
  */
 class PipelineCache {
 public:
+    struct Shader;
+    using ShaderHandle = std::shared_ptr<Shader>;
+
     explicit PipelineCache(const Instance& instance, MTLVertexDescriptor* vertex_descriptor);
     ~PipelineCache();
 
     /// Returns the shader generator profile.
     const Pica::Shader::Profile& GetProfile() const;
 
-    /**
-     * Returns the fragment function for the current PICA state, generating and compiling it if
-     * it was never seen before. Returns nil if compilation failed.
-     * @param fs_hash Receives the hash identifying the function.
-     */
-    id<MTLFunction> UseFragmentShader(const Pica::RegsInternal& regs,
-                                      const Pica::Shader::UserConfig& user,
-                                      bool has_color_attachment, bool has_depth_attachment,
-                                      u64& fs_hash);
+    /// Returns the fragment program for the current PICA state, generating it if it was never
+    /// seen before. Compilation happens when a pipeline using it is built.
+    ShaderHandle UseFragmentShader(const Pica::RegsInternal& regs,
+                                   const Pica::Shader::UserConfig& user, bool has_color_attachment,
+                                   bool has_depth_attachment);
 
     /**
-     * Returns the hardware vertex function translated from the current PICA vertex shader,
-     * compiling it if it was never seen before. Returns nil if the program cannot be translated,
-     * in which case the draw has to use the software vertex path.
-     * @param vs_hash Receives the hash identifying the function (never 0).
+     * Returns the hardware vertex program translated from the current PICA vertex shader. Returns
+     * nullptr if the program cannot be translated or failed to compile, in which case the draw has
+     * to use the software vertex path.
      */
-    id<MTLFunction> UseVertexShader(const Pica::RegsInternal& regs, Pica::ShaderSetup& setup,
-                                    u64& vs_hash);
+    ShaderHandle UseVertexShader(const Pica::RegsInternal& regs, Pica::ShaderSetup& setup);
+
+    /// The vertex program of the software vertex path.
+    const ShaderHandle& TrivialVertexShader() const {
+        return trivial_vertex_shader;
+    }
+
+    /// Hash identifying a program, the value to store in PipelineKey::vs_hash/fs_hash.
+    static u64 HashOf(const ShaderHandle& shader);
 
     /**
-     * Returns the pipeline state for the provided key and fragment function. The vertex function
-     * is the software path one when key.vs_hash is 0, otherwise `vertex`.
+     * Returns the pipeline state for the key and programs. With `wait` false and async shader
+     * compilation enabled, a pipeline that is not built yet is queued to the workers and nil is
+     * returned. Also returns nil if building the pipeline failed.
      */
-    id<MTLRenderPipelineState> GetPipeline(const PipelineKey& key, id<MTLFunction> vertex,
-                                           id<MTLFunction> fragment);
+    id<MTLRenderPipelineState> GetPipeline(const PipelineKey& key, const ShaderHandle& vertex,
+                                           const ShaderHandle& fragment, bool wait);
 
     /// Returns the depth/stencil state for the provided key.
     id<MTLDepthStencilState> GetDepthStencilState(const DepthStencilKey& key);
@@ -105,23 +126,63 @@ public:
     void QueryBlendEmulation(const Pica::RegsInternal& regs, bool& rgb_emulation,
                              bool& alpha_emulation) const;
 
-    /// Number of fragment programs compiled so far.
+    /**
+     * Opens the disk cache of a title and builds every program and pipeline it contains, reporting
+     * the progress through `callback`. Stops early when `stop_loading` becomes true.
+     */
+    void LoadDiskCache(u64 title_id, const std::atomic_bool& stop_loading,
+                       const VideoCore::DiskResourceLoadCallback& callback);
+
+    /// Writes the pipeline binaries built since the last call to the binary archive.
+    void SaveBinaryArchive();
+
+    /// Called once per emulated frame, saves the binary archive from time to time.
+    void TickFrame();
+
+    /// Number of fragment programs generated so far.
     std::size_t NumPrograms() const {
-        return fragment_functions.size();
+        return fragment_shaders.size();
     }
 
 private:
+    struct Pipeline;
+
+    ShaderHandle MakeShader(u64 hash, bool is_vertex, std::string source);
+    void CompileShader(Shader& shader);
+    void BuildPipeline(Pipeline& pipeline);
     id<MTLLibrary> Compile(const std::string& source, std::string_view name);
+
+    void OpenDiskCache(u64 title_id);
+    void CloseDiskCache();
+    void AppendRecord(u32 type, std::span<const u8> payload);
+    void AppendShaderRecord(const Shader& shader);
+    std::string CachePath(std::string_view extension) const;
 
 private:
     const Instance& instance;
     MTLVertexDescriptor* vertex_descriptor;
     MTLCompileOptions* compile_options;
-    id<MTLFunction> vertex_function;
-    std::unordered_map<u64, id<MTLFunction>> fragment_functions;
-    std::unordered_map<u64, id<MTLFunction>> vertex_functions;
-    std::unordered_map<u64, id<MTLRenderPipelineState>> pipelines;
+    ShaderHandle trivial_vertex_shader;
+
+    // Only accessed from the GPU thread.
+    std::unordered_map<u64, ShaderHandle> fragment_shaders;
+    std::unordered_map<u64, ShaderHandle> vertex_shaders;
+    std::unordered_map<u64, std::shared_ptr<Pipeline>> pipelines;
     std::unordered_map<u64, id<MTLDepthStencilState>> depth_stencil_states;
+
+    // Disk cache of the current title.
+    u64 title_id{};
+    bool disk_cache_open{};
+    FileUtil::IOFile cache_file;
+
+    // GPU binaries of the pipelines. Shared with the workers, guarded by the mutex.
+    std::mutex archive_mutex;
+    id<MTLBinaryArchive> binary_archive = nil;
+    std::atomic<bool> archive_dirty{};
+    u32 frames_since_save{};
+
+    // Declared last so the workers stop before the rest is destroyed.
+    std::unique_ptr<Common::ThreadWorker> workers;
 };
 
 } // namespace Metal

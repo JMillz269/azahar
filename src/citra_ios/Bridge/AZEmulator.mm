@@ -206,6 +206,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
     std::atomic<AZEmulationState> _state;
     std::atomic<double> _speed;
     std::atomic<double> _fps;
+    std::atomic<double> _shaderProgress;
 
     // Pending surface state, applied on the emulation thread.
     std::mutex _surfaceMutex;
@@ -261,6 +262,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
         _state = AZEmulationStateStopped;
         _speed = 0.0;
         _fps = 0.0;
+        _shaderProgress = -1.0;
         _surfaceDirty = false;
         _drawableSize = CGSizeZero;
         _userDirectory = @"";
@@ -282,6 +284,10 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
 - (double)framesPerSecond {
     return _fps.load();
+}
+
+- (double)shaderBuildProgress {
+    return _shaderProgress.load();
 }
 
 - (void)setUpWithUserDirectory:(NSString*)directory {
@@ -338,6 +344,8 @@ NSError* MakeError(NSInteger code, NSString* description) {
     values.filter_mode = configuration.linearFiltering;
     values.texture_filter = static_cast<Settings::TextureFilter>(configuration.textureFilter);
     values.use_skip_duplicate_frames = configuration.skipDuplicateFrames;
+    values.async_shader_compilation = configuration.asyncShaderCompilation;
+    values.use_disk_shader_cache = configuration.diskShaderCache;
     Metal::SetUpscalerMode(configuration.upscaling == 1 ? Metal::UpscalerMode::Spatial
                                                         : Metal::UpscalerMode::Off);
 
@@ -480,7 +488,17 @@ NSError* MakeError(NSInteger code, NSString* description) {
     }
 
     system.GPU().ApplyPerProgramSettings(program_id);
-    system.GPU().Renderer().Rasterizer()->LoadDefaultDiskResources(_stopRequested, nullptr);
+    // Builds the shaders cached by earlier runs of this game, reporting the progress to the UI.
+    system.GPU().Renderer().Rasterizer()->LoadDefaultDiskResources(
+        _stopRequested, [self](VideoCore::LoadCallbackStage stage, std::size_t value,
+                               std::size_t total, const std::string&) {
+            if (stage == VideoCore::LoadCallbackStage::Build && total > 0) {
+                self->_shaderProgress = static_cast<double>(value) / static_cast<double>(total);
+            } else if (stage == VideoCore::LoadCallbackStage::Complete) {
+                self->_shaderProgress = -1.0;
+            }
+        });
+    _shaderProgress = -1.0;
     system.RegisterCoreLoopThreadId();
 
     NSError* error = nil;

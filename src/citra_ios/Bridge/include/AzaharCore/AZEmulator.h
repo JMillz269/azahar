@@ -69,6 +69,8 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 /// Speed and frame statistics, safe to read from any thread.
 @property(nonatomic, readonly) double emulationSpeed;
 @property(nonatomic, readonly) double framesPerSecond;
+/// Progress (0 to 1) of building the cached shaders while a game boots, negative otherwise.
+@property(nonatomic, readonly) double shaderBuildProgress;
 
 /// Called on the main thread when emulation stops on its own (shutdown or error). The error is
 /// nil on a regular shutdown.

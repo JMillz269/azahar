@@ -18,6 +18,8 @@
     config.textureFilter = 0;
     config.upscaling = 0;
     config.skipDuplicateFrames = NO;
+    config.asyncShaderCompilation = YES;
+    config.diskShaderCache = YES;
     config.layoutOption = AZLayoutOptionDefault;
     config.portraitLayoutOption = AZPortraitLayoutOptionTopFullWidth;
     config.swapScreens = NO;

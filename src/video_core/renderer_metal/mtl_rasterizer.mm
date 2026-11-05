@@ -11,6 +11,8 @@
 #include "common/math_util.h"
 #include "common/microprofile.h"
 #include "common/settings.h"
+#include "core/core.h"
+#include "core/loader/loader.h"
 #include "core/memory.h"
 #include "video_core/pica/regs_shader.h"
 #include "video_core/pica/pica_core.h"
@@ -92,13 +94,21 @@ MTLVertexDescriptor* RasterizerMetal::MakeVertexDescriptor() {
 
 void RasterizerMetal::TickFrame() {
     res_cache.TickFrame();
+    pipeline_cache.TickFrame();
 }
 
 void RasterizerMetal::LoadDefaultDiskResources(
     const std::atomic_bool& stop_loading, const VideoCore::DiskResourceLoadCallback& callback) {
-    // TODO: Persist compiled pipelines with MTLBinaryArchive.
     if (callback) {
         callback(VideoCore::LoadCallbackStage::Prepare, 0, 0, "");
+    }
+    u64 program_id{};
+    if (Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id) !=
+        Loader::ResultStatus::Success) {
+        program_id = 0;
+    }
+    pipeline_cache.LoadDiskCache(program_id, stop_loading, callback);
+    if (callback) {
         callback(VideoCore::LoadCallbackStage::Complete, 0, 0, "");
     }
 }
@@ -198,8 +208,8 @@ bool RasterizerMetal::AccelerateDrawBatch(bool is_indexed) {
 
     HardwareDraw draw;
     draw.is_indexed = is_indexed;
-    draw.function = pipeline_cache.UseVertexShader(regs, pica.vs_setup, draw.vs_hash);
-    if (draw.function == nil) {
+    draw.vertex = pipeline_cache.UseVertexShader(regs, pica.vs_setup);
+    if (!draw.vertex) {
         return false;
     }
 
@@ -401,24 +411,24 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     // Sync and compile the fragment shader
     const bool has_color = framebuffer->Attachment(SurfaceType::Color) != nil && !shadow_rendering;
     const bool has_depth = framebuffer->Attachment(SurfaceType::Depth) != nil && !shadow_rendering;
-    u64 fs_hash{};
-    id<MTLFunction> fragment =
-        pipeline_cache.UseFragmentShader(regs, user_config, has_color, has_depth, fs_hash);
+    const auto fragment =
+        pipeline_cache.UseFragmentShader(regs, user_config, has_color, has_depth);
+    const auto& vertex = hw_draw ? hw_draw->vertex : pipeline_cache.TrivialVertexShader();
 
     // Sync the LUTs within the texture buffers
     SyncAndUploadLUTs();
     SyncAndUploadLUTsLF();
 
-    if (fragment == nil) {
-        return true;
-    }
-
     PipelineKey key;
     DepthStencilKey ds_key;
-    SyncFixedState(*framebuffer, fs_hash, key, ds_key);
-    key.vs_hash = hw_draw ? hw_draw->vs_hash : 0;
+    SyncFixedState(*framebuffer, PipelineCache::HashOf(fragment), key, ds_key);
+    key.vs_hash = PipelineCache::HashOf(vertex);
+    // With async shader compilation a draw whose pipeline is still being built is skipped, but
+    // small draws (fullscreen passes, UI quads) wait: skipping them is much more visible.
+    const u32 draw_vertices =
+        hw_draw ? regs.pipeline.num_vertices : static_cast<u32>(vertex_batch.size());
     id<MTLRenderPipelineState> pipeline =
-        pipeline_cache.GetPipeline(key, hw_draw ? hw_draw->function : nil, fragment);
+        pipeline_cache.GetPipeline(key, vertex, fragment, draw_vertices <= 6);
     if (pipeline == nil) {
         return true;
     }

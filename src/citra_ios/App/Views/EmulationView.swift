@@ -56,6 +56,21 @@ struct EmulationView: View {
             }
             .padding(.horizontal, 8)
 
+            if let progress = session.shaderBuildProgress {
+                VStack(spacing: 8) {
+                    Text("Building Shaders")
+                        .font(.headline)
+                    ProgressView(value: progress)
+                        .frame(width: 180)
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .allowsHitTesting(false)
+            }
+
             if session.isPaused && !editingLayout {
                 Text("Paused")
                     .font(.headline)

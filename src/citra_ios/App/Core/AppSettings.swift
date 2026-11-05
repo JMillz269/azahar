@@ -120,6 +120,8 @@ final class AppSettings: ObservableObject {
     @Published var linearFiltering: Bool { didSet { save(linearFiltering, "linearFiltering") } }
     @Published var textureFilter: TextureFilterOption { didSet { save(textureFilter.rawValue, "textureFilter") } }
     @Published var skipDuplicateFrames: Bool { didSet { save(skipDuplicateFrames, "skipDuplicateFrames") } }
+    @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
+    @Published var diskShaderCache: Bool { didSet { save(diskShaderCache, "diskShaderCache") } }
     @Published var upscaling: UpscalingOption { didSet { save(upscaling.rawValue, "upscaling") } }
 
     // Layout
@@ -159,6 +161,8 @@ final class AppSettings: ObservableObject {
         linearFiltering = value("linearFiltering", true)
         textureFilter = TextureFilterOption(rawValue: value("textureFilter", 0)) ?? .none
         skipDuplicateFrames = value("skipDuplicateFrames", false)
+        asyncShaders = value("asyncShaders", true)
+        diskShaderCache = value("diskShaderCache", true)
         upscaling = UpscalingOption(rawValue: value("upscaling", 0)) ?? .off
 
         layout = ScreenLayout(rawValue: value("layout", ScreenLayout.standard.rawValue)) ?? .standard
@@ -191,6 +195,8 @@ final class AppSettings: ObservableObject {
         config.linearFiltering = linearFiltering
         config.textureFilter = textureFilter.rawValue
         config.skipDuplicateFrames = skipDuplicateFrames
+        config.asyncShaderCompilation = asyncShaders
+        config.diskShaderCache = diskShaderCache
         config.upscaling = upscaling.rawValue
         config.layoutOption = AZLayoutOption(rawValue: layout.rawValue) ?? .default
         config.portraitLayoutOption =

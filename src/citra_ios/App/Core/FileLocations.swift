@@ -25,6 +25,18 @@ enum FileLocations {
         "3ds", "cci", "cxi", "3dsx", "app", "elf", "axf", "zcci", "zcxi", "z3dsx",
     ]
 
+    /// Metal shader caches of every game (see the Metal PipelineCache).
+    static var shaderCacheDirectory: URL {
+        userDirectory.appendingPathComponent("shaders/metal", isDirectory: true)
+    }
+
+    /// Deletes the shader caches. Returns true so it can drive a confirmation alert.
+    @discardableResult
+    static func clearShaderCache() -> Bool {
+        try? FileManager.default.removeItem(at: shaderCacheDirectory)
+        return true
+    }
+
     static func createDirectories() {
         for url in [userDirectory, romsDirectory] {
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

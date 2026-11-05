@@ -39,6 +39,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 /// 0: off, 1: MetalFX spatial upscaling.
 @property(nonatomic) NSInteger upscaling;
 @property(nonatomic) BOOL skipDuplicateFrames;
+@property(nonatomic) BOOL asyncShaderCompilation;
+@property(nonatomic) BOOL diskShaderCache;
 
 // Layout
 @property(nonatomic) AZLayoutOption layoutOption;
