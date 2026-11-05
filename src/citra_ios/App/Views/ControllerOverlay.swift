@@ -280,25 +280,49 @@ private struct PressGesture: ViewModifier {
     let button: ConsoleButton
     let haptics: Bool
     @Binding var pressed: Bool
+    @State private var isDown = false
+    @State private var downAt = Date.distantPast
+    @State private var generation = 0
 
     func body(content: Content) -> some View {
         content.gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    if !pressed {
-                        pressed = true
-                        button.set(true)
-                        if haptics {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
+                    guard !isDown else { return }
+                    isDown = true
+                    generation += 1
+                    downAt = Date()
+                    pressed = true
+                    button.set(true)
+                    if haptics {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                 }
                 .onEnded { _ in
-                    pressed = false
-                    button.set(false)
+                    isDown = false
+                    // The emulator reads the buttons once per frame. A quick tap that is released
+                    // before then would never be seen (and never drawn), so keep the button down
+                    // for a minimum time.
+                    let remaining = ControllerTiming.minimumPress - Date().timeIntervalSince(downAt)
+                    guard remaining > 0 else {
+                        pressed = false
+                        button.set(false)
+                        return
+                    }
+                    let token = generation
+                    DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+                        guard token == generation, !isDown else { return }
+                        pressed = false
+                        button.set(false)
+                    }
                 }
         )
     }
+}
+
+enum ControllerTiming {
+    /// Shortest time a touch press is held for the game, in seconds (about four frames).
+    static let minimumPress: TimeInterval = 0.07
 }
 
 private struct RoundButton: View {
@@ -389,6 +413,8 @@ private struct DPad: View {
     let size: CGFloat
     let haptics: Bool
     @State private var active: Set<ConsoleButton> = []
+    @State private var lastPress = Date.distantPast
+    @State private var releaseToken = 0
 
     var body: some View {
         ZStack {
@@ -409,8 +435,23 @@ private struct DPad: View {
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
-                .onChanged { value in update(location: value.location) }
-                .onEnded { _ in update(directions: []) }
+                .onChanged { value in
+                    releaseToken += 1
+                    update(location: value.location)
+                }
+                .onEnded { _ in
+                    // Keep a quick tap down long enough for the game to see it.
+                    let remaining = ControllerTiming.minimumPress - Date().timeIntervalSince(lastPress)
+                    releaseToken += 1
+                    let token = releaseToken
+                    if remaining > 0 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+                            if token == releaseToken { update(directions: []) }
+                        }
+                    } else {
+                        update(directions: [])
+                    }
+                }
         )
     }
 
@@ -453,8 +494,11 @@ private struct DPad: View {
         for pressed in directions.subtracting(active) {
             pressed.set(true)
         }
-        if haptics && !directions.subtracting(active).isEmpty {
-            UISelectionFeedbackGenerator().selectionChanged()
+        if !directions.subtracting(active).isEmpty {
+            lastPress = Date()
+            if haptics {
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
         }
         active = directions
     }
