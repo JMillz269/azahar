@@ -189,7 +189,10 @@ struct SystemSettingsView: View {
                     ForEach(ConsoleRegion.allCases) { Text($0.title).tag($0) }
                 }
             } footer: {
-                Text("System settings take effect the next time a game is started.")
+                Text("System settings take effect the next time a game is started. Leave Region on "
+                     + "Auto-select unless a game needs a specific one: a region that does not "
+                     + "match the game (for example USA with a European copy) can stop it from "
+                     + "booting.")
             }
 
             Section {

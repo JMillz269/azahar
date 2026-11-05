@@ -160,6 +160,10 @@ public:
                 break;
             }
             Core::LogException(parent.system, exc_type);
+            // Stop running the current block of code. Otherwise the JIT keeps re-raising the same
+            // exception (e.g. when jumping to an unmapped address) for the rest of the time slice,
+            // flooding the log with identical reports.
+            parent.PrepareReschedule();
         }
     }
 

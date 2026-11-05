@@ -11,8 +11,8 @@ import UIKit
 /// first errors) and the end are kept, together with the last crash report.
 enum LogExporter {
     /// Bytes kept from the start and from the end of the log.
-    private static let headSize = 256 * 1024
-    private static let tailSize = 2 * 1024 * 1024
+    private static let headSize = 4 * 1024 * 1024
+    private static let tailSize = 1024 * 1024
 
     private static var logDirectory: URL {
         FileLocations.userDirectory.appendingPathComponent("log", isDirectory: true)
