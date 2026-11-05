@@ -148,6 +148,12 @@ struct LayoutSettingsView: View {
             Section {
                 Toggle("Swap Screens", isOn: $settings.swapScreens)
             }
+            Section {
+                Toggle("Respect Notch", isOn: $settings.respectNotch)
+            } footer: {
+                Text("Keeps the screens clear of the notch, the Dynamic Island and the rounded "
+                     + "corners. Turn it off to draw the game edge to edge.")
+            }
         }
         .navigationTitle("Layout")
     }
@@ -247,6 +253,9 @@ struct ControlsSettingsView: View {
 }
 
 struct AboutView: View {
+    @State private var sharedLog: SharedFile?
+    @State private var showingNoLog = false
+
     var body: some View {
         List {
             Section {
@@ -267,6 +276,22 @@ struct AboutView: View {
                 LabeledContent("JIT", value: AZEmulator.isJITAvailable ? "Available" : "Unavailable")
             }
             Section {
+                Button {
+                    if let url = LogExporter.makeShareableLog() {
+                        sharedLog = SharedFile(url: url)
+                    } else {
+                        showingNoLog = true
+                    }
+                } label: {
+                    Label("Share Log", systemImage: "square.and.arrow.up")
+                }
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text("Shares the start and the end of the log and the last crash report, so the "
+                     + "file stays small even when the full log is huge.")
+            }
+            Section {
                 Text("Azahar is an open-source Nintendo 3DS emulator based on Citra. This iOS "
                      + "port uses a native Metal renderer. Azahar is licensed under the GPLv2. "
                      + "Only use games and system files dumped from hardware you own.")
@@ -275,5 +300,13 @@ struct AboutView: View {
             }
         }
         .navigationTitle("About")
+        .sheet(item: $sharedLog) { file in
+            ShareSheet(url: file.url)
+        }
+        .alert("No Log Found", isPresented: $showingNoLog) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Nothing has been logged yet.")
+        }
     }
 }

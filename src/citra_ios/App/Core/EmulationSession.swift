@@ -15,6 +15,8 @@ final class EmulationSession: ObservableObject {
     @Published private(set) var speed: Double = 0
     @Published var showingError = false
     @Published private(set) var errorMessage: String?
+    /// Complete report of an exception in the emulated program, when there is one.
+    @Published private(set) var errorReport: String?
 
     let controllers = GameControllerInput()
     let motion = MotionInput()
@@ -103,7 +105,8 @@ final class EmulationSession: ObservableObject {
     private func handleStopped(error: Error?) {
         cleanUp()
         if let error {
-            present(error: error.localizedDescription)
+            let report = (error as NSError).userInfo["AZEmulatorErrorReport"] as? String
+            present(error: error.localizedDescription, report: report)
         }
     }
 
@@ -119,8 +122,9 @@ final class EmulationSession: ObservableObject {
         speed = 0
     }
 
-    private func present(error: String) {
+    private func present(error: String, report: String? = nil) {
         errorMessage = error
+        errorReport = report
         showingError = true
     }
 }

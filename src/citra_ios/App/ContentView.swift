@@ -3,6 +3,7 @@
 // Refer to the LICENSE.txt file included.
 
 import SwiftUI
+import UIKit
 
 /// Root view: the library and settings tabs, swapped for the emulation view while a game runs.
 struct ContentView: View {
@@ -25,6 +26,9 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: session.isActive)
         .alert("Emulation Error", isPresented: $session.showingError) {
+            if let report = session.errorReport {
+                Button("Copy Details") { UIPasteboard.general.string = report }
+            }
             Button("OK", role: .cancel) {}
         } message: {
             Text(session.errorMessage ?? "Unknown error")

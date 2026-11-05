@@ -145,6 +145,48 @@ bool DeviceHasTXM() {
     return firmware;
 }
 
+/// Short version of an exception report for an alert: the thread, process and exception type at
+/// the top plus the line with SP, LR and PC. The stack dump and all other registers are left out.
+NSString* SummarizeException(const std::string& report) {
+    NSString* text = [NSString stringWithUTF8String:report.c_str()];
+    if (text == nil) {
+        return @"";
+    }
+    const NSRange registers = [text rangeOfString:@"Registers:"];
+    NSString* head =
+        registers.location == NSNotFound ? text : [text substringToIndex:registers.location];
+    head = [head stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    for (NSString* line in [text componentsSeparatedByString:@"\n"]) {
+        if ([line containsString:@"PC    0x"]) {
+            NSString* trimmed =
+                [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            return [NSString stringWithFormat:@"%@\n\n%@", head, trimmed];
+        }
+    }
+    return head;
+}
+
+/// Error for a failed emulation run. For an exception in the emulated program the complete report
+/// is attached (AZEmulatorErrorReport) and saved next to the log, because the log stops growing
+/// once it is full and would no longer contain it.
+NSError* MakeResultError(Core::System::ResultStatus result, const std::string& details) {
+    NSMutableDictionary* info = [NSMutableDictionary dictionary];
+    NSString* description = DescribeResult(result, details);
+    if (result == Core::System::ResultStatus::ErrorCoreExceptionRaised && !details.empty()) {
+        description =
+            [NSString stringWithFormat:@"%@\n\n%@", description, SummarizeException(details)];
+        if (NSString* report = [NSString stringWithUTF8String:details.c_str()]) {
+            info[@"AZEmulatorErrorReport"] = report;
+        }
+        FileUtil::WriteStringToFile(
+            true, FileUtil::GetUserPath(FileUtil::UserPath::LogDir) + "crash_report.txt", details);
+    }
+    info[NSLocalizedDescriptionKey] = description;
+    return [NSError errorWithDomain:AZEmulatorErrorDomain
+                               code:static_cast<NSInteger>(result)
+                           userInfo:info];
+}
+
 NSError* MakeError(NSInteger code, NSString* description) {
     return [NSError errorWithDomain:AZEmulatorErrorDomain
                                code:code
@@ -421,8 +463,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
     const Core::System::ResultStatus load_result = system.Load(*_window, filepath);
     if (load_result != Core::System::ResultStatus::Success) {
-        return MakeError(static_cast<NSInteger>(load_result),
-                         DescribeResult(load_result, system.GetStatusDetails()));
+        return MakeResultError(load_result, system.GetStatusDetails());
     }
 
     system.GPU().ApplyPerProgramSettings(program_id);
@@ -460,8 +501,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
             break;
         }
         if (result != Core::System::ResultStatus::Success) {
-            error = MakeError(static_cast<NSInteger>(result),
-                              DescribeResult(result, system.GetStatusDetails()));
+            error = MakeResultError(result, system.GetStatusDetails());
             break;
         }
 

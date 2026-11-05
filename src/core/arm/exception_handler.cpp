@@ -105,7 +105,7 @@ static const char* ExceptionTypeToString(ExceptionType type) {
     }
 }
 
-void LogException(System& system, ExceptionType type) {
+void LogException(System& system, ExceptionType type, std::string_view detail) {
     if (g_ignore_exceptions_for_session) {
         return;
     }
@@ -128,7 +128,11 @@ void LogException(System& system, ExceptionType type) {
         }
     }
 
-    report += fmt::format("Exception Type: {}\n\n", ExceptionTypeToString(type));
+    report += fmt::format("Exception Type: {}\n", ExceptionTypeToString(type));
+    if (!detail.empty()) {
+        report += fmt::format("Detail: {}\n", detail);
+    }
+    report += '\n';
 
     report += "Registers:\n\n";
     report += DumpRegisters(core);

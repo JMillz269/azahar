@@ -68,6 +68,7 @@ set(APP_SWIFT_SOURCES
     App/Core/EmulationSession.swift
     App/Core/FileLocations.swift
     App/Core/GameLibrary.swift
+    App/Core/LogExporter.swift
     App/Views/ControllerOverlay.swift
     App/Views/EmulationView.swift
     App/Views/GameRowView.swift

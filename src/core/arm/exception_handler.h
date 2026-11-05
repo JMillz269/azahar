@@ -5,6 +5,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include "common/common_types.h"
 
 namespace Core {
@@ -28,8 +29,10 @@ enum class ExceptionType : u32 {
  *
  * @param system          The emulator system instance.
  * @param type            The type of exception that occurred.
+ * @param detail          Optional extra information shown below the exception type, for example
+ *                        the reason the emulated program gave for breaking.
  */
-void LogException(System& system, ExceptionType type);
+void LogException(System& system, ExceptionType type, std::string_view detail = {});
 
 /**
  * Configures whether exceptions should be ignored for the current session.

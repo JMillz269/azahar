@@ -115,6 +115,7 @@ final class AppSettings: ObservableObject {
     @Published var layout: ScreenLayout { didSet { save(layout.rawValue, "layout") } }
     @Published var portraitLayout: PortraitScreenLayout { didSet { save(portraitLayout.rawValue, "portraitLayout") } }
     @Published var swapScreens: Bool { didSet { save(swapScreens, "swapScreens") } }
+    @Published var respectNotch: Bool { didSet { save(respectNotch, "respectNotch") } }
 
     // Audio
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
@@ -149,6 +150,7 @@ final class AppSettings: ObservableObject {
         layout = ScreenLayout(rawValue: value("layout", ScreenLayout.standard.rawValue)) ?? .standard
         portraitLayout = PortraitScreenLayout(rawValue: value("portraitLayout", 0)) ?? .topFullWidth
         swapScreens = value("swapScreens", false)
+        respectNotch = value("respectNotch", true)
 
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)
