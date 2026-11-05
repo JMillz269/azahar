@@ -8,6 +8,8 @@
 #include "video_core/renderer_metal/mtl_pipeline_cache.h"
 #include "video_core/renderer_metal/mtl_stream_buffer.h"
 #include "video_core/renderer_metal/mtl_texture_runtime.h"
+#include "video_core/shader/generator/msl_shader_gen.h"
+#include "video_core/shader/generator/shader_uniforms.h"
 
 namespace VideoCore {
 class CustomTexManager;
@@ -44,6 +46,7 @@ public:
                                   const VideoCore::DiskResourceLoadCallback& callback) override;
 
     void DrawTriangles() override;
+    bool AccelerateDrawBatch(bool is_indexed) override;
     void FlushAll() override;
     void FlushRegion(PAddr addr, u32 size) override;
     void InvalidateRegion(PAddr addr, u32 size) override;
@@ -81,8 +84,27 @@ private:
     void SyncAndUploadLUTs();
     void SyncAndUploadLUTsLF();
 
-    /// Generic draw function for DrawTriangles
-    bool Draw();
+    /// A draw whose vertices are processed by a hardware vertex shader.
+    struct HardwareDraw {
+        id<MTLFunction> function = nil;
+        u64 vs_hash{};
+        bool is_indexed{};
+        VertexArrayInfo vertex_info{};
+        u32 vertex_count{}; ///< Vertices drawn, three per triangle.
+        u32 upload_size{};  ///< Bytes of vertex and index data.
+        // Filled by UploadHardwareVertices.
+        Pica::Shader::Generator::MSL::VSVertexLayout layout{};
+        u32 data_offset{};
+    };
+
+    /// Copies the PICA vertex and index data of a hardware draw to the vertex buffer.
+    void UploadHardwareVertices(HardwareDraw& draw);
+
+    /**
+     * Draws the software vertex batch, or the current PICA draw call with a hardware vertex shader
+     * when `hw_draw` is provided.
+     */
+    bool Draw(HardwareDraw* hw_draw = nullptr);
 
 private:
     Scheduler& scheduler;
@@ -93,6 +115,8 @@ private:
     StreamBuffer vertex_buffer;     ///< Vertex data of the software vertex path
     StreamBuffer texture_buffer;    ///< Proctex LUTs (float2 + float4)
     StreamBuffer texture_lf_buffer; ///< Lighting and fog LUTs (float2)
+
+    Pica::Shader::Generator::VSPicaUniformData vs_pica_data{};
 
     std::array<TextureBinding, 10> texture_bindings{};
     u64 bound_generation{~0ULL};

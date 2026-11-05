@@ -4,9 +4,16 @@
 
 #pragma once
 
+#include <array>
 #include <string>
 #include "common/common_types.h"
+#include "common/vector_math.h"
 #include "video_core/shader/generator/pica_fs_config.h"
+#include "video_core/shader/generator/shader_gen.h"
+
+namespace Pica {
+struct ShaderSetup;
+}
 
 /**
  * Metal Shading Language (MSL) shader generators used by the native Metal renderer.
@@ -24,6 +31,8 @@ namespace Pica::Shader::Generator::MSL {
 enum VSBuffer : u32 {
     VS_BUFFER_UNIFORMS = 0,      ///< VSUniformData
     VS_BUFFER_PICA_UNIFORMS = 1, ///< VSPicaUniformData (hardware vertex shaders)
+    VS_BUFFER_VERTEX_LAYOUT = 2, ///< VSVertexLayout (hardware vertex shaders)
+    VS_BUFFER_VERTEX_DATA = 3,   ///< Raw PICA vertex and index data (hardware vertex shaders)
     /// Vertex buffers are placed after the uniform buffers in the argument table.
     VS_BUFFER_VERTEX_BASE = 16,
 };
@@ -70,6 +79,66 @@ struct MetalFSConfig {
     /// depth buffer will be attached.
     bool has_depth_attachment = true;
 };
+
+/**
+ * Where the hardware vertex shader finds one PICA vertex shader input register. The vertex data is
+ * fetched by the shader itself ("vertex pulling") from the raw PICA attribute buffers.
+ */
+struct VSVertexAttribute {
+    /// Byte offset in VS_BUFFER_VERTEX_DATA of the attribute of the vertex `vertex_min`.
+    u32 offset;
+    /// Distance in bytes between two vertices.
+    u32 stride;
+    /// Pica::PipelineRegs::VertexAttributeFormat, or VS_ATTRIBUTE_DEFAULT to use
+    /// VSVertexLayout::defaults.
+    u32 format;
+    /// Number of components, the missing ones read as (0, 0, 0, 1).
+    u32 size;
+};
+
+constexpr u32 VS_ATTRIBUTE_DEFAULT = 4;
+
+/// How VSVertexLayout::topology numbers the vertices of each triangle.
+enum VSTopology : u32 {
+    VS_TOPOLOGY_LIST = 0,
+    VS_TOPOLOGY_STRIP = 1,
+    VS_TOPOLOGY_FAN = 2,
+};
+
+/// Index buffer format of VSVertexLayout::index_format.
+enum VSIndexFormat : u32 {
+    VS_INDEX_NONE = 0,
+    VS_INDEX_U8 = 1,
+    VS_INDEX_U16 = 2,
+};
+
+/**
+ * Describes how a hardware vertex shader loads its inputs. Hardware vertex shaders are drawn as
+ * non-indexed triangle lists: vertex N is corner N % 3 of triangle N / 3 of the PICA primitive
+ * stream, which lets the shader apply the per-triangle quaternion correction that would otherwise
+ * need a geometry shader (Metal has none). Must match VertexLayout in the generated MSL.
+ */
+struct VSVertexLayout {
+    std::array<VSVertexAttribute, 16> attributes;
+    std::array<Common::Vec4f, 16> defaults;
+    /// Lowest vertex index referenced by the draw, the attribute offsets are relative to it.
+    u32 vertex_min;
+    /// First vertex of a non-indexed draw.
+    u32 vertex_base;
+    /// Byte offset of the indices in VS_BUFFER_VERTEX_DATA.
+    u32 index_offset;
+    u32 index_format; ///< VSIndexFormat
+    u32 topology;     ///< VSTopology
+    u32 pad[3];
+};
+static_assert(sizeof(VSVertexLayout) == 544, "VSVertexLayout must match the MSL structure");
+
+/**
+ * Generates a hardware vertex shader from the PICA vertex shader program. Returns an empty string
+ * if the program cannot be translated, in which case the draw must use the software path.
+ */
+std::string GenerateVertexShader(const Pica::ShaderSetup& setup, const PicaVSConfig& config,
+                                 bool use_clip_planes, bool sanitize_mul);
 
 /// Returns the vertex shader used by the software (CPU) vertex processing path.
 std::string GenerateTrivialVertexShader(bool use_clip_planes);

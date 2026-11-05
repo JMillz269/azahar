@@ -11,7 +11,8 @@
 
 namespace Pica {
 struct RegsInternal;
-}
+struct ShaderSetup;
+} // namespace Pica
 
 namespace Metal {
 
@@ -20,6 +21,7 @@ class Instance;
 /// Fixed function state baked into a MTLRenderPipelineState.
 struct PipelineKey {
     u64 fs_hash;
+    u64 vs_hash; ///< 0 for the software vertex path, see PipelineCache::UseVertexShader
     u32 color_format;   ///< MTLPixelFormat
     u32 depth_format;   ///< MTLPixelFormat
     u32 stencil_format; ///< MTLPixelFormat
@@ -80,8 +82,21 @@ public:
                                       bool has_color_attachment, bool has_depth_attachment,
                                       u64& fs_hash);
 
-    /// Returns the pipeline state for the provided key and fragment function.
-    id<MTLRenderPipelineState> GetPipeline(const PipelineKey& key, id<MTLFunction> fragment);
+    /**
+     * Returns the hardware vertex function translated from the current PICA vertex shader,
+     * compiling it if it was never seen before. Returns nil if the program cannot be translated,
+     * in which case the draw has to use the software vertex path.
+     * @param vs_hash Receives the hash identifying the function (never 0).
+     */
+    id<MTLFunction> UseVertexShader(const Pica::RegsInternal& regs, Pica::ShaderSetup& setup,
+                                    u64& vs_hash);
+
+    /**
+     * Returns the pipeline state for the provided key and fragment function. The vertex function
+     * is the software path one when key.vs_hash is 0, otherwise `vertex`.
+     */
+    id<MTLRenderPipelineState> GetPipeline(const PipelineKey& key, id<MTLFunction> vertex,
+                                           id<MTLFunction> fragment);
 
     /// Returns the depth/stencil state for the provided key.
     id<MTLDepthStencilState> GetDepthStencilState(const DepthStencilKey& key);
@@ -104,6 +119,7 @@ private:
     MTLCompileOptions* compile_options;
     id<MTLFunction> vertex_function;
     std::unordered_map<u64, id<MTLFunction>> fragment_functions;
+    std::unordered_map<u64, id<MTLFunction>> vertex_functions;
     std::unordered_map<u64, id<MTLRenderPipelineState>> pipelines;
     std::unordered_map<u64, id<MTLDepthStencilState>> depth_stencil_states;
 };

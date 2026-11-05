@@ -6,9 +6,11 @@
 #include "common/microprofile.h"
 #include "common/settings.h"
 #include "video_core/pica/regs_internal.h"
+#include "video_core/pica/shader_setup.h"
 #include "video_core/renderer_metal/mtl_instance.h"
 #include "video_core/renderer_metal/mtl_pipeline_cache.h"
 #include "video_core/shader/generator/msl_shader_gen.h"
+#include "video_core/shader/generator/shader_gen.h"
 
 MICROPROFILE_DEFINE(Metal_ShaderCompile, "Metal", "Shader Compile", MP_RGB(255, 128, 0));
 MICROPROFILE_DEFINE(Metal_PipelineBuild, "Metal", "Pipeline Build", MP_RGB(255, 64, 0));
@@ -87,7 +89,36 @@ id<MTLFunction> PipelineCache::UseFragmentShader(const Pica::RegsInternal& regs,
     return function;
 }
 
+id<MTLFunction> PipelineCache::UseVertexShader(const Pica::RegsInternal& regs,
+                                               Pica::ShaderSetup& setup, u64& vs_hash) {
+    const PicaVSConfig config{regs, setup};
+    const bool use_clip_planes = instance.GetProfile().has_clip_planes;
+    const bool sanitize_mul = instance.GetProfile().enable_accurate_mul;
+    vs_hash = Common::HashCombine(config.Hash(), static_cast<u64>(use_clip_planes),
+                                  static_cast<u64>(sanitize_mul));
+    if (vs_hash == 0) {
+        vs_hash = 1;
+    }
+    if (const auto it = vertex_functions.find(vs_hash); it != vertex_functions.end()) {
+        return it->second;
+    }
+
+    id<MTLFunction> function = nil;
+    const std::string source =
+        MSL::GenerateVertexShader(setup, config, use_clip_planes, sanitize_mul);
+    if (source.empty()) {
+        LOG_INFO(Render, "Vertex shader {:016x} cannot be translated, using the CPU for it",
+                 config.state.program_hash);
+    } else if (id<MTLLibrary> library = Compile(source, "vertex shader")) {
+        function = [library newFunctionWithName:ToNSString(MSL::VS_ENTRY_POINT)];
+    }
+    // Failures are cached too so the program is not translated again on every draw.
+    vertex_functions.emplace(vs_hash, function);
+    return function;
+}
+
 id<MTLRenderPipelineState> PipelineCache::GetPipeline(const PipelineKey& key,
+                                                      id<MTLFunction> vertex,
                                                       id<MTLFunction> fragment) {
     const u64 hash = key.Hash();
     if (const auto it = pipelines.find(hash); it != pipelines.end()) {
@@ -96,9 +127,14 @@ id<MTLRenderPipelineState> PipelineCache::GetPipeline(const PipelineKey& key,
 
     MICROPROFILE_SCOPE(Metal_PipelineBuild);
     MTLRenderPipelineDescriptor* desc = [MTLRenderPipelineDescriptor new];
-    desc.vertexFunction = vertex_function;
     desc.fragmentFunction = fragment;
-    desc.vertexDescriptor = vertex_descriptor;
+    if (key.vs_hash == 0) {
+        desc.vertexFunction = vertex_function;
+        desc.vertexDescriptor = vertex_descriptor;
+    } else {
+        // Hardware vertex shaders fetch their inputs themselves.
+        desc.vertexFunction = vertex;
+    }
     desc.inputPrimitiveTopology = MTLPrimitiveTopologyClassTriangle;
     desc.rasterSampleCount = 1;
 

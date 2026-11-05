@@ -12,6 +12,7 @@
 #include "common/microprofile.h"
 #include "common/settings.h"
 #include "core/memory.h"
+#include "video_core/pica/regs_shader.h"
 #include "video_core/pica/pica_core.h"
 #include "video_core/renderer_metal/mtl_instance.h"
 #include "video_core/renderer_metal/mtl_rasterizer.h"
@@ -187,7 +188,176 @@ void RasterizerMetal::DrawTriangles() {
     vertex_batch.clear();
 }
 
-bool RasterizerMetal::Draw() {
+bool RasterizerMetal::AccelerateDrawBatch(bool is_indexed) {
+    using Topology = Pica::PipelineRegs::TriangleTopology;
+
+    // Geometry shaders keep running on the CPU, Metal has no geometry stage.
+    if (regs.pipeline.use_gs != Pica::PipelineRegs::UseGS::No) {
+        return false;
+    }
+
+    HardwareDraw draw;
+    draw.is_indexed = is_indexed;
+    draw.function = pipeline_cache.UseVertexShader(regs, pica.vs_setup, draw.vs_hash);
+    if (draw.function == nil) {
+        return false;
+    }
+
+    const u32 num_vertices = regs.pipeline.num_vertices;
+    const auto topology = regs.pipeline.triangle_topology.Value();
+    u32 triangles = 0;
+    switch (topology) {
+    case Topology::List:
+    case Topology::Shader:
+        triangles = num_vertices / 3;
+        break;
+    case Topology::Strip:
+    case Topology::Fan:
+        triangles = num_vertices >= 3 ? num_vertices - 2 : 0;
+        break;
+    default:
+        return false;
+    }
+
+    draw.vertex_info = AnalyzeVertexArray(is_indexed);
+    if (draw.vertex_info.Invalid() || triangles == 0) {
+        // Nothing to draw.
+        return true;
+    }
+    draw.vertex_count = triangles * 3;
+
+    const u32 index_size =
+        is_indexed ? num_vertices * (regs.pipeline.index_array.format != 0 ? 2 : 1) : 0;
+    draw.upload_size = draw.vertex_info.vs_input_size + Common::AlignUp(index_size, 4);
+    if (draw.upload_size > VERTEX_BUFFER_SIZE / 4) {
+        // Implausibly large, let the software path deal with it.
+        return false;
+    }
+
+    return Draw(&draw);
+}
+
+void RasterizerMetal::UploadHardwareVertices(HardwareDraw& draw) {
+    using namespace Pica::Shader::Generator::MSL;
+    const auto& vertex_attributes = regs.pipeline.vertex_attributes;
+    const PAddr base_address = vertex_attributes.GetPhysicalBaseAddress();
+    const u32 vertex_min = draw.vertex_info.vs_input_index_min;
+    const u32 vertex_num = draw.vertex_info.vs_input_index_max - vertex_min + 1;
+
+    auto [buffer, offset, _] = vertex_buffer.Map(draw.upload_size, 16);
+    draw.data_offset = offset;
+
+    VSVertexLayout& layout = draw.layout;
+    layout = {};
+    for (u32 reg = 0; reg < 16; reg++) {
+        layout.attributes[reg] = {0, 0, VS_ATTRIBUTE_DEFAULT, 4};
+        layout.defaults[reg] = Common::MakeVec(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+    std::array<bool, 16> loaded{};
+
+    // The 12 attribute loaders each read an interleaved array of attributes, see
+    // RasterizerVulkan::SetupVertexArray.
+    u32 used = 0;
+    for (const auto& loader : vertex_attributes.attribute_loaders) {
+        if (loader.component_count == 0 || loader.byte_count == 0) {
+            continue;
+        }
+
+        u32 attribute_offset = 0;
+        for (u32 comp = 0; comp < loader.component_count && comp < 12; comp++) {
+            const u32 attribute_index = loader.GetComponent(comp);
+            if (attribute_index >= 12) {
+                // Attribute ids 12 to 15 are 4, 8, 12 and 16 byte paddings.
+                attribute_offset = Common::AlignUp(attribute_offset, 4);
+                attribute_offset += (attribute_index - 11) * 4;
+                continue;
+            }
+            const u32 size = vertex_attributes.GetNumElements(attribute_index);
+            if (size == 0) {
+                continue;
+            }
+            attribute_offset = Common::AlignUp(
+                attribute_offset, vertex_attributes.GetElementSizeInBytes(attribute_index));
+
+            const u32 reg = regs.vs.GetRegisterForAttribute(attribute_index);
+            layout.attributes[reg] = {
+                .offset = used + attribute_offset,
+                .stride = static_cast<u32>(loader.byte_count),
+                .format = static_cast<u32>(vertex_attributes.GetFormat(attribute_index)),
+                .size = size,
+            };
+            loaded[reg] = true;
+            attribute_offset += vertex_attributes.GetStride(attribute_index);
+        }
+
+        const PAddr data_addr =
+            base_address + loader.data_offset + vertex_min * static_cast<u32>(loader.byte_count);
+        const u32 data_size = static_cast<u32>(loader.byte_count) * vertex_num;
+        res_cache.FlushRegion(data_addr, data_size);
+
+        const MemoryRef source = memory.GetPhysicalRef(data_addr);
+        const u32 available = static_cast<u32>(std::min<std::size_t>(source.GetSize(), data_size));
+        if (available < data_size) {
+            LOG_ERROR(Render, "Vertex buffer size {} exceeds available space {} at address {:#010x}",
+                      data_size, available, data_addr);
+            std::memset(buffer + used + available, 0, data_size - available);
+        }
+        if (available > 0) {
+            std::memcpy(buffer + used, source.GetPtr(), available);
+        }
+        used += Common::AlignUp(data_size, 4);
+    }
+
+    // Attributes without a loader use their fixed value.
+    for (u32 i = 0; i < 16; i++) {
+        if (!vertex_attributes.IsDefaultAttribute(i)) {
+            continue;
+        }
+        const u32 reg = regs.vs.GetRegisterForAttribute(i);
+        if (loaded[reg]) {
+            continue;
+        }
+        const auto& value = pica.input_default_attributes[i];
+        layout.defaults[reg] = Common::MakeVec(value.x.ToFloat32(), value.y.ToFloat32(),
+                                               value.z.ToFloat32(), value.w.ToFloat32());
+        loaded[reg] = true;
+    }
+
+    // Indices, already flushed by AnalyzeVertexArray.
+    layout.index_format = VS_INDEX_NONE;
+    if (draw.is_indexed) {
+        const bool index_u16 = regs.pipeline.index_array.format != 0;
+        const u32 index_size = regs.pipeline.num_vertices * (index_u16 ? 2 : 1);
+        const u8* indices =
+            memory.GetPhysicalPointer(base_address + regs.pipeline.index_array.offset);
+        if (indices != nullptr) {
+            std::memcpy(buffer + used, indices, index_size);
+        } else {
+            std::memset(buffer + used, 0, index_size);
+        }
+        layout.index_offset = used;
+        layout.index_format = index_u16 ? VS_INDEX_U16 : VS_INDEX_U8;
+        used += Common::AlignUp(index_size, 4);
+    }
+
+    layout.vertex_min = vertex_min;
+    layout.vertex_base = regs.pipeline.vertex_offset;
+    switch (regs.pipeline.triangle_topology.Value()) {
+    case Pica::PipelineRegs::TriangleTopology::Strip:
+        layout.topology = VS_TOPOLOGY_STRIP;
+        break;
+    case Pica::PipelineRegs::TriangleTopology::Fan:
+        layout.topology = VS_TOPOLOGY_FAN;
+        break;
+    default:
+        layout.topology = VS_TOPOLOGY_LIST;
+        break;
+    }
+
+    vertex_buffer.Commit(used);
+}
+
+bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     MICROPROFILE_SCOPE(Metal_Drawing);
     SyncDrawUniforms();
 
@@ -246,7 +416,9 @@ bool RasterizerMetal::Draw() {
     PipelineKey key;
     DepthStencilKey ds_key;
     SyncFixedState(*framebuffer, fs_hash, key, ds_key);
-    id<MTLRenderPipelineState> pipeline = pipeline_cache.GetPipeline(key, fragment);
+    key.vs_hash = hw_draw ? hw_draw->vs_hash : 0;
+    id<MTLRenderPipelineState> pipeline =
+        pipeline_cache.GetPipeline(key, hw_draw ? hw_draw->function : nil, fragment);
     if (pipeline == nil) {
         return true;
     }
@@ -254,11 +426,23 @@ bool RasterizerMetal::Draw() {
 
     // Upload the vertices before beginning rendering, as waiting on the stream buffer may
     // submit the current command buffer.
-    const u32 vertex_count = static_cast<u32>(vertex_batch.size());
-    const u32 vertex_size = vertex_count * static_cast<u32>(sizeof(HardwareVertex));
-    const auto [vertex_data, vertex_offset, _] = vertex_buffer.Map(vertex_size, 16);
-    std::memcpy(vertex_data, vertex_batch.data(), vertex_size);
-    vertex_buffer.Commit(vertex_size);
+    u32 vertex_count = 0;
+    u32 vertex_offset = 0;
+    if (hw_draw) {
+        UploadHardwareVertices(*hw_draw);
+        vertex_count = hw_draw->vertex_count;
+        if (pica.vs_setup.uniforms_dirty) {
+            vs_pica_data.SetFromRegs(pica.vs_setup);
+            pica.vs_setup.uniforms_dirty = false;
+        }
+    } else {
+        vertex_count = static_cast<u32>(vertex_batch.size());
+        const u32 vertex_size = vertex_count * static_cast<u32>(sizeof(HardwareVertex));
+        const auto [vertex_data, offset, _] = vertex_buffer.Map(vertex_size, 16);
+        std::memcpy(vertex_data, vertex_batch.data(), vertex_size);
+        vertex_buffer.Commit(vertex_size);
+        vertex_offset = offset;
+    }
 
     // Clamp the scissor to the render area.
     const RenderTarget& target = framebuffer->Target();
@@ -333,7 +517,19 @@ bool RasterizerMetal::Draw() {
                             atIndex:MSL::FS_TEXTURE_SHADOW_BUFFER];
     }
 
-    [encoder setVertexBufferOffset:vertex_offset atIndex:MSL::VS_BUFFER_VERTEX_BASE];
+    if (hw_draw) {
+        [encoder setVertexBuffer:vertex_buffer.Handle()
+                          offset:hw_draw->data_offset
+                         atIndex:MSL::VS_BUFFER_VERTEX_DATA];
+        [encoder setVertexBytes:&hw_draw->layout
+                         length:sizeof(hw_draw->layout)
+                        atIndex:MSL::VS_BUFFER_VERTEX_LAYOUT];
+        [encoder setVertexBytes:&vs_pica_data
+                         length:sizeof(vs_pica_data)
+                        atIndex:MSL::VS_BUFFER_PICA_UNIFORMS];
+    } else {
+        [encoder setVertexBufferOffset:vertex_offset atIndex:MSL::VS_BUFFER_VERTEX_BASE];
+    }
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertex_count];
     return true;
 }

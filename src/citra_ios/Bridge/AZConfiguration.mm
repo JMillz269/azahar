@@ -11,6 +11,8 @@
     config.useCPUJIT = YES;
     config.cpuClockPercentage = 100;
     config.useShaderJIT = YES;
+    config.useHardwareShaders = YES;
+    config.accurateMultiplication = YES;
     config.resolutionFactor = 1;
     config.linearFiltering = YES;
     config.textureFilter = 0;

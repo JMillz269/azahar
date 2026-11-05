@@ -31,6 +31,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 
 // Graphics
 @property(nonatomic) BOOL useShaderJIT;
+@property(nonatomic) BOOL useHardwareShaders;
+@property(nonatomic) BOOL accurateMultiplication;
 @property(nonatomic) NSInteger resolutionFactor;
 @property(nonatomic) BOOL linearFiltering;
 @property(nonatomic) NSInteger textureFilter;

@@ -315,8 +315,6 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
     // The native Metal renderer is the only hardware renderer on iOS.
     Settings::values.graphics_api = Settings::GraphicsAPI::Metal;
-    // Hardware vertex shaders are not implemented by the Metal backend yet.
-    Settings::values.use_hw_shader = false;
 
     LOG_INFO(Frontend, "Azahar {} for iOS, user directory: {}", Common::g_build_fullname,
              path.UTF8String);
@@ -358,7 +356,10 @@ NSError* MakeError(NSInteger code, NSString* description) {
         configuration.useFrameLimit ? static_cast<double>(configuration.frameLimit) : 0.0;
 
     values.graphics_api = Settings::GraphicsAPI::Metal;
-    values.use_hw_shader = false;
+    // Vertex shaders run on the GPU unless disabled; draws the Metal backend cannot translate
+    // (geometry shaders, untranslatable programs) still fall back to the CPU per draw.
+    values.use_hw_shader = configuration.useHardwareShaders;
+    values.shaders_accurate_mul = configuration.accurateMultiplication;
 
     if (_state.load() != AZEmulationStateStopped) {
         Core::System::GetInstance().ApplySettings();

@@ -114,6 +114,8 @@ final class AppSettings: ObservableObject {
 
     // Graphics
     @Published var shaderJIT: Bool { didSet { save(shaderJIT, "shaderJIT") } }
+    @Published var hardwareShaders: Bool { didSet { save(hardwareShaders, "hardwareShaders") } }
+    @Published var accurateMultiplication: Bool { didSet { save(accurateMultiplication, "accurateMultiplication") } }
     @Published var resolutionFactor: Int { didSet { save(resolutionFactor, "resolutionFactor") } }
     @Published var linearFiltering: Bool { didSet { save(linearFiltering, "linearFiltering") } }
     @Published var textureFilter: TextureFilterOption { didSet { save(textureFilter.rawValue, "textureFilter") } }
@@ -151,6 +153,8 @@ final class AppSettings: ObservableObject {
         cpuClockPercentage = value("cpuClockPercentage", 100)
 
         shaderJIT = value("shaderJIT", true)
+        hardwareShaders = value("hardwareShaders", true)
+        accurateMultiplication = value("accurateMultiplication", true)
         resolutionFactor = value("resolutionFactor", 2)
         linearFiltering = value("linearFiltering", true)
         textureFilter = TextureFilterOption(rawValue: value("textureFilter", 0)) ?? .none
@@ -181,6 +185,8 @@ final class AppSettings: ObservableObject {
         config.useCPUJIT = cpuJIT
         config.cpuClockPercentage = cpuClockPercentage
         config.useShaderJIT = shaderJIT
+        config.useHardwareShaders = hardwareShaders
+        config.accurateMultiplication = accurateMultiplication
         config.resolutionFactor = resolutionFactor
         config.linearFiltering = linearFiltering
         config.textureFilter = textureFilter.rawValue

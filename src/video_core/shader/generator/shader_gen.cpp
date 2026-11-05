@@ -4,7 +4,6 @@
 
 #include "common/bit_set.h"
 #include "common/logging/log.h"
-#include "common/settings.h"
 #include "video_core/pica/regs_internal.h"
 #include "video_core/pica/shader_setup.h"
 #include "video_core/shader/generator/shader_gen.h"

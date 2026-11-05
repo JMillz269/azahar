@@ -62,14 +62,17 @@ jobs:
         with:
           submodules: false
       - name: Fetch headers needed by the shader generator
-        run: git submodule update --init --depth 1 externals/fmt externals/boost externals/xxHash
+        run: git submodule update --init --depth 1 externals/fmt externals/boost externals/xxHash externals/nihstro
       - name: Build MSL corpus generator
         run: |
-          clang++ -std=c++20 -O1 -Isrc -Iexternals/fmt/include -Iexternals/boost -Iexternals/xxHash \
+          clang++ -std=c++20 -O1 -Isrc -Iexternals/fmt/include -Iexternals/boost -Iexternals/xxHash -Iexternals/nihstro/include \
             -DFMT_HEADER_ONLY -DXXH_INLINE_ALL \
             src/video_core/renderer_metal/tests/msl_corpus.cpp \
             src/video_core/renderer_metal/tests/log_stub.cpp \
             src/video_core/shader/generator/msl_shader_gen.cpp \
+            src/video_core/shader/generator/msl_shader_decompiler.cpp \
+            src/video_core/shader/generator/shader_gen.cpp \
+            src/video_core/pica/shader_setup.cpp \
             src/video_core/shader/generator/pica_fs_config.cpp \
             -o msl_corpus
       - name: Generate shaders

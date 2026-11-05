@@ -10,6 +10,9 @@
 
 #include "common/assert.h"
 #include "common/logging/log.h"
+#include "video_core/pica/regs_rasterizer.h"
+#include "video_core/pica/shader_setup.h"
+#include "video_core/shader/generator/msl_shader_decompiler.h"
 #include "video_core/shader/generator/msl_shader_gen.h"
 
 namespace Pica::Shader::Generator::MSL {
@@ -1793,6 +1796,305 @@ vertex VSOutput {}(VSInput in [[stage_in]], constant VSUniforms& vs [[buffer({})
 }}
 )",
                        VS_ENTRY_POINT, +VS_BUFFER_UNIFORMS);
+    return out;
+}
+
+namespace {
+
+// Must match VSPicaUniformData and VSVertexLayout.
+constexpr std::string_view VSHardwareDefs = R"(
+struct PicaUniforms {
+    uint b;
+    uint4 i[4];
+    float4 f[96];
+};
+
+struct VertexAttribute {
+    uint offset;
+    uint stride;
+    uint format;
+    uint size;
+};
+
+struct VertexLayout {
+    VertexAttribute attributes[16];
+    float4 defaults[16];
+    uint vertex_min;
+    uint vertex_base;
+    uint index_offset;
+    uint index_format;
+    uint topology;
+    uint pad0;
+    uint pad1;
+    uint pad2;
+};
+
+// PICA attributes are little endian and only aligned to their element size, read them bytewise.
+static float LoadComponent(device const uchar* data, uint address, uint format) {
+    switch (format) {
+    case 0u: // BYTE
+        return float(as_type<char>(data[address]));
+    case 1u: // UBYTE
+        return float(data[address]);
+    case 2u: // SHORT
+        return float(as_type<short>(ushort(uint(data[address]) | (uint(data[address + 1u]) << 8u))));
+    default: // FLOAT
+        return as_type<float>(uint(data[address]) | (uint(data[address + 1u]) << 8u) |
+                              (uint(data[address + 2u]) << 16u) | (uint(data[address + 3u]) << 24u));
+    }
+}
+
+static float4 LoadAttribute(constant VertexLayout& layout, device const uchar* data, uint reg,
+                            uint vertex) {
+    const uint format = layout.attributes[reg].format;
+    if (format > 3u) {
+        return layout.defaults[reg];
+    }
+    const uint element = format == 3u ? 4u : (format == 2u ? 2u : 1u);
+    const uint size = min(layout.attributes[reg].size, 4u);
+    const uint address =
+        layout.attributes[reg].offset + (vertex - layout.vertex_min) * layout.attributes[reg].stride;
+    float4 value = float4(0.0, 0.0, 0.0, 1.0);
+    for (uint i = 0u; i < size; ++i) {
+        value[i] = LoadComponent(data, address + i * element, format);
+    }
+    return value;
+}
+
+// Position of a corner of a triangle in the PICA vertex stream, matching the primitive assembler.
+static uint StreamIndex(uint topology, uint triangle, uint corner) {
+    switch (topology) {
+    case 1u: // Strip, odd triangles swap their first two vertices
+        if ((triangle & 1u) != 0u && corner < 2u) {
+            return triangle + 1u - corner;
+        }
+        return triangle + corner;
+    case 2u: // Fan
+        return corner == 0u ? 0u : triangle + corner;
+    default: // List
+        return triangle * 3u + corner;
+    }
+}
+
+static uint FetchVertexIndex(constant VertexLayout& layout, device const uchar* data,
+                             uint triangle, uint corner) {
+    const uint index = StreamIndex(layout.topology, triangle, corner);
+    if (layout.index_format == 1u) {
+        return uint(data[layout.index_offset + index]);
+    }
+    if (layout.index_format == 2u) {
+        const uint address = layout.index_offset + index * 2u;
+        return uint(data[address]) | (uint(data[address + 1u]) << 8u);
+    }
+    return layout.vertex_base + index;
+}
+)";
+
+} // Anonymous namespace
+
+std::string GenerateVertexShader(const Pica::ShaderSetup& setup, const PicaVSConfig& config,
+                                 bool use_clip_planes, bool sanitize_mul) {
+    using VSOutputAttributes = Pica::RasterizerRegs::VSOutputAttributes;
+    const auto& state = config.state;
+
+    std::array<bool, 16> used_regs{};
+    const auto get_input_reg = [&used_regs](u32 reg) {
+        ASSERT(reg < 16);
+        used_regs[reg] = true;
+        return fmt::format("vs_in_reg{}", reg);
+    };
+    const auto get_output_reg = [&state](u32 reg) -> std::string {
+        ASSERT(reg < 16);
+        if (state.output_map[reg] < state.num_outputs) {
+            return fmt::format("vs_out_attr{}", state.output_map[reg]);
+        }
+        return "";
+    };
+
+    const std::string program_source =
+        DecompileProgram(setup.GetProgramCode(), setup.GetSwizzleData(), state.main_offset,
+                         get_input_reg, get_output_reg, sanitize_mul);
+    if (program_source.empty()) {
+        return "";
+    }
+
+    std::string out;
+    out += CommonHeader;
+#ifdef ENABLE_FREECAM
+    out += "#define ENABLE_FREECAM 1\n";
+#endif
+    if (use_clip_planes) {
+        out += "#define USE_CLIP_PLANES 1\n";
+    }
+    out += VSUniformDef;
+    out += VSOutputDef;
+    out += VSSanitizeDef;
+    out += VSHardwareDefs;
+
+    // The PICA program, with its registers as members so the subroutines can share them.
+    out += "\nstruct PicaShader {\n";
+    out += "    constant PicaUniforms* uniforms;\n";
+    for (u32 i = 0; i < used_regs.size(); ++i) {
+        if (used_regs[i]) {
+            out += fmt::format("    float4 vs_in_reg{};\n", i);
+        }
+    }
+    for (u32 i = 0; i < state.num_outputs; ++i) {
+        out += fmt::format("    float4 vs_out_attr{};\n", i);
+    }
+    out += "\n";
+    out += program_source;
+
+    out += "    void Load(constant VertexLayout& layout, device const uchar* data, uint vertex) {\n";
+    for (u32 i = 0; i < used_regs.size(); ++i) {
+        if (used_regs[i]) {
+            out += fmt::format("        vs_in_reg{0} = LoadAttribute(layout, data, {0}u, vertex);\n",
+                               i);
+        }
+    }
+    out += "    }\n\n";
+
+    out += "    void Run() {\n";
+    out += "        ResetRegisters();\n";
+    for (u32 i = 0; i < state.num_outputs; ++i) {
+        out += fmt::format("        vs_out_attr{} = float4(0.0, 0.0, 0.0, 1.0);\n", i);
+    }
+    out += "        exec_shader();\n";
+    out += "    }\n";
+
+    // Output attributes to rasterizer semantics. Unmapped semantics read as 1.0, like on hardware.
+    const auto semantic_maps = state.gs_state.GetSemanticMaps();
+    const auto semantic = [&](VSOutputAttributes::Semantic slot_semantic) -> std::string {
+        const u32 slot = static_cast<u32>(slot_semantic);
+        const u32 attrib = semantic_maps[slot].attribute_index;
+        const u32 comp = semantic_maps[slot].component_index;
+        if (attrib < state.gs_state.gs_output_attributes_count && attrib < state.num_outputs) {
+            return fmt::format("vs_out_attr{}.{}", attrib, "xyzw"[comp]);
+        }
+        return "1.0";
+    };
+    const auto vec = [&](std::string_view type, std::initializer_list<VSOutputAttributes::Semantic>
+                                                     semantics) {
+        std::string result = fmt::format("{}(", type);
+        bool first = true;
+        for (const auto s : semantics) {
+            result += fmt::format("{}{}", first ? "" : ", ", semantic(s));
+            first = false;
+        }
+        return result + ")";
+    };
+
+    out += "\n    float4 Quaternion() {\n";
+    out += fmt::format("        return {};\n",
+                       vec("float4", {VSOutputAttributes::QUATERNION_X,
+                                      VSOutputAttributes::QUATERNION_Y,
+                                      VSOutputAttributes::QUATERNION_Z,
+                                      VSOutputAttributes::QUATERNION_W}));
+    out += "    }\n";
+    out += "};\n";
+
+    // Per-triangle quaternion correction, only needed when the fragment shader does lighting.
+    const bool fix_quaternions = !state.lighting_disable;
+
+    out += fmt::format(R"(
+vertex VSOutput {}(uint vid [[vertex_id]], constant VSUniforms& vs [[buffer({})]],
+                    constant PicaUniforms& pica_uniforms [[buffer({})]],
+                    constant VertexLayout& layout [[buffer({})]],
+                    device const uchar* vertex_data [[buffer({})]]) {{
+    const uint triangle = vid / 3u;
+    const uint corner = vid - triangle * 3u;
+
+    PicaShader sh;
+    sh.uniforms = &pica_uniforms;
+    sh.Load(layout, vertex_data, FetchVertexIndex(layout, vertex_data, triangle, corner));
+    sh.Run();
+)",
+                       VS_ENTRY_POINT, +VS_BUFFER_UNIFORMS, +VS_BUFFER_PICA_UNIFORMS,
+                       +VS_BUFFER_VERTEX_LAYOUT, +VS_BUFFER_VERTEX_DATA);
+
+    const auto sh_vec = [&](std::string_view type,
+                            std::initializer_list<VSOutputAttributes::Semantic> semantics) {
+        std::string result = vec(type, semantics);
+        // Prefix the output registers with the shader instance.
+        std::string prefixed;
+        std::size_t pos = 0;
+        while (true) {
+            const std::size_t found = result.find("vs_out_attr", pos);
+            if (found == std::string::npos) {
+                prefixed += result.substr(pos);
+                break;
+            }
+            prefixed += result.substr(pos, found - pos);
+            prefixed += "sh.";
+            prefixed += "vs_out_attr";
+            pos = found + 11;
+        }
+        return prefixed;
+    };
+
+    out += "    VSOutput out;\n";
+    out += fmt::format("    float4 vtx_pos = {};\n",
+                       sh_vec("float4", {VSOutputAttributes::POSITION_X,
+                                         VSOutputAttributes::POSITION_Y,
+                                         VSOutputAttributes::POSITION_Z,
+                                         VSOutputAttributes::POSITION_W}));
+    out += fmt::format("    float4 vtx_color = {};\n",
+                       sh_vec("float4", {VSOutputAttributes::COLOR_R, VSOutputAttributes::COLOR_G,
+                                         VSOutputAttributes::COLOR_B,
+                                         VSOutputAttributes::COLOR_A}));
+    out += "    out.primary_color = min(abs(vtx_color), float4(1.0));\n";
+    out += fmt::format("    out.texcoord0 = {};\n",
+                       sh_vec("float2", {VSOutputAttributes::TEXCOORD0_U,
+                                         VSOutputAttributes::TEXCOORD0_V}));
+    out += fmt::format("    out.texcoord1 = {};\n",
+                       sh_vec("float2", {VSOutputAttributes::TEXCOORD1_U,
+                                         VSOutputAttributes::TEXCOORD1_V}));
+    out += fmt::format("    out.texcoord2 = {};\n",
+                       sh_vec("float2", {VSOutputAttributes::TEXCOORD2_U,
+                                         VSOutputAttributes::TEXCOORD2_V}));
+    out += fmt::format("    out.texcoord0_w = {};\n",
+                       sh_vec("float", {VSOutputAttributes::TEXCOORD0_W}));
+    out += fmt::format("    out.view = {};\n",
+                       sh_vec("float3", {VSOutputAttributes::VIEW_X, VSOutputAttributes::VIEW_Y,
+                                         VSOutputAttributes::VIEW_Z}));
+    out += "    float4 quat = sh.Quaternion();\n";
+    if (fix_quaternions) {
+        out += R"(
+    // Interpolating between opposite quaternions breaks the lighting. Like the PICA rasterizer,
+    // flip the quaternions of the other corners to the side of the first corner's.
+    if (corner != 0u) {
+        PicaShader first;
+        first.uniforms = &pica_uniforms;
+        first.Load(layout, vertex_data, FetchVertexIndex(layout, vertex_data, triangle, 0u));
+        first.Run();
+        if (dot(first.Quaternion(), quat) < 0.0) {
+            quat = -quat;
+        }
+    }
+)";
+    }
+    out += "    out.normquat = quat;\n";
+
+    out += R"(
+    vtx_pos = SanitizeVertex(vtx_pos);
+    if (vs.flip_viewport != 0) {
+        vtx_pos.y = -vtx_pos.y;
+    }
+#ifdef ENABLE_FREECAM
+    float4 clip_pos = ApplyFreeCam(vs, float4(vtx_pos.x, vtx_pos.y, -vtx_pos.z, vtx_pos.w));
+#else
+    float4 clip_pos = float4(vtx_pos.x, vtx_pos.y, -vtx_pos.z, vtx_pos.w);
+#endif
+    // Metal NDC has +Y pointing up, see GenerateTrivialVertexShader.
+    clip_pos.y = -clip_pos.y;
+    out.position = clip_pos;
+#ifdef USE_CLIP_PLANES
+    out.clip_distance[0] = -vtx_pos.z; // fixed PICA clipping plane z <= 0
+    out.clip_distance[1] = vs.enable_clip1 != 0 ? dot(vs.clip_coef, vtx_pos) : 0.0f;
+#endif
+    return out;
+}
+)";
     return out;
 }
 

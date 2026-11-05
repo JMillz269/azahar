@@ -72,6 +72,8 @@ add_library(video_core STATIC EXCLUDE_FROM_ALL
     shader/generator/glsl_fs_shader_gen.h
     shader/generator/glsl_shader_decompiler.cpp
     shader/generator/glsl_shader_decompiler.h
+    shader/generator/msl_shader_decompiler.cpp
+    shader/generator/msl_shader_decompiler.h
     shader/generator/msl_shader_gen.cpp
     shader/generator/msl_shader_gen.h
     shader/generator/glsl_shader_gen.cpp

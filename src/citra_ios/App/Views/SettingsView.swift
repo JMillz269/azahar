@@ -103,13 +103,19 @@ struct GraphicsSettingsView: View {
         Form {
             Section {
                 LabeledContent("Renderer", value: "Metal")
+                Toggle("Hardware Shaders", isOn: $settings.hardwareShaders)
+                Toggle("Accurate Multiplication", isOn: $settings.accurateMultiplication)
+                    .disabled(!settings.hardwareShaders)
                 Toggle("Shader JIT", isOn: $settings.shaderJIT)
                     .disabled(!AZEmulator.isJITAvailable)
             } header: {
                 Text("Renderer")
             } footer: {
-                Text("Azahar renders natively with Metal. Vertex shaders currently run on the "
-                     + "CPU; the shader JIT makes them much faster when JIT is available.")
+                Text("Azahar renders natively with Metal. Hardware Shaders run the game's vertex "
+                     + "shaders on the GPU. Draws that can't be translated, and games that use "
+                     + "geometry shaders, still run on the CPU, where the shader JIT speeds them "
+                     + "up. Accurate Multiplication fixes graphical glitches in some games at a "
+                     + "small GPU cost.")
             }
 
             Section("Enhancements") {
