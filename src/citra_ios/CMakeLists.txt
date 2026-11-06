@@ -19,6 +19,7 @@ option(AZAHAR_IOS_ENTITLEMENTS "Request the increased memory limit entitlements"
 set(BRIDGE_OBJCXX_SOURCES
     Bridge/AZConfiguration.mm
     Bridge/AZEmulator.mm
+    Bridge/AZFeatures.mm
     Bridge/AZGameInfo.mm
 )
 
@@ -69,11 +70,14 @@ set(APP_SWIFT_SOURCES
     App/Core/FileLocations.swift
     App/Core/GameLibrary.swift
     App/Core/LogExporter.swift
+    App/Views/CheatsView.swift
     App/Views/ControllerOverlay.swift
     App/Views/EmulationView.swift
     App/Views/GameRowView.swift
     App/Views/GamesListView.swift
+    App/Views/KeyboardPromptView.swift
     App/Views/MetalView.swift
+    App/Views/SaveStatesView.swift
     App/Views/SettingsView.swift
 )
 

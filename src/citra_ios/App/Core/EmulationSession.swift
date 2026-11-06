@@ -19,6 +19,12 @@ final class EmulationSession: ObservableObject {
     @Published private(set) var gpuMs: Double = 0
     @Published private(set) var stallMs: Double = 0
     @Published private(set) var draws: Double = 0
+    /// The software keyboard of the running game, while it waits for text.
+    @Published var keyboardRequest: AZKeyboardRequest?
+    /// A message for the user that does not end the game.
+    @Published var notice: SessionNotice?
+    /// A short confirmation shown over the game for a moment.
+    @Published private(set) var toast: String?
     @Published var showingError = false
     @Published private(set) var errorMessage: String?
     /// Complete report of an exception in the emulated program, when there is one.
@@ -37,6 +43,47 @@ final class EmulationSession: ObservableObject {
         AZEmulator.shared.onStopped = { [weak self] error in
             Task { @MainActor in
                 self?.handleStopped(error: error)
+            }
+        }
+        AZEmulator.shared.onKeyboardRequest = { [weak self] request in
+            Task { @MainActor in
+                self?.keyboardRequest = request
+            }
+        }
+        AZEmulator.shared.onNotice = { [weak self] title, message in
+            Task { @MainActor in
+                self?.notice = SessionNotice(title: title, message: message)
+            }
+        }
+    }
+
+    // MARK: Save states and cheats
+
+    func saveState(slot: Int) {
+        if AZEmulator.shared.saveState(toSlot: slot) {
+            showToast(slot == 0 ? "Saved to the quick slot" : "Saved to slot \(slot)")
+        } else {
+            notice = SessionNotice(title: "Save State", message: "The state could not be saved right now.")
+        }
+    }
+
+    func loadState(slot: Int) {
+        if AZEmulator.shared.loadState(fromSlot: slot) {
+            showToast(slot == 0 ? "Loaded the quick slot" : "Loaded slot \(slot)")
+        } else {
+            notice = SessionNotice(title: "Load State", message: "The state could not be loaded right now.")
+        }
+    }
+
+    private var toastTask: Task<Void, Never>?
+
+    func showToast(_ text: String) {
+        toast = text
+        toastTask?.cancel()
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if !Task.isCancelled {
+                toast = nil
             }
         }
     }
@@ -128,6 +175,7 @@ final class EmulationSession: ObservableObject {
         motion.stop()
         UIApplication.shared.isIdleTimerDisabled = false
         currentGame = nil
+        keyboardRequest = nil
         isPaused = false
         fps = 0
         speed = 0
@@ -138,4 +186,15 @@ final class EmulationSession: ObservableObject {
         errorReport = report
         showingError = true
     }
+}
+
+/// A message shown to the user in an alert.
+struct SessionNotice: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
+extension AZKeyboardRequest: Identifiable {
+    public var id: ObjectIdentifier { ObjectIdentifier(self) }
 }

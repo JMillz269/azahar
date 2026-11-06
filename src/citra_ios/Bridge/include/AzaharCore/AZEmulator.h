@@ -46,6 +46,52 @@ typedef NS_ENUM(NSInteger, AZEmulationState) {
 /// Error domain of the errors reported by AZEmulator.
 extern NSErrorDomain const AZEmulatorErrorDomain;
 
+/// A request of the emulated software to type text (the 3DS software keyboard).
+@interface AZKeyboardRequest : NSObject
+@property(nonatomic, copy) NSString* hintText;
+/// Why the previous input was rejected, shown above the field. Nil for a fresh request.
+@property(nonatomic, copy, nullable) NSString* errorMessage;
+/// Labels of the buttons from left to right, the last one is the one that confirms the input.
+@property(nonatomic, copy) NSArray<NSString*>* buttonTexts;
+/// Index of the button that confirms the input, the other ones (cancel, "I forgot") skip checks.
+@property(nonatomic) NSInteger confirmButtonIndex;
+@property(nonatomic) NSInteger maxLength;
+@property(nonatomic) BOOL multiline;
+@property(nonatomic) BOOL numeric;
+/// Hands the text and the index of the pressed button to the emulated software. Returns nil when
+/// the input was accepted (the request is over), otherwise why it was rejected.
+@property(nonatomic, copy) NSString* _Nullable (^submit)(NSString* text, NSInteger button);
+@end
+
+/// A save state slot that holds a state of the running title.
+@interface AZSaveStateSlot : NSObject
+/// 0 is the quick slot, 1 to 10 the numbered ones.
+@property(nonatomic, readonly) NSInteger slot;
+@property(nonatomic, readonly) NSDate* date;
+/// False when the state was made by another build and can't be loaded.
+@property(nonatomic, readonly) BOOL isLoadable;
+@end
+
+/// A cheat of the running title.
+@interface AZCheat : NSObject
+@property(nonatomic, copy) NSString* name;
+/// Gateway codes, one "XXXXXXXX XXXXXXXX" pair per line.
+@property(nonatomic, copy) NSString* code;
+@property(nonatomic, copy) NSString* comments;
+@property(nonatomic) BOOL enabled;
+@end
+
+/// Result of installing a CIA.
+typedef NS_ENUM(NSInteger, AZInstallStatus) {
+    AZInstallStatusSuccess = 0,
+    AZInstallStatusFailedToOpen,
+    AZInstallStatusNotFound,
+    AZInstallStatusAborted,
+    AZInstallStatusInvalid,
+    AZInstallStatusEncrypted,
+    AZInstallStatusUnknown,
+};
+
 /// Owns the emulated 3DS. All methods must be called from the main thread unless stated
 /// otherwise; emulation itself runs on a dedicated thread.
 @interface AZEmulator : NSObject
@@ -75,6 +121,12 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 @property(nonatomic, readonly) double gpuMilliseconds;
 @property(nonatomic, readonly) double stallMilliseconds;
 @property(nonatomic, readonly) double drawsPerFrame;
+
+/// Called on the main thread when the emulated software asks for text.
+@property(nonatomic, copy, nullable) void (^onKeyboardRequest)(AZKeyboardRequest* request);
+/// Called on the main thread with a message for the user that is not an error stopping emulation
+/// (for example a failed save state).
+@property(nonatomic, copy, nullable) void (^onNotice)(NSString* title, NSString* message);
 
 /// Called on the main thread when emulation stops on its own (shutdown or error). The error is
 /// nil on a regular shutdown.
@@ -116,6 +168,40 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
                          gyroY:(float)gy
                          gyroZ:(float)gz
     NS_SWIFT_NAME(setMotion(accelX:accelY:accelZ:gyroX:gyroY:gyroZ:));
+
+@end
+
+/// Save states, cheats, the software keyboard and CIA installation.
+@interface AZEmulator (Features)
+
+/// Registers the software keyboard applet. Internal, called when a title boots.
+- (void)registerKeyboardApplet;
+
+// Save states of the running title.
+
+/// Slots that hold a state, newest first. Empty when nothing is running.
+- (NSArray<AZSaveStateSlot*>*)saveStateSlots;
+/// Asks the emulation to save or load a slot. Returns false when that is not possible right now.
+- (BOOL)saveStateToSlot:(NSInteger)slot;
+- (BOOL)loadStateFromSlot:(NSInteger)slot;
+
+// Cheats of the running title.
+
+- (NSArray<AZCheat*>*)cheats;
+- (void)setCheatEnabled:(BOOL)enabled atIndex:(NSInteger)index;
+- (void)addCheat:(AZCheat*)cheat;
+- (void)replaceCheatAtIndex:(NSInteger)index with:(AZCheat*)cheat;
+- (void)removeCheatAtIndex:(NSInteger)index;
+/// 1-based numbers of the lines of a code that are not a valid Gateway code line.
++ (NSArray<NSNumber*>*)invalidCheatLinesInCode:(NSString*)code;
+
+// CIA installation, safe to call from any thread while no title is running.
+
+/// Installs a CIA (also its compressed form) on a background queue. `progress` and `completion`
+/// are called on the main thread.
++ (void)installCIAAtPath:(NSString*)path
+                progress:(void (^)(double fraction))progress
+              completion:(void (^)(AZInstallStatus status))completion;
 
 @end
 

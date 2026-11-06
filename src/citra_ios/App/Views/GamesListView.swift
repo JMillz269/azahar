@@ -69,11 +69,27 @@ struct GamesListView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Import games")
+                    .accessibilityLabel("Import games or install CIAs")
                 }
             }
             .overlay {
-                if library.isImporting {
+                if let name = library.installName {
+                    VStack(spacing: 10) {
+                        Text("Installing")
+                            .font(.headline)
+                        Text(name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        ProgressView(value: library.installProgress)
+                            .frame(width: 220)
+                        Text("\(Int((library.installProgress * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                } else if library.isImporting {
                     ProgressView("Importing…")
                         .padding(24)
                         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
@@ -101,6 +117,14 @@ struct GamesListView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(library.importError ?? "")
+        }
+        .alert("Installed", isPresented: Binding(
+            get: { library.installSummary != nil },
+            set: { if !$0 { library.installSummary = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(library.installSummary ?? "")
         }
         .sheet(item: $selectedGameInfo) { game in
             GameInfoView(game: game)

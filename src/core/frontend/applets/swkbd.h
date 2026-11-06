@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <utility>
 #include <vector>
 #include "common/assert.h"
@@ -144,7 +145,9 @@ protected:
     KeyboardConfig config;
     KeyboardData data;
 
-    bool data_ready = false;
+    // Atomic because a frontend that shows its keyboard on its UI thread finalizes from there
+    // while the emulation thread polls DataReady().
+    std::atomic<bool> data_ready{false};
 };
 
 class DefaultKeyboard final : public SoftwareKeyboard {

@@ -1,0 +1,432 @@
+// Copyright 2026 Citra Emulator Project / Azahar Emulator Project
+// Licensed under GPLv3 or any later version
+// Refer to the LICENSE.txt file included.
+
+// The parts of the emulator the user interacts with while a title runs or is installed: the
+// software keyboard, save states, cheats and CIA installation.
+
+#import <AzaharCore/AZEmulator.h>
+
+#include <algorithm>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
+
+#include "common/logging/log.h"
+#include "core/cheats/cheat_base.h"
+#include "core/cheats/cheats.h"
+#include "core/cheats/gateway_cheat.h"
+#include "core/core.h"
+#include "core/frontend/applets/swkbd.h"
+#include "core/hle/service/am/am.h"
+#include "core/loader/loader.h"
+#include "core/movie.h"
+#include "core/savestate.h"
+
+@implementation AZKeyboardRequest
+@end
+
+@implementation AZSaveStateSlot {
+    NSInteger _slot;
+    NSDate* _date;
+    BOOL _loadable;
+}
+
+- (instancetype)initWithSlot:(NSInteger)slot date:(NSDate*)date loadable:(BOOL)loadable {
+    if ((self = [super init])) {
+        _slot = slot;
+        _date = date;
+        _loadable = loadable;
+    }
+    return self;
+}
+
+- (NSInteger)slot {
+    return _slot;
+}
+
+- (NSDate*)date {
+    return _date;
+}
+
+- (BOOL)isLoadable {
+    return _loadable;
+}
+
+@end
+
+@implementation AZCheat
+@end
+
+namespace {
+
+NSString* ToNSString(const std::string& string) {
+    NSString* result = [NSString stringWithUTF8String:string.c_str()];
+    return result != nil ? result : @"";
+}
+
+const char* ValidationMessage(Frontend::ValidationError error) {
+    using Frontend::ValidationError;
+    switch (error) {
+    case ValidationError::MaxDigitsExceeded:
+        return "Too many digits.";
+    case ValidationError::AtSignNotAllowed:
+        return "The @ sign can't be used here.";
+    case ValidationError::PercentNotAllowed:
+        return "The % sign can't be used here.";
+    case ValidationError::BackslashNotAllowed:
+        return "The \\ sign can't be used here.";
+    case ValidationError::ProfanityNotAllowed:
+        return "That text is not allowed.";
+    case ValidationError::FixedLengthRequired:
+        return "The text must have exactly the requested length.";
+    case ValidationError::MaxLengthExceeded:
+        return "The text is too long.";
+    case ValidationError::BlankInputNotAllowed:
+        return "The text can't be blank.";
+    case ValidationError::EmptyInputNotAllowed:
+        return "Enter some text.";
+    case ValidationError::ButtonOutOfRange:
+    case ValidationError::CallbackFailed:
+    default:
+        return "That input is not accepted.";
+    }
+}
+
+/// The software keyboard applet. The prompt is shown by the app on its UI thread, which hands the
+/// result back with Submit.
+class IOSKeyboard final : public Frontend::SoftwareKeyboard {
+public:
+    using RequestHandler = std::function<void(const Frontend::KeyboardConfig&, const std::string&)>;
+    using NoticeHandler = std::function<void(const std::string&)>;
+
+    IOSKeyboard(RequestHandler on_request_, NoticeHandler on_notice_)
+        : on_request{std::move(on_request_)}, on_notice{std::move(on_notice_)} {}
+
+    void Execute(const Frontend::KeyboardConfig& config_) override {
+        SoftwareKeyboard::Execute(config_);
+        std::string error;
+        {
+            std::scoped_lock lock{mutex};
+            error = std::move(pending_error);
+            pending_error.clear();
+            ++error_generation;
+        }
+        on_request(config, error);
+    }
+
+    void ShowError(const std::string& error) override {
+        u32 generation;
+        {
+            std::scoped_lock lock{mutex};
+            pending_error = error;
+            generation = ++error_generation;
+        }
+        // Usually the applet asks for the input again right away and the message is shown with
+        // that prompt. Otherwise (the input was refused for good) show it on its own.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(), ^{
+                         std::string message;
+                         {
+                             std::scoped_lock lock{mutex};
+                             if (error_generation != generation || pending_error.empty()) {
+                                 return;
+                             }
+                             message = std::move(pending_error);
+                             pending_error.clear();
+                         }
+                         on_notice(message);
+                       });
+    }
+
+    /// Returns why the input was rejected, or an empty string when it was accepted.
+    std::string Submit(const std::string& text, u8 button) {
+        // Only the button that confirms the input has to pass the checks.
+        if (button == static_cast<u8>(config.button_config)) {
+            const auto filter_error = ValidateFilters(text);
+            if (filter_error != Frontend::ValidationError::None) {
+                return ValidationMessage(filter_error);
+            }
+        }
+        const auto error = Finalize(text, button);
+        return error == Frontend::ValidationError::None ? std::string{} : ValidationMessage(error);
+    }
+
+private:
+    RequestHandler on_request;
+    NoticeHandler on_notice;
+    std::mutex mutex;
+    std::string pending_error;
+    u32 error_generation{};
+};
+
+/// The keyboard of the current run. Replaced for every title that starts.
+std::shared_ptr<IOSKeyboard> g_keyboard;
+
+AZInstallStatus ToInstallStatus(Service::AM::InstallStatus status) {
+    using Service::AM::InstallStatus;
+    switch (status) {
+    case InstallStatus::Success:
+        return AZInstallStatusSuccess;
+    case InstallStatus::ErrorFailedToOpenFile:
+        return AZInstallStatusFailedToOpen;
+    case InstallStatus::ErrorFileNotFound:
+        return AZInstallStatusNotFound;
+    case InstallStatus::ErrorAborted:
+        return AZInstallStatusAborted;
+    case InstallStatus::ErrorInvalid:
+        return AZInstallStatusInvalid;
+    case InstallStatus::ErrorEncrypted:
+        return AZInstallStatusEncrypted;
+    default:
+        return AZInstallStatusUnknown;
+    }
+}
+
+/// Program ID of the running title, 0 when nothing runs.
+u64 RunningProgramId() {
+    Core::System& system = Core::System::GetInstance();
+    u64 program_id{};
+    if (!system.IsPoweredOn() ||
+        system.GetAppLoader().ReadProgramId(program_id) != Loader::ResultStatus::Success) {
+        return 0;
+    }
+    return program_id;
+}
+
+void SaveCheats() {
+    const u64 program_id = RunningProgramId();
+    if (program_id != 0) {
+        Core::System::GetInstance().CheatEngine().SaveCheatFile(program_id);
+    }
+}
+
+std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
+    auto result = std::make_shared<Cheats::GatewayCheat>(
+        cheat.name.UTF8String ?: "", cheat.code.UTF8String ?: "", cheat.comments.UTF8String ?: "");
+    result->SetEnabled(cheat.enabled);
+    return result;
+}
+
+} // Anonymous namespace
+
+@implementation AZEmulator (Features)
+
+// MARK: Software keyboard
+
+- (void)registerKeyboardApplet {
+    __weak AZEmulator* weak_self = self;
+    auto keyboard = std::make_shared<IOSKeyboard>(
+        [weak_self](const Frontend::KeyboardConfig& config, const std::string& error) {
+            AZEmulator* emulator = weak_self;
+            if (emulator == nil) {
+                return;
+            }
+            AZKeyboardRequest* request = [[AZKeyboardRequest alloc] init];
+            request.hintText = ToNSString(config.hint_text);
+            request.errorMessage = error.empty() ? nil : ToNSString(error);
+            const bool numeric = config.type == Frontend::KeyboardType::NumPad;
+            request.numeric = numeric;
+            request.multiline = config.multiline_mode;
+            request.maxLength = numeric ? config.max_digits : config.max_text_length;
+
+            // Button labels from the application when it provides them, defaults otherwise.
+            std::vector<std::string> labels;
+            switch (config.button_config) {
+            case Frontend::ButtonConfig::Dual:
+                labels = {Frontend::SWKBD_BUTTON_CANCEL, Frontend::SWKBD_BUTTON_OKAY};
+                break;
+            case Frontend::ButtonConfig::Triple:
+                labels = {Frontend::SWKBD_BUTTON_CANCEL, Frontend::SWKBD_BUTTON_FORGOT,
+                          Frontend::SWKBD_BUTTON_OKAY};
+                break;
+            default:
+                labels = {Frontend::SWKBD_BUTTON_OKAY};
+                break;
+            }
+            for (std::size_t i = 0; i < labels.size() && i < config.button_text.size(); i++) {
+                if (!config.button_text[i].empty()) {
+                    labels[i] = config.button_text[i];
+                }
+            }
+            NSMutableArray<NSString*>* texts = [NSMutableArray array];
+            for (const auto& label : labels) {
+                [texts addObject:ToNSString(label)];
+            }
+            request.buttonTexts = texts;
+            request.confirmButtonIndex = static_cast<NSInteger>(labels.size()) - 1;
+
+            // The shared pointer to the keyboard is kept alive by the request.
+            std::shared_ptr<IOSKeyboard> keep = g_keyboard;
+            request.submit = ^NSString*(NSString* text, NSInteger button) {
+              const std::string error = keep->Submit(text.UTF8String ?: "", static_cast<u8>(button));
+              return error.empty() ? nil : ToNSString(error);
+            };
+            dispatch_async(dispatch_get_main_queue(), ^{
+              if (emulator.onKeyboardRequest) {
+                  emulator.onKeyboardRequest(request);
+              } else {
+                  // Nobody can show it: answer with an empty input so the game does not wait.
+                  request.submit(@"", request.confirmButtonIndex);
+              }
+            });
+        },
+        [weak_self](const std::string& message) {
+            AZEmulator* emulator = weak_self;
+            if (emulator != nil && emulator.onNotice) {
+                emulator.onNotice(@"Keyboard", ToNSString(message));
+            }
+        });
+    g_keyboard = keyboard;
+    Core::System::GetInstance().RegisterSoftwareKeyboard(keyboard);
+}
+
+// MARK: Save states
+
+- (NSArray<AZSaveStateSlot*>*)saveStateSlots {
+    const u64 program_id = RunningProgramId();
+    if (program_id == 0) {
+        return @[];
+    }
+    const auto states = Core::ListSaveStates(
+        program_id, Core::System::GetInstance().Movie().GetCurrentMovieID());
+    NSMutableArray<AZSaveStateSlot*>* slots = [NSMutableArray array];
+    for (const auto& state : states) {
+        if (state.slot >= Core::SaveStateSlotCount) {
+            continue;
+        }
+        const bool loadable = state.status != Core::SaveStateInfo::ValidationStatus::BuildMismatch;
+        [slots addObject:[[AZSaveStateSlot alloc]
+                             initWithSlot:state.slot
+                                     date:[NSDate dateWithTimeIntervalSince1970:state.time]
+                                 loadable:loadable]];
+    }
+    [slots sortUsingComparator:^NSComparisonResult(AZSaveStateSlot* a, AZSaveStateSlot* b) {
+      return [b.date compare:a.date];
+    }];
+    return slots;
+}
+
+- (BOOL)saveStateToSlot:(NSInteger)slot {
+    if (RunningProgramId() == 0 || slot < 0 || slot >= Core::SaveStateSlotCount) {
+        return NO;
+    }
+    return Core::System::GetInstance().SendSignal(Core::System::Signal::Save,
+                                                  static_cast<u32>(slot));
+}
+
+- (BOOL)loadStateFromSlot:(NSInteger)slot {
+    if (RunningProgramId() == 0 || slot < 0 || slot >= Core::SaveStateSlotCount) {
+        return NO;
+    }
+    return Core::System::GetInstance().SendSignal(Core::System::Signal::Load,
+                                                  static_cast<u32>(slot));
+}
+
+// MARK: Cheats
+
+- (NSArray<AZCheat*>*)cheats {
+    if (RunningProgramId() == 0) {
+        return @[];
+    }
+    NSMutableArray<AZCheat*>* result = [NSMutableArray array];
+    for (const auto& cheat : Core::System::GetInstance().CheatEngine().GetCheats()) {
+        AZCheat* item = [[AZCheat alloc] init];
+        item.name = ToNSString(cheat->GetName());
+        item.code = ToNSString(cheat->GetCode());
+        item.comments = ToNSString(cheat->GetComments());
+        item.enabled = cheat->IsEnabled();
+        [result addObject:item];
+    }
+    return result;
+}
+
+- (void)setCheatEnabled:(BOOL)enabled atIndex:(NSInteger)index {
+    auto cheats = Core::System::GetInstance().CheatEngine().GetCheats();
+    if (index < 0 || static_cast<std::size_t>(index) >= cheats.size()) {
+        return;
+    }
+    cheats[index]->SetEnabled(enabled);
+    SaveCheats();
+}
+
+- (void)addCheat:(AZCheat*)cheat {
+    if (RunningProgramId() == 0) {
+        return;
+    }
+    Core::System::GetInstance().CheatEngine().AddCheat(
+        MakeCheat(cheat));
+    SaveCheats();
+}
+
+- (void)replaceCheatAtIndex:(NSInteger)index with:(AZCheat*)cheat {
+    auto& engine = Core::System::GetInstance().CheatEngine();
+    if (RunningProgramId() == 0 || index < 0 ||
+        static_cast<std::size_t>(index) >= engine.GetCheats().size()) {
+        return;
+    }
+    engine.UpdateCheat(static_cast<std::size_t>(index), MakeCheat(cheat));
+    SaveCheats();
+}
+
+- (void)removeCheatAtIndex:(NSInteger)index {
+    auto& engine = Core::System::GetInstance().CheatEngine();
+    if (RunningProgramId() == 0 || index < 0 ||
+        static_cast<std::size_t>(index) >= engine.GetCheats().size()) {
+        return;
+    }
+    engine.RemoveCheat(static_cast<std::size_t>(index));
+    SaveCheats();
+}
+
++ (NSArray<NSNumber*>*)invalidCheatLinesInCode:(NSString*)code {
+    NSMutableArray<NSNumber*>* invalid = [NSMutableArray array];
+    NSArray<NSString*>* lines = [code componentsSeparatedByCharactersInSet:
+                                          [NSCharacterSet newlineCharacterSet]];
+    NSInteger number = 0;
+    for (NSString* line in lines) {
+        number++;
+        NSString* trimmed = [line stringByTrimmingCharactersInSet:
+                                      [NSCharacterSet whitespaceCharacterSet]];
+        if (trimmed.length == 0) {
+            continue;
+        }
+        const Cheats::GatewayCheat::CheatLine parsed{std::string{trimmed.UTF8String}};
+        if (!parsed.valid) {
+            [invalid addObject:@(number)];
+        }
+    }
+    return invalid;
+}
+
+// MARK: CIA installation
+
++ (void)installCIAAtPath:(NSString*)path
+                progress:(void (^)(double))progress
+              completion:(void (^)(AZInstallStatus))completion {
+    const std::string cia_path{path.UTF8String};
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+      auto last_percent = std::make_shared<std::atomic<int>>(-1);
+      const auto status = Service::AM::InstallCIA(
+          cia_path, [progress, last_percent](std::size_t written, std::size_t total) {
+              if (total == 0) {
+                  return;
+              }
+              const int percent = static_cast<int>(100.0 * static_cast<double>(written) /
+                                                   static_cast<double>(total));
+              if (last_percent->exchange(percent) == percent) {
+                  return;
+              }
+              dispatch_async(dispatch_get_main_queue(), ^{
+                progress(static_cast<double>(percent) / 100.0);
+              });
+          });
+      dispatch_async(dispatch_get_main_queue(), ^{
+        completion(ToInstallStatus(status));
+      });
+    });
+}
+
+@end

@@ -14,6 +14,9 @@ struct EmulationView: View {
     @State private var controllerVisible = true
     @State private var pausedForBackground = false
     @State private var editingLayout = false
+    @State private var showingSaveStates = false
+    @State private var showingLoadStates = false
+    @State private var showingCheats = false
     @State private var resumeAfterEditing = false
 
     var body: some View {
@@ -72,6 +75,20 @@ struct EmulationView: View {
                 .allowsHitTesting(false)
             }
 
+            if let toast = session.toast {
+                VStack {
+                    Spacer()
+                    Text(toast)
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 24)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+
             if session.isPaused && !editingLayout {
                 Text("Paused")
                     .font(.headline)
@@ -95,12 +112,35 @@ struct EmulationView: View {
             if settings.showController {
                 Button("Edit Controller Layout") { beginEditingLayout() }
             }
+            Button("Save State…") { showingSaveStates = true }
+            Button("Load State…") { showingLoadStates = true }
+            Button("Cheats…") { showingCheats = true }
             Button("Swap Screens") {
                 settings.swapScreens.toggle()
                 session.apply(settings: settings)
             }
             Button("Stop Emulation", role: .destructive) { session.stop() }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showingSaveStates) {
+            SaveStatesView(mode: .save)
+        }
+        .sheet(isPresented: $showingLoadStates) {
+            SaveStatesView(mode: .load)
+        }
+        .sheet(isPresented: $showingCheats) {
+            CheatsView()
+        }
+        .sheet(item: $session.keyboardRequest) { request in
+            KeyboardPromptView(request: request) { session.keyboardRequest = nil }
+        }
+        .alert(session.notice?.title ?? "", isPresented: Binding(
+            get: { session.notice != nil },
+            set: { if !$0 { session.notice = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(session.notice?.message ?? "")
         }
         .onChange(of: editingLayout) { editing in
             if !editing && resumeAfterEditing {

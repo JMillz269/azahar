@@ -37,6 +37,14 @@ enum FileLocations {
         return true
     }
 
+    /// Installable titles (games, updates and DLC) the emulator installs instead of importing.
+    static let ciaExtensions: Set<String> = ["cia", "zcia"]
+
+    /// Where the installed titles live.
+    static var installedTitlesDirectory: URL {
+        userDirectory.appendingPathComponent("sdmc/Nintendo 3DS", isDirectory: true)
+    }
+
     static func createDirectories() {
         for url in [userDirectory, romsDirectory] {
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

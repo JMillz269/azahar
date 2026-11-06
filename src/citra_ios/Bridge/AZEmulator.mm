@@ -506,6 +506,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
     system.ApplySettings();
     Settings::LogSettings();
     Frontend::RegisterDefaultApplets(system);
+    [self registerKeyboardApplet];
     IOSInput::BindInputProfile();
 
     const Core::System::ResultStatus load_result = system.Load(*_window, filepath);
@@ -556,6 +557,23 @@ NSError* MakeError(NSInteger code, NSString* description) {
         const auto result = system.RunLoop();
         if (result == Core::System::ResultStatus::ShutdownRequested) {
             break;
+        }
+        if (result == Core::System::ResultStatus::ErrorSavestate ||
+            result == Core::System::ResultStatus::ErrorSavestateBuildMismatch) {
+            // A failed save state must not end the game, tell the user and keep running.
+            NSString* message =
+                result == Core::System::ResultStatus::ErrorSavestateBuildMismatch
+                    ? [NSString stringWithFormat:@"This state was saved by another version of "
+                                                 @"Azahar (%s) and can't be loaded.",
+                                                 system.GetStatusDetails().c_str()]
+                    : [NSString stringWithFormat:@"The state operation failed: %s",
+                                                 system.GetStatusDetails().c_str()];
+            dispatch_async(dispatch_get_main_queue(), ^{
+              if (self.onNotice) {
+                  self.onNotice(@"Save State", message);
+              }
+            });
+            continue;
         }
         if (result != Core::System::ResultStatus::Success) {
             error = MakeResultError(result, system.GetStatusDetails());

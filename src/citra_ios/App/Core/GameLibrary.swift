@@ -15,6 +15,8 @@ struct Game: Identifiable, Hashable {
     let programID: UInt64
     let isEncrypted: Bool
     let icon: UIImage?
+    /// Installed from a CIA rather than imported as a file.
+    var isInstalled = false
 
     var id: String { url.path }
 
@@ -33,6 +35,11 @@ final class GameLibrary: ObservableObject {
     @Published private(set) var isScanning = false
     @Published private(set) var isImporting = false
     @Published var importError: String?
+    /// File name and progress (0 to 1) of the CIA being installed.
+    @Published private(set) var installName: String?
+    @Published private(set) var installProgress: Double = 0
+    /// What the last installation did, for a confirmation alert.
+    @Published var installSummary: String?
     /// Set when a refresh was requested during a scan, so the files added meanwhile are not missed.
     private var needsRescan = false
 
@@ -47,8 +54,9 @@ final class GameLibrary: ObservableObject {
         }
         isScanning = true
         let directory = FileLocations.romsDirectory
+        let installed = FileLocations.installedTitlesDirectory
         Task.detached(priority: .userInitiated) {
-            let games = GameLibrary.scan(directory: directory)
+            let games = GameLibrary.scan(directory: directory, installedDirectory: installed)
             await MainActor.run {
                 self.games = games
                 self.isScanning = false
@@ -62,7 +70,17 @@ final class GameLibrary: ObservableObject {
 
     /// Imports the provided files into the ROMs directory. Files that live in this app's temporary
     /// directory (the copies made by the document picker) are moved, everything else is copied.
-    func importFiles(_ urls: [URL]) {
+    func importFiles(_ allURLs: [URL]) {
+        // CIAs are installed into the emulated console instead of being copied.
+        let cias = allURLs.filter {
+            FileLocations.ciaExtensions.contains($0.pathExtension.lowercased())
+        }
+        if !cias.isEmpty {
+            install(cias)
+        }
+        let urls = allURLs.filter {
+            !FileLocations.ciaExtensions.contains($0.pathExtension.lowercased())
+        }
         guard !urls.isEmpty else { return }
         isImporting = true
         let destination = FileLocations.romsDirectory
@@ -75,6 +93,64 @@ final class GameLibrary: ObservableObject {
                 }
                 self.refresh()
             }
+        }
+    }
+
+    /// Installs the CIAs one after the other, showing the progress.
+    private func install(_ urls: [URL]) {
+        guard installName == nil else {
+            importError = "Another installation is still running."
+            return
+        }
+        Task { @MainActor in
+            var installed = 0
+            var failures: [String] = []
+            for url in urls {
+                let name = url.lastPathComponent
+                installName = name
+                installProgress = 0
+                let status: AZInstallStatus = await withCheckedContinuation { continuation in
+                    AZEmulator.installCIA(
+                        atPath: url.path,
+                        progress: { fraction in
+                            Task { @MainActor in self.installProgress = fraction }
+                        },
+                        completion: { continuation.resume(returning: $0) })
+                }
+                // The picker copied the file for this app, it is not needed any more.
+                if GameLibrary.isInTemporaryDirectory(url) {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                if status == .success {
+                    installed += 1
+                } else {
+                    failures.append("\(name): \(GameLibrary.describe(status))")
+                }
+            }
+            installName = nil
+            refresh()
+            if !failures.isEmpty {
+                importError = failures.joined(separator: "\n")
+            }
+            if installed > 0 {
+                installSummary = installed == 1
+                    ? "1 title was installed." : "\(installed) titles were installed."
+            }
+        }
+    }
+
+    nonisolated private static func describe(_ status: AZInstallStatus) -> String {
+        switch status {
+        case .success: return "Installed."
+        case .failedToOpen: return "The file could not be opened."
+        case .notFound: return "The file was not found."
+        case .aborted: return "The installation was aborted. See the log for details."
+        case .invalid: return "This is not a valid CIA."
+        case .encrypted:
+            return "This CIA is encrypted. Dump your titles from your own console in a decrypted "
+                + "format."
+        case .unknown: return "The installation failed."
+        @unknown default: return "The installation failed."
         }
     }
 
@@ -123,35 +199,63 @@ final class GameLibrary: ObservableObject {
         return failures
     }
 
-    nonisolated private static func isInTemporaryDirectory(_ url: URL) -> Bool {
+    nonisolated fileprivate static func isInTemporaryDirectory(_ url: URL) -> Bool {
         let temporary = FileManager.default.temporaryDirectory.standardizedFileURL.resolvingSymlinksInPath()
         let file = url.standardizedFileURL.resolvingSymlinksInPath()
         return file.path.hasPrefix(temporary.path + "/")
     }
 
     func delete(_ game: Game) {
-        try? FileManager.default.removeItem(at: game.url)
+        if game.isInstalled {
+            // .../title/00040000/<title id>/content/<id>.app: remove the whole title.
+            let titleDirectory = game.url.deletingLastPathComponent().deletingLastPathComponent()
+            try? FileManager.default.removeItem(at: titleDirectory)
+        } else {
+            try? FileManager.default.removeItem(at: game.url)
+        }
         refresh()
     }
 
-    nonisolated private static func scan(directory: URL) -> [Game] {
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory, includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles])
-        else { return [] }
+    /// Title types shown in the library: applications, demos and DSiWare. Updates and DLC are
+    /// installed titles too, but are used by their game rather than booted.
+    nonisolated private static let bootableTitleTypes: Set<UInt64> = [
+        0x0004_0000, 0x0004_0002, 0x0004_8004,
+    ]
 
-        var games: [Game] = []
-        for case let url as URL in enumerator {
-            guard FileLocations.bootableExtensions.contains(url.pathExtension.lowercased()),
-                let info = AZGameInfo(path: url.path)
-            else { continue }
-            games.append(
-                Game(
-                    url: url, title: info.title, publisher: info.publisher, regions: info.regions,
-                    fileType: info.fileType, programID: info.programID,
-                    isEncrypted: info.isEncrypted, icon: makeIcon(info.iconRGBA)))
+    nonisolated private static func scan(directory: URL, installedDirectory: URL) -> [Game] {
+        func games(in directory: URL, installed: Bool) -> [Game] {
+            guard let enumerator = FileManager.default.enumerator(
+                at: directory, includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles])
+            else { return [] }
+
+            var found: [Game] = []
+            for case let url as URL in enumerator {
+                guard FileLocations.bootableExtensions.contains(url.pathExtension.lowercased()),
+                    let info = AZGameInfo(path: url.path)
+                else { continue }
+                if installed {
+                    // The other contents of a title (manual, download play...) have no icon.
+                    guard bootableTitleTypes.contains(info.programID >> 32), info.iconRGBA != nil
+                    else { continue }
+                }
+                found.append(
+                    Game(
+                        url: url, title: info.title, publisher: info.publisher,
+                        regions: info.regions, fileType: info.fileType,
+                        programID: info.programID, isEncrypted: info.isEncrypted,
+                        icon: makeIcon(info.iconRGBA), isInstalled: installed))
+            }
+            return found
         }
-        return games.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+
+        var all = games(in: directory, installed: false)
+        // A title that is both imported and installed is listed once.
+        let imported = Set(all.map(\.programID))
+        all += games(in: installedDirectory, installed: true).filter {
+            !imported.contains($0.programID)
+        }
+        return all.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     nonisolated private static func makeIcon(_ data: Data?) -> UIImage? {
