@@ -14,6 +14,7 @@ struct GamesListView: View {
     @State private var searchText = ""
     @State private var gamePendingDeletion: Game?
     @State private var selectedGameInfo: Game?
+    @State private var showingArtic = false
 
     /// Shows the file picker. The picked files are copied by the system first, so a failure can
     /// only happen before the import starts.
@@ -62,6 +63,14 @@ struct GamesListView: View {
                         Image(systemName: settings.libraryStyle == .list
                               ? "list.bullet" : "square.grid.2x2")
                     }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showingArtic = true
+                    } label: {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                    }
+                    .accessibilityLabel("Artic: stream from a 3DS")
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -125,6 +134,9 @@ struct GamesListView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(library.installSummary ?? "")
+        }
+        .sheet(isPresented: $showingArtic) {
+            ArticView()
         }
         .sheet(item: $selectedGameInfo) { game in
             GameInfoView(game: game)

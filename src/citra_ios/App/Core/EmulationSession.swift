@@ -165,7 +165,7 @@ final class EmulationSession: ObservableObject {
         }
         AZEmulator.shared.apply(configuration: settings.makeConfiguration(for: game))
         do {
-            try AZEmulator.shared.start(path: game.url.path)
+            try AZEmulator.shared.start(path: game.startPath)
         } catch {
             currentGame = nil
             present(error: error.localizedDescription)

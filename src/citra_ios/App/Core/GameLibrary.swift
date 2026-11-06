@@ -17,8 +17,13 @@ struct Game: Identifiable, Hashable {
     let icon: UIImage?
     /// Installed from a CIA rather than imported as a file.
     var isInstalled = false
+    /// What the emulator is started with when it is not the path of a file (Artic addresses).
+    var launchPath: String?
 
-    var id: String { url.path }
+    var id: String { launchPath ?? url.path }
+
+    /// The path the emulator is started with.
+    var startPath: String { launchPath ?? url.path }
 
     var programIDString: String {
         String(format: "%016llX", programID)

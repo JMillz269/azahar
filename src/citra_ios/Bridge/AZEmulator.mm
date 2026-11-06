@@ -77,6 +77,12 @@ NSString* DescribeResult(Core::System::ResultStatus result, const std::string& d
         stringWithFormat:@"Emulation failed with error %u.", static_cast<unsigned>(result)];
 }
 
+/// Paths that make the core stream a title from a real console running the Artic server.
+bool IsArticPath(const std::string& path) {
+    return path.starts_with("articbase://") || path.starts_with("articinio://") ||
+           path.starts_with("articinin://");
+}
+
 NSString* FindEntryWithLength(NSString* directory, NSUInteger length) {
     NSArray<NSString*>* contents =
         [[NSFileManager defaultManager] contentsOfDirectoryAtPath:directory error:nil];
@@ -574,7 +580,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
         }
         return NO;
     }
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+    if (!IsArticPath(path.UTF8String) &&
+        ![[NSFileManager defaultManager] fileExistsAtPath:path]) {
         if (error) {
             *error = MakeError(2, @"The selected file does not exist.");
         }
@@ -631,6 +638,12 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     u64 program_id{};
     FileUtil::SetCurrentRomPath(filepath);
     auto app_loader = Loader::GetLoader(filepath);
+    if (!app_loader && IsArticPath(filepath)) {
+        return MakeError(3, @"Could not connect to the Artic server. Check that Artic Base or the "
+                            @"Artic Setup Tool is running on the 3DS, that the address is right, "
+                            @"that both devices are on the same network and that this app may "
+                            @"use the local network (iOS Settings).");
+    }
     if (app_loader) {
         app_loader->ReadProgramId(program_id);
         system.RegisterAppLoaderEarly(app_loader);

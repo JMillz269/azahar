@@ -250,6 +250,16 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 /// Runs the game faster than real time (3x) while enabled.
 - (void)setFastForward:(BOOL)enabled;
 
+// Artic: streaming from a real console. Start a title with the path "articbase://<address>"; the
+// Artic Setup Tool installs the console's system files with "articinio://<address>" (Old 3DS
+// part) and "articinin://<address>" (New 3DS part).
+
+/// Whether the system files of the Old 3DS / the New 3DS setup are installed.
++ (BOOL)areOld3DSSystemFilesInstalled;
++ (BOOL)areNew3DSSystemFilesInstalled;
+/// Removes the installed system files of one setup before it is done again.
++ (void)uninstallSystemFilesForOld3DS:(BOOL)old3DS;
+
 // CIA installation, safe to call from any thread while no title is running.
 
 /// Installs a CIA (also its compressed form) on a background queue. `progress` and `completion`

@@ -38,6 +38,7 @@
 #include "core/loader/loader.h"
 #include "core/movie.h"
 #include "core/savestate.h"
+#include "core/system_titles.h"
 
 @implementation AZKeyboardRequest
 @end
@@ -648,6 +649,21 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
 - (void)setFastForward:(BOOL)enabled {
     Settings::is_temporary_frame_limit = enabled;
     Settings::temporary_frame_limit = enabled ? 300.0 : 0.0;
+}
+
+// MARK: Artic
+
++ (BOOL)areOld3DSSystemFilesInstalled {
+    return Core::AreSystemTitlesInstalled().first;
+}
+
++ (BOOL)areNew3DSSystemFilesInstalled {
+    return Core::AreSystemTitlesInstalled().second;
+}
+
++ (void)uninstallSystemFilesForOld3DS:(BOOL)old3DS {
+    Core::UninstallSystemFiles(old3DS ? Core::SystemTitleSet::Old3ds
+                                      : Core::SystemTitleSet::New3ds);
 }
 
 // MARK: CIA installation

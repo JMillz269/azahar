@@ -70,6 +70,8 @@
     <string>Motion data is used to emulate the 3DS gyroscope and accelerometer.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>The microphone is used to emulate the 3DS microphone.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>The local network is used to stream games and system files from a 3DS running Artic.</string>
     <key>NSCameraUsageDescription</key>
     <string>The camera is used to emulate the 3DS cameras.</string>
     <key>CFBundleDocumentTypes</key>
