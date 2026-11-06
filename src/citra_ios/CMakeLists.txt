@@ -70,6 +70,7 @@ set(APP_SWIFT_SOURCES
     App/Core/FileLocations.swift
     App/Core/GameLibrary.swift
     App/Core/LogExporter.swift
+    App/Views/AmiiboView.swift
     App/Views/CheatsView.swift
     App/Views/ControllerOverlay.swift
     App/Views/EmulationView.swift

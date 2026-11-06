@@ -607,6 +607,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
 }
 
 - (void)finishWithError:(NSError*)error {
+    Settings::ResetTemporaryFrameLimit();
     Core::System::GetInstance().Shutdown();
     _speed = 0.0;
     _fps = 0.0;

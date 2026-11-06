@@ -37,6 +37,16 @@ enum FileLocations {
         return true
     }
 
+    /// The amiibo files the app keeps. A game saves what it writes to an amiibo into its file.
+    static var amiiboDirectory: URL {
+        userDirectory.appendingPathComponent("amiibo", isDirectory: true)
+    }
+
+    /// Screenshots taken in a game.
+    static var screenshotsDirectory: URL {
+        userDirectory.appendingPathComponent("screenshots", isDirectory: true)
+    }
+
     /// Installable titles (games, updates and DLC) the emulator installs instead of importing.
     static let ciaExtensions: Set<String> = ["cia", "zcia"]
 

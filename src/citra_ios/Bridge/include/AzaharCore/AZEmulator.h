@@ -81,6 +81,17 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 @property(nonatomic) BOOL enabled;
 @end
 
+/// Result of loading an amiibo.
+typedef NS_ENUM(NSInteger, AZAmiiboStatus) {
+    AZAmiiboStatusLoaded = 0,
+    AZAmiiboStatusNotRunning,
+    /// The game is not asking for an amiibo right now.
+    AZAmiiboStatusNotSearching,
+    /// An amiibo is already on the reader.
+    AZAmiiboStatusTagInUse,
+    AZAmiiboStatusFailed,
+};
+
 /// Result of installing a CIA.
 typedef NS_ENUM(NSInteger, AZInstallStatus) {
     AZInstallStatusSuccess = 0,
@@ -194,6 +205,22 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 - (void)removeCheatAtIndex:(NSInteger)index;
 /// 1-based numbers of the lines of a code that are not a valid Gateway code line.
 + (NSArray<NSNumber*>*)invalidCheatLinesInCode:(NSString*)code;
+
+// Amiibo.
+
+/// Puts the amiibo file on the virtual NFC reader. Changes the game makes to it are saved to the
+/// file, so it should be a copy the app keeps.
+- (AZAmiiboStatus)loadAmiiboAtPath:(NSString*)path;
+- (void)removeAmiibo;
+
+// Screenshot and speed.
+
+/// Takes a screenshot at the internal resolution and saves it as a PNG in `directory`. The
+/// completion block gets the path of the file, or nil when it failed, on the main thread.
+- (void)takeScreenshotToDirectory:(NSString*)directory
+                       completion:(void (^)(NSString* _Nullable path))completion;
+/// Runs the game faster than real time (3x) while enabled.
+- (void)setFastForward:(BOOL)enabled;
 
 // CIA installation, safe to call from any thread while no title is running.
 

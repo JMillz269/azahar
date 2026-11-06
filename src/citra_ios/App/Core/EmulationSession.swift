@@ -75,6 +75,51 @@ final class EmulationSession: ObservableObject {
         }
     }
 
+    // MARK: Amiibo, screenshots and speed
+
+    @Published private(set) var isFastForwarding = false
+
+    func toggleFastForward() {
+        isFastForwarding.toggle()
+        AZEmulator.shared.setFastForward(isFastForwarding)
+        showToast(isFastForwarding ? "Fast forward on" : "Fast forward off")
+    }
+
+    func takeScreenshot() {
+        AZEmulator.shared.takeScreenshot(toDirectory: FileLocations.screenshotsDirectory.path) {
+            [weak self] path in
+            Task { @MainActor in
+                self?.showToast(path != nil
+                    ? "Screenshot saved to Files › Azahar › screenshots"
+                    : "The screenshot failed")
+            }
+        }
+    }
+
+    func loadAmiibo(at url: URL) {
+        switch AZEmulator.shared.loadAmiibo(atPath: url.path) {
+        case .loaded:
+            showToast("Amiibo loaded")
+        case .notSearching:
+            notice = SessionNotice(
+                title: "Amiibo",
+                message: "The game is not asking for an amiibo right now. Open the amiibo screen in "
+                    + "the game first, then load it.")
+        case .tagInUse:
+            notice = SessionNotice(
+                title: "Amiibo", message: "An amiibo is already on the reader. Remove it first.")
+        case .notRunning, .failed:
+            notice = SessionNotice(title: "Amiibo", message: "The amiibo could not be loaded.")
+        @unknown default:
+            break
+        }
+    }
+
+    func removeAmiibo() {
+        AZEmulator.shared.removeAmiibo()
+        showToast("Amiibo removed")
+    }
+
     private var toastTask: Task<Void, Never>?
 
     func showToast(_ text: String) {
@@ -175,6 +220,7 @@ final class EmulationSession: ObservableObject {
         motion.stop()
         UIApplication.shared.isIdleTimerDisabled = false
         currentGame = nil
+        isFastForwarding = false
         keyboardRequest = nil
         isPaused = false
         fps = 0

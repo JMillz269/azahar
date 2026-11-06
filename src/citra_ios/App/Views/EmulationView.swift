@@ -17,6 +17,7 @@ struct EmulationView: View {
     @State private var showingSaveStates = false
     @State private var showingLoadStates = false
     @State private var showingCheats = false
+    @State private var showingAmiibo = false
     @State private var resumeAfterEditing = false
 
     var body: some View {
@@ -115,6 +116,11 @@ struct EmulationView: View {
             Button("Save State…") { showingSaveStates = true }
             Button("Load State…") { showingLoadStates = true }
             Button("Cheats…") { showingCheats = true }
+            Button("Amiibo…") { showingAmiibo = true }
+            Button(session.isFastForwarding ? "Normal Speed" : "Fast Forward") {
+                session.toggleFastForward()
+            }
+            Button("Take Screenshot") { session.takeScreenshot() }
             Button("Swap Screens") {
                 settings.swapScreens.toggle()
                 session.apply(settings: settings)
@@ -130,6 +136,9 @@ struct EmulationView: View {
         }
         .sheet(isPresented: $showingCheats) {
             CheatsView()
+        }
+        .sheet(isPresented: $showingAmiibo) {
+            AmiiboView()
         }
         .sheet(item: $session.keyboardRequest) { request in
             KeyboardPromptView(request: request) { session.keyboardRequest = nil }

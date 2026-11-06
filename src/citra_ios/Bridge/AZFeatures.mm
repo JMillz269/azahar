@@ -20,7 +20,16 @@
 #include "core/cheats/gateway_cheat.h"
 #include "core/core.h"
 #include "core/frontend/applets/swkbd.h"
+#include "core/frontend/framebuffer_layout.h"
+#include "core/hle/kernel/kernel.h"
 #include "core/hle/service/am/am.h"
+#include "core/hle/service/nfc/nfc.h"
+#include "core/hle/service/sm/sm.h"
+#include "common/settings.h"
+#include "video_core/gpu.h"
+#include "video_core/renderer_base.h"
+
+#import <ImageIO/ImageIO.h>
 #include "core/loader/loader.h"
 #include "core/movie.h"
 #include "core/savestate.h"
@@ -399,6 +408,118 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
         }
     }
     return invalid;
+}
+
+// MARK: Amiibo
+
+- (AZAmiiboStatus)loadAmiiboAtPath:(NSString*)path {
+    Core::System& system = Core::System::GetInstance();
+    if (!system.IsPoweredOn()) {
+        return AZAmiiboStatusNotRunning;
+    }
+    auto nfc = system.ServiceManager().GetService<Service::NFC::Module::Interface>("nfc:u");
+    if (nfc == nullptr) {
+        return AZAmiiboStatusFailed;
+    }
+
+    std::scoped_lock lock{system.Kernel().GetHLELock()};
+    if (nfc->IsTagActive()) {
+        return AZAmiiboStatusTagInUse;
+    }
+    if (!nfc->IsSearchingForAmiibos()) {
+        return AZAmiiboStatusNotSearching;
+    }
+    return nfc->LoadAmiibo(std::string{path.UTF8String}) ? AZAmiiboStatusLoaded
+                                                         : AZAmiiboStatusFailed;
+}
+
+- (void)removeAmiibo {
+    Core::System& system = Core::System::GetInstance();
+    if (!system.IsPoweredOn()) {
+        return;
+    }
+    auto nfc = system.ServiceManager().GetService<Service::NFC::Module::Interface>("nfc:u");
+    if (nfc == nullptr) {
+        return;
+    }
+    std::scoped_lock lock{system.Kernel().GetHLELock()};
+    nfc->RemoveAmiibo();
+}
+
+// MARK: Screenshot and speed
+
+- (void)takeScreenshotToDirectory:(NSString*)directory
+                       completion:(void (^)(NSString* _Nullable))completion {
+    Core::System& system = Core::System::GetInstance();
+    const u64 program_id = RunningProgramId();
+    if (program_id == 0) {
+        completion(nil);
+        return;
+    }
+    auto& renderer = system.GPU().Renderer();
+    const auto layout = Layout::FrameLayoutFromResolutionScale(renderer.GetResolutionScaleFactor());
+    const u32 width = layout.width;
+    const u32 height = layout.height;
+    auto pixels = std::make_shared<std::vector<u8>>(static_cast<std::size_t>(width) * height * 4);
+
+    NSDateFormatter* formatter = [[NSDateFormatter alloc] init];
+    formatter.dateFormat = @"yyyy-MM-dd HH.mm.ss";
+    formatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+    NSString* name = [NSString stringWithFormat:@"%016llX %@.png", program_id,
+                                                [formatter stringFromDate:[NSDate date]]];
+    NSString* path = [directory stringByAppendingPathComponent:name];
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
+
+    // The renderer calls back from the emulation thread once the image is in the buffer, or never
+    // when it can't take it. Encode off that thread and give up after a while.
+    auto finished = std::make_shared<std::atomic<bool>>(false);
+    renderer.RequestScreenshot(
+        pixels->data(),
+        [pixels, width, height, path, completion, finished](bool) {
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+              bool saved = false;
+              CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+              CGDataProviderRef provider = CGDataProviderCreateWithData(
+                  nullptr, pixels->data(), pixels->size(), nullptr);
+              // The renderer writes BGRA bytes.
+              CGImageRef image = CGImageCreate(
+                  width, height, 8, 32, static_cast<std::size_t>(width) * 4, color_space,
+                  kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst, provider, nullptr,
+                  false, kCGRenderingIntentDefault);
+              if (image != nullptr) {
+                  NSURL* url = [NSURL fileURLWithPath:path];
+                  CGImageDestinationRef destination = CGImageDestinationCreateWithURL(
+                      (__bridge CFURLRef)url, CFSTR("public.png"), 1, nullptr);
+                  if (destination != nullptr) {
+                      CGImageDestinationAddImage(destination, image, nullptr);
+                      saved = CGImageDestinationFinalize(destination);
+                      CFRelease(destination);
+                  }
+                  CGImageRelease(image);
+              }
+              CGDataProviderRelease(provider);
+              CGColorSpaceRelease(color_space);
+              if (!finished->exchange(true)) {
+                  dispatch_async(dispatch_get_main_queue(), ^{
+                    completion(saved ? path : nil);
+                  });
+              }
+            });
+        },
+        layout);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+      if (!finished->exchange(true)) {
+          completion(nil);
+      }
+    });
+}
+
+- (void)setFastForward:(BOOL)enabled {
+    Settings::is_temporary_frame_limit = enabled;
+    Settings::temporary_frame_limit = enabled ? 300.0 : 0.0;
 }
 
 // MARK: CIA installation

@@ -750,9 +750,9 @@ void RendererMetal::RenderScreenshot() {
     const u32 width = layout.width;
     const u32 height = layout.height;
     if (width == 0 || height == 0 || !settings.screenshot_bits) {
-        if (settings.screenshot_complete_callback) {
-            settings.screenshot_complete_callback(false);
-        }
+        // The callback's argument is "invert Y" for the frontends, so a failure can't be reported
+        // through it: the request is dropped.
+        LOG_ERROR(Render, "Dropping a screenshot request with an invalid layout or buffer");
         return;
     }
 
@@ -792,7 +792,8 @@ void RendererMetal::RenderScreenshot() {
     // QImage::Format_RGB32 and the other frontends expect BGRA byte order.
     std::memcpy(settings.screenshot_bits, readback.contents, width * height * 4);
     if (settings.screenshot_complete_callback) {
-        settings.screenshot_complete_callback(true);
+        // The image is already top-down, it does not have to be inverted.
+        settings.screenshot_complete_callback(false);
     }
 }
 
