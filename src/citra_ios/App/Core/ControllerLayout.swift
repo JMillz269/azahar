@@ -14,8 +14,14 @@ enum ControlID: String, CaseIterable, Identifiable {
     case faceButtons
     case cStick
     case systemButtons
+    /// The button opening the emulation menu. It is placed like a control but drawn and handled
+    /// by EmulationView, so it stays available while the controller is hidden.
+    case menuButton
 
     var id: String { rawValue }
+
+    /// The controls of the on-screen controller itself, without the menu button.
+    static let controllerControls = allCases.filter { $0 != .menuButton }
 
     var title: String {
         switch self {
@@ -26,6 +32,7 @@ enum ControlID: String, CaseIterable, Identifiable {
         case .faceButtons: return "A / B / X / Y"
         case .cStick: return "C-Stick"
         case .systemButtons: return "Select / Home / Start"
+        case .menuButton: return "Menu Button"
         }
     }
 }

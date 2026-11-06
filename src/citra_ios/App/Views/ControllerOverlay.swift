@@ -6,7 +6,7 @@ import SwiftUI
 import UIKit
 
 /// Sizes and default positions of the controls for a given screen size.
-private struct ControllerMetrics {
+struct ControllerMetrics {
     let size: CGSize
 
     private let edge: CGFloat = 16
@@ -22,6 +22,7 @@ private struct ControllerMetrics {
         case .faceButtons: return CGSize(width: unit * 2.2, height: unit * 2.2)
         case .cStick: return CGSize(width: unit * 1.2, height: unit * 1.2)
         case .systemButtons: return CGSize(width: 152, height: 26)
+        case .menuButton: return CGSize(width: 44, height: 44)
         }
     }
 
@@ -40,6 +41,9 @@ private struct ControllerMetrics {
             return CGPoint(x: size.width - edge - unit * 1.1, y: size.height - bottom - unit * 0.6)
         case .systemButtons:
             return CGPoint(x: size.width / 2, y: size.height - bottom - 17)
+        case .menuButton:
+            // Top right, where the menu button always was.
+            return CGPoint(x: size.width - 8 - 22, y: 22)
         }
     }
 
@@ -94,7 +98,8 @@ struct ControllerOverlay: View {
                 }
 
                 ZStack {
-                    ForEach(ControlID.allCases) { id in
+                    // The menu button is drawn by EmulationView, except while it is edited here.
+                    ForEach(isEditing ? ControlID.allCases : ControlID.controllerControls) { id in
                         let placement = layout.placement(for: id, portrait: portrait)
                         let frame = metrics.frame(of: id, placement: placement)
                         content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
@@ -107,7 +112,7 @@ struct ControllerOverlay: View {
 
                 if !isEditing {
                     ControllerTouchLayer(
-                        regions: ControlID.allCases.map { id in
+                        regions: ControlID.controllerControls.map { id in
                             let placement = layout.placement(for: id, portrait: portrait)
                             return TouchRegion(id: id,
                                                frame: metrics.frame(of: id, placement: placement),
@@ -163,6 +168,8 @@ struct ControllerOverlay: View {
                             pressed: pressed.contains(.home))
                 SmallButton(systemImage: "plus", scale: scale, pressed: pressed.contains(.start))
             }
+        case .menuButton:
+            MenuButtonIcon(scale: scale)
         }
     }
 
@@ -472,7 +479,7 @@ final class ControllerTouchHandler {
             return result
         case .faceButtons:
             return faceButtons(at: local, size: frame.width)
-        case .circlePad, .cStick:
+        case .circlePad, .cStick, .menuButton:
             return []
         }
     }
@@ -716,5 +723,17 @@ private struct CirclePad: View {
                 .offset(x: knob.x * size / 2, y: knob.y * size / 2)
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// The icon of the emulation menu button, shared by EmulationView and the layout editor.
+struct MenuButtonIcon: View {
+    let scale: CGFloat
+
+    var body: some View {
+        Image(systemName: "ellipsis.circle.fill")
+            .font(.system(size: 28 * scale))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(.white)
     }
 }

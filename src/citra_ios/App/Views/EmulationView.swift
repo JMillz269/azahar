@@ -52,22 +52,30 @@ struct EmulationView: View {
                                            stallMs: session.stallMs, draws: session.draws)
                     }
                     Spacer()
-                    if !editingLayout {
-                        Button {
-                            showingMenu = true
-                        } label: {
-                            Image(systemName: "ellipsis.circle.fill")
-                                .font(.system(size: 28))
-                                .symbolRenderingMode(.hierarchical)
-                                .foregroundStyle(.white)
-                                .padding(8)
-                        }
-                        .accessibilityLabel("Emulation menu")
-                    }
                 }
                 Spacer()
             }
             .padding(.horizontal, 8)
+
+            // Placed with the controller layout, so it can be moved in the layout editor (which
+            // draws it itself while editing).
+            if !editingLayout && !editingScreens {
+                GeometryReader { geometry in
+                    let metrics = ControllerMetrics(size: geometry.size)
+                    let placement = controllerLayout.placement(for: .menuButton,
+                                                               portrait: metrics.portrait)
+                    let frame = metrics.frame(of: .menuButton, placement: placement)
+                    Button {
+                        showingMenu = true
+                    } label: {
+                        MenuButtonIcon(scale: CGFloat(placement.scale))
+                            .frame(width: frame.width, height: frame.height)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Emulation menu")
+                    .position(x: frame.midX, y: frame.midY)
+                }
+            }
 
             if let progress = session.shaderBuildProgress {
                 VStack(spacing: 8) {
