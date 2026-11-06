@@ -156,7 +156,7 @@ final class EmulationSession: ObservableObject {
         if !AZEmulator.isJITAvailable && (settings.cpuJIT || settings.shaderJIT) {
             NSLog("Azahar: JIT is not available, falling back to the interpreters")
         }
-        AZEmulator.shared.apply(configuration: settings.makeConfiguration())
+        AZEmulator.shared.apply(configuration: settings.makeConfiguration(for: game))
         do {
             try AZEmulator.shared.start(path: game.url.path)
         } catch {
@@ -201,8 +201,8 @@ final class EmulationSession: ObservableObject {
 
     /// Applies changed settings to the running game where possible.
     func apply(settings: AppSettings) {
-        guard currentGame != nil else { return }
-        AZEmulator.shared.apply(configuration: settings.makeConfiguration())
+        guard let game = currentGame else { return }
+        AZEmulator.shared.apply(configuration: settings.makeConfiguration(for: game))
     }
 
     private func handleStopped(error: Error?) {

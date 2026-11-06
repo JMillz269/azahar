@@ -224,6 +224,13 @@ struct GameInfoView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                Section {
+                    NavigationLink {
+                        GameSettingsView(game: game)
+                    } label: {
+                        Label("Game Settings", systemImage: "slider.horizontal.3")
+                    }
+                }
                 Section("Details") {
                     LabeledContent("Title ID", value: game.programIDString)
                     LabeledContent("Region", value: game.regions)

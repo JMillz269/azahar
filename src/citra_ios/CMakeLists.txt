@@ -68,6 +68,7 @@ set(APP_SWIFT_SOURCES
     App/Core/DocumentImporter.swift
     App/Core/EmulationSession.swift
     App/Core/FileLocations.swift
+    App/Core/GameSettings.swift
     App/Core/GameLibrary.swift
     App/Core/LogExporter.swift
     App/Views/AmiiboView.swift
@@ -75,6 +76,7 @@ set(APP_SWIFT_SOURCES
     App/Views/ControllerOverlay.swift
     App/Views/EmulationView.swift
     App/Views/GameRowView.swift
+    App/Views/GameSettingsView.swift
     App/Views/GamesListView.swift
     App/Views/KeyboardPromptView.swift
     App/Views/MetalView.swift

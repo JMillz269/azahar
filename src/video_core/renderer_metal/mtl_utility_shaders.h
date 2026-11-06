@@ -122,8 +122,8 @@ struct PresentUniforms {
     float4 o_resolution; // layout width, height, 1/width, 1/height
     float4 fill_color;
     int use_fill;
-    int pad0;
-    int pad1;
+    int reverse_interlaced;
+    float interlace_rows; // stereo screens: the extent the interlacing alternates over
     int pad2;
 };
 
@@ -155,6 +155,33 @@ fragment float4 present_fs(PresentVOut in [[stage_in]], texture2d<float> screen 
         return u.fill_color;
     }
     return float4(screen.sample(s, in.tex_coord).rgb, 1.0f);
+}
+
+// Red/cyan anaglyph from the left (texture 0) and right (texture 1) eye, same matrices as the
+// other backends.
+fragment float4 present_anaglyph_fs(PresentVOut in [[stage_in]], texture2d<float> left [[texture(0)]],
+                                    texture2d<float> right [[texture(1)]],
+                                    sampler s [[sampler(0)]]) {
+    const float3x3 l = float3x3(float3(0.437, 0.449, 0.164), float3(-0.062, -0.062, -0.024),
+                                float3(-0.048, -0.050, -0.017));
+    const float3x3 r = float3x3(float3(-0.011, -0.032, -0.007), float3(0.377, 0.761, 0.009),
+                                float3(-0.026, -0.093, 1.234));
+    float4 color_l = left.sample(s, in.tex_coord);
+    float4 color_r = right.sample(s, in.tex_coord);
+    return float4(color_l.rgb * l + color_r.rgb * r, 1.0f);
+}
+
+// Interleaves the eyes row by row.
+fragment float4 present_interlaced_fs(PresentVOut in [[stage_in]],
+                                      texture2d<float> left [[texture(0)]],
+                                      texture2d<float> right [[texture(1)]],
+                                      sampler s [[sampler(0)]],
+                                      constant PresentUniforms& u [[buffer(1)]]) {
+    float screen_row = u.interlace_rows * in.tex_coord.x;
+    float3 color = (int(screen_row) % 2 == u.reverse_interlaced)
+                       ? left.sample(s, in.tex_coord).rgb
+                       : right.sample(s, in.tex_coord).rgb;
+    return float4(color, 1.0f);
 }
 )";
 

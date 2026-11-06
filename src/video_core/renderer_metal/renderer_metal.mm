@@ -51,7 +51,9 @@ struct PresentUniforms {
     std::array<f32, 4> o_resolution;
     std::array<f32, 4> fill_color;
     s32 use_fill;
-    s32 pad[3];
+    s32 reverse_interlaced;
+    f32 interlace_rows;
+    s32 pad;
 };
 static_assert(sizeof(PresentUniforms) == 48);
 
@@ -156,6 +158,9 @@ private:
                           const Common::Rectangle<u32>& bottom_screen);
     void DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 screen_id, float x, float y,
                           float w, float h, Layout::DisplayOrientation orientation);
+    void DrawSingleScreenStereo(id<MTLRenderCommandEncoder> encoder, u32 screen_id_l,
+                                u32 screen_id_r, float x, float y, float w, float h,
+                                Layout::DisplayOrientation orientation);
     void SetOpacity(id<MTLRenderCommandEncoder> encoder, float alpha);
     void LimitFramesAheadOfGpu();
     void DrawQuad(id<MTLRenderCommandEncoder> encoder,
@@ -202,6 +207,8 @@ private:
     bool layer_dirty{};
 
     id<MTLRenderPipelineState> present_pipeline = nil;
+    id<MTLRenderPipelineState> present_anaglyph_pipeline = nil;
+    id<MTLRenderPipelineState> present_interlaced_pipeline = nil;
     std::array<id<MTLSamplerState>, 2> present_samplers{};
 
     std::array<ScreenInfo, 3> screen_infos{};
@@ -228,10 +235,10 @@ void RendererMetal::CompilePresentPipelines() {
     ASSERT_MSG(library, "Failed to compile Metal present shaders: {}",
                error ? [error.localizedDescription UTF8String] : "unknown error");
 
-    const auto make_pipeline = [&](MTLPixelFormat format) {
+    const auto make_pipeline = [&](MTLPixelFormat format, NSString* fragment = @"present_fs") {
         MTLRenderPipelineDescriptor* desc = [MTLRenderPipelineDescriptor new];
         desc.vertexFunction = [library newFunctionWithName:@"present_vs"];
-        desc.fragmentFunction = [library newFunctionWithName:@"present_fs"];
+        desc.fragmentFunction = [library newFunctionWithName:fragment];
         MTLRenderPipelineColorAttachmentDescriptor* color = desc.colorAttachments[0];
         color.pixelFormat = format;
         // The second layer (e.g. a translucent bottom screen) is blended using the blend color.
@@ -250,6 +257,8 @@ void RendererMetal::CompilePresentPipelines() {
         return pipeline;
     };
     present_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm);
+    present_anaglyph_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm, @"present_anaglyph_fs");
+    present_interlaced_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm, @"present_interlaced_fs");
 
     MTLSamplerDescriptor* sampler_desc = [MTLSamplerDescriptor new];
     sampler_desc.sAddressMode = MTLSamplerAddressModeClampToEdge;
@@ -401,6 +410,52 @@ void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 sc
         .use_fill = use_fill[screen_id] ? 1 : 0,
     };
     DrawQuad(encoder, vertices, screen_info.texture, uniforms);
+}
+
+void RendererMetal::DrawSingleScreenStereo(id<MTLRenderCommandEncoder> encoder, u32 screen_id_l,
+                                           u32 screen_id_r, float x, float y, float w, float h,
+                                           Layout::DisplayOrientation orientation) {
+    // MetalFX only handles one eye, stereo screens are drawn as they are.
+    if (upscale_pass == UpscalePass::Collect) {
+        return;
+    }
+    const ScreenInfo& left = screen_infos[screen_id_l];
+    const ScreenInfo& right = screen_infos[screen_id_r];
+    if (left.texture == nil || right.texture == nil) {
+        return;
+    }
+
+    std::array<ScreenRectVertex, 4> vertices;
+    if (!MakeScreenVertices(vertices, left.texcoords, x, y, w, h, orientation)) {
+        LOG_ERROR(Render, "Unknown DisplayOrientation: {}", orientation);
+        return;
+    }
+    // The interlacing alternates over the extent along the texture's x axis, which is the height
+    // of the rectangle when it is shown rotated.
+    const bool rotated = orientation == Layout::DisplayOrientation::Portrait ||
+                         orientation == Layout::DisplayOrientation::PortraitFlipped;
+
+    const auto mode = Settings::values.render_3d.GetValue();
+    PresentUniforms uniforms = {
+        .o_resolution = o_resolution,
+        .fill_color = {},
+        .use_fill = 0,
+        .reverse_interlaced = mode == Settings::StereoRenderOption::ReverseInterlaced ? 1 : 0,
+        .interlace_rows = rotated ? w : h,
+    };
+    [encoder setRenderPipelineState:mode == Settings::StereoRenderOption::Anaglyph
+                                        ? present_anaglyph_pipeline
+                                        : present_interlaced_pipeline];
+    [encoder setFragmentTexture:left.texture atIndex:0];
+    [encoder setFragmentTexture:right.texture atIndex:1];
+    [encoder setVertexBytes:vertices.data()
+                     length:sizeof(ScreenRectVertex) * vertices.size()
+                    atIndex:0];
+    [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    // The other screens use the plain pipeline again.
+    [encoder setRenderPipelineState:present_pipeline];
 }
 
 #if AZAHAR_HAS_METALFX
@@ -606,9 +661,14 @@ void RendererMetal::DrawTopScreen(id<MTLRenderCommandEncoder> encoder,
             static_cast<float>(layout.cardboard.top_screen_right_eye + (layout.width / 2)), top,
             width, height, orientation);
         break;
+    case Settings::StereoRenderOption::Anaglyph:
+    case Settings::StereoRenderOption::Interlaced:
+    case Settings::StereoRenderOption::ReverseInterlaced:
+        DrawSingleScreenStereo(encoder, leftside, rightside, left, top, width, height,
+                               orientation);
+        break;
     case Settings::StereoRenderOption::Off:
     default: {
-        // TODO: Anaglyph and interlaced stereo modes, these fall back to mono rendering.
         const int eye = layout.render_3d_mode == Settings::StereoRenderOption::Off
                             ? static_cast<int>(Settings::values.mono_render_option.GetValue())
                             : leftside;
@@ -647,6 +707,11 @@ void RendererMetal::DrawBottomScreen(id<MTLRenderCommandEncoder> encoder,
             encoder, 2,
             static_cast<float>(layout.cardboard.bottom_screen_right_eye + (layout.width / 2)), top,
             width, height, orientation);
+        break;
+    case Settings::StereoRenderOption::Anaglyph:
+    case Settings::StereoRenderOption::Interlaced:
+    case Settings::StereoRenderOption::ReverseInterlaced:
+        DrawSingleScreenStereo(encoder, 2, 2, left, top, width, height, orientation);
         break;
     default:
         DrawSingleScreen(encoder, 2, left, top, width, height, orientation);

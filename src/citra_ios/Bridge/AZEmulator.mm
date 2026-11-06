@@ -367,6 +367,12 @@ NSError* MakeError(NSInteger code, NSString* description) {
     quality.fast_math = configuration.fastShaderMath;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);
+    values.render_3d = static_cast<Settings::StereoRenderOption>(configuration.stereoMode);
+    values.render_3d_which_display = configuration.stereoMode == 0
+                                         ? Settings::StereoWhichDisplay::None
+                                         : Settings::StereoWhichDisplay::PrimaryOnly;
+    values.factor_3d = static_cast<u32>(std::clamp<NSInteger>(configuration.stereoDepth, 0, 100));
+    values.swap_eyes_3d = configuration.swapEyes3D;
     values.async_shader_compilation = configuration.asyncShaderCompilation;
     values.use_disk_shader_cache = configuration.diskShaderCache;
     Metal::SetUpscalerMode(configuration.upscaling == 1 ? Metal::UpscalerMode::Spatial

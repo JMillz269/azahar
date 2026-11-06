@@ -74,6 +74,26 @@ enum UpscalingOption: Int, CaseIterable, Identifiable {
     var title: String { self == .off ? "Off" : "MetalFX Spatial" }
 }
 
+/// How the two screens' 3D picture is shown. The values are Settings::StereoRenderOption.
+enum StereoModeOption: Int, CaseIterable, Identifiable {
+    case off = 0
+    case sideBySide = 1
+    case anaglyph = 3
+    case interlaced = 4
+    case reverseInterlaced = 5
+
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .sideBySide: return "Side by Side"
+        case .anaglyph: return "Anaglyph (Red/Cyan)"
+        case .interlaced: return "Interlaced"
+        case .reverseInterlaced: return "Reverse Interlaced"
+        }
+    }
+}
+
 enum TextureFilterOption: Int, CaseIterable, Identifiable {
     case none = 0
     case anime4k = 1
@@ -120,6 +140,9 @@ final class AppSettings: ObservableObject {
     @Published var linearFiltering: Bool { didSet { save(linearFiltering, "linearFiltering") } }
     @Published var textureFilter: TextureFilterOption { didSet { save(textureFilter.rawValue, "textureFilter") } }
     @Published var skipDuplicateFrames: Bool { didSet { save(skipDuplicateFrames, "skipDuplicateFrames") } }
+    @Published var stereoMode: StereoModeOption { didSet { save(stereoMode.rawValue, "stereoMode") } }
+    @Published var stereoDepth: Int { didSet { save(stereoDepth, "stereoDepth") } }
+    @Published var swapEyes3D: Bool { didSet { save(swapEyes3D, "swapEyes3D") } }
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
     @Published var fastShaderMath: Bool { didSet { save(fastShaderMath, "fastShaderMath") } }
     @Published var anisotropy: Int { didSet { save(anisotropy, "anisotropy") } }
@@ -163,6 +186,9 @@ final class AppSettings: ObservableObject {
         linearFiltering = value("linearFiltering", true)
         textureFilter = TextureFilterOption(rawValue: value("textureFilter", 0)) ?? .none
         skipDuplicateFrames = value("skipDuplicateFrames", false)
+        stereoMode = StereoModeOption(rawValue: value("stereoMode", 0)) ?? .off
+        stereoDepth = value("stereoDepth", 50)
+        swapEyes3D = value("swapEyes3D", false)
         asyncShaders = value("asyncShaders", true)
         fastShaderMath = value("fastShaderMath", false)
         anisotropy = value("anisotropy", 4)
@@ -187,9 +213,22 @@ final class AppSettings: ObservableObject {
         defaults.set(value, forKey: key)
     }
 
+    /// Builds the core configuration for a game: the current settings with the game's own
+    /// overrides applied.
+    func makeConfiguration(for game: Game?) -> AZConfiguration {
+        let config = makeConfiguration()
+        if let game {
+            GameOverridesStore.shared.overrides(for: game).apply(to: config)
+        }
+        return config
+    }
+
     /// Builds the core configuration from the current settings.
     func makeConfiguration() -> AZConfiguration {
         let config = AZConfiguration.makeDefault()
+        config.stereoMode = stereoMode.rawValue
+        config.stereoDepth = stereoDepth
+        config.swapEyes3D = swapEyes3D
         config.useCPUJIT = cpuJIT
         config.cpuClockPercentage = cpuClockPercentage
         config.useShaderJIT = shaderJIT

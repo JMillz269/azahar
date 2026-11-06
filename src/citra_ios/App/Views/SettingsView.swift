@@ -145,6 +145,26 @@ struct GraphicsSettingsView: View {
             }
 
             Section {
+                Picker("3D Mode", selection: $settings.stereoMode) {
+                    ForEach(StereoModeOption.allCases) { Text($0.title).tag($0) }
+                }
+                if settings.stereoMode != .off {
+                    VStack(alignment: .leading) {
+                        Text("Depth: \(settings.stereoDepth)%")
+                        Slider(value: Binding(
+                            get: { Double(settings.stereoDepth) },
+                            set: { settings.stereoDepth = Int($0.rounded()) }), in: 0...100)
+                    }
+                    Toggle("Swap Eyes", isOn: $settings.swapEyes3D)
+                }
+            } header: {
+                Text("3D")
+            } footer: {
+                Text("Anaglyph needs red/cyan glasses. Interlaced shows the eyes on alternate rows "
+                     + "of the screen. These modes don't use MetalFX.")
+            }
+
+            Section {
                 Picker("Upscaling", selection: $settings.upscaling) {
                     ForEach(UpscalingOption.allCases) { Text($0.title).tag($0) }
                 }
