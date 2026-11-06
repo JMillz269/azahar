@@ -13,6 +13,7 @@ struct ContentView: View {
         Group {
             if session.isActive {
                 EmulationView()
+                    .transition(.opacity)
             } else {
                 TabView {
                     GamesListView()
@@ -20,8 +21,10 @@ struct ContentView: View {
                     SettingsView()
                         .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 }
+                .transition(.opacity)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: session.isActive)
         .alert("Emulation Error", isPresented: $session.showingError) {
             if let report = session.errorReport {
                 Button("Copy Details") { UIPasteboard.general.string = report }

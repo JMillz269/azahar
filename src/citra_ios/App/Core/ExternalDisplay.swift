@@ -89,6 +89,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             configuration.delegateClass = ExternalSceneDelegate.self
             return configuration
         }
-        return connectingSceneSession.configuration
+        // No delegate class here: SwiftUI forwards the scene to the class a configuration
+        // names, and the session's own configuration names SwiftUI's scene delegate, so
+        // returning it made that delegate forward to itself until the stack overflowed.
+        return UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
     }
 }
