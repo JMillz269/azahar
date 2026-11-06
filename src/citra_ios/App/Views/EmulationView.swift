@@ -9,6 +9,7 @@ import SwiftUI
 struct EmulationView: View {
     @EnvironmentObject private var session: EmulationSession
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var controllerLayout: ControllerLayoutStore
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var showingMenu = false
@@ -105,6 +106,8 @@ struct EmulationView: View {
                     .background(.ultraThinMaterial, in: Capsule())
             }
         }
+        .onAppear { controllerLayout.activate(gameID: session.currentGame?.programIDString) }
+        .onDisappear { controllerLayout.activate(gameID: nil) }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         // Without this iOS holds back touches near the screen edges until it knows they are not

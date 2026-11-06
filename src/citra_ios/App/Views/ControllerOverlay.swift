@@ -199,6 +199,11 @@ struct ControllerOverlay: View {
                         .font(.callout)
                         .multilineTextAlignment(.center)
                 }
+                if layout.hasActiveGame {
+                    Toggle("Separate Layout for This Game", isOn: Binding(
+                        get: { layout.usesGameLayout },
+                        set: { layout.setUsesGameLayout($0) }))
+                }
                 HStack {
                     Button("Reset Control") {
                         if let selected { layout.reset(selected, portrait: portrait) }

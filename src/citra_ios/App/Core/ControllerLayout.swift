@@ -42,30 +42,79 @@ struct ControlPlacement: Codable, Equatable {
     static let scaleRange: ClosedRange<Double> = 0.5...2.0
 }
 
-/// The user's controller layout. Portrait and landscape are stored separately because the screen
+/// The user's controller layouts. Portrait and landscape are stored separately because the screen
 /// is very different, and positions are fractions of the screen so they hold up on other devices.
+///
+/// There is one global layout. A game can have a layout of its own (see `setUsesGameLayout`); the
+/// placements the views read always belong to the layout of the game that is running, or to the
+/// global one when no game runs.
 @MainActor
 final class ControllerLayoutStore: ObservableObject {
-    @Published private(set) var portraitPlacements: [String: ControlPlacement]
-    @Published private(set) var landscapePlacements: [String: ControlPlacement]
+    @Published private(set) var portraitPlacements: [String: ControlPlacement] = [:]
+    @Published private(set) var landscapePlacements: [String: ControlPlacement] = [:]
+    /// The game whose layout is active, nil for the global one.
+    @Published private(set) var activeGameID: String?
+    @Published private(set) var usesGameLayout = false
 
     private struct Stored: Codable {
-        var portrait: [String: ControlPlacement]
-        var landscape: [String: ControlPlacement]
+        var portrait: [String: ControlPlacement] = [:]
+        var landscape: [String: ControlPlacement] = [:]
     }
 
     private static let defaultsKey = "controllerLayout.v1"
+    private static let gamesKey = "controllerLayout.games.v1"
+
+    private var global = Stored()
+    private var games: [String: Stored] = [:]
 
     init() {
-        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: Self.defaultsKey),
             let stored = try? JSONDecoder().decode(Stored.self, from: data)
         {
-            portraitPlacements = stored.portrait
-            landscapePlacements = stored.landscape
-        } else {
-            portraitPlacements = [:]
-            landscapePlacements = [:]
+            global = stored
         }
+        if let data = defaults.data(forKey: Self.gamesKey),
+            let stored = try? JSONDecoder().decode([String: Stored].self, from: data)
+        {
+            games = stored
+        }
+        load()
+    }
+
+    /// Makes the layout of a game (or the global one for nil) the one the views use.
+    func activate(gameID: String?) {
+        activeGameID = gameID
+        load()
+    }
+
+    /// Whether the active game could have a layout of its own.
+    var hasActiveGame: Bool { activeGameID != nil }
+
+    /// Gives the active game a layout of its own, starting from the global one, or takes it back
+    /// to the global layout.
+    func setUsesGameLayout(_ enabled: Bool) {
+        guard let id = activeGameID else { return }
+        if enabled {
+            games[id] = global
+        } else {
+            games[id] = nil
+        }
+        persist()
+        load()
+    }
+
+    private func load() {
+        let stored: Stored
+        if let id = activeGameID, let own = games[id] {
+            stored = own
+            usesGameLayout = true
+        } else {
+            stored = global
+            usesGameLayout = false
+        }
+        portraitPlacements = stored.portrait
+        landscapePlacements = stored.landscape
     }
 
     func placement(for id: ControlID, portrait: Bool) -> ControlPlacement {
@@ -98,17 +147,32 @@ final class ControllerLayoutStore: ObservableObject {
         commit()
     }
 
-    /// Resets every control of both orientations.
+    /// Resets the global layout and the layouts of all games, both orientations.
     func resetEverything() {
-        portraitPlacements = [:]
-        landscapePlacements = [:]
-        commit()
+        global = Stored()
+        games = [:]
+        persist()
+        load()
     }
 
+    /// Saves the placements in use into the layout they belong to.
     func commit() {
         let stored = Stored(portrait: portraitPlacements, landscape: landscapePlacements)
-        if let data = try? JSONEncoder().encode(stored) {
-            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        if usesGameLayout, let id = activeGameID {
+            games[id] = stored
+        } else {
+            global = stored
+        }
+        persist()
+    }
+
+    private func persist() {
+        let defaults = UserDefaults.standard
+        if let data = try? JSONEncoder().encode(global) {
+            defaults.set(data, forKey: Self.defaultsKey)
+        }
+        if let data = try? JSONEncoder().encode(games) {
+            defaults.set(data, forKey: Self.gamesKey)
         }
     }
 
