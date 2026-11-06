@@ -124,7 +124,7 @@ struct PresentUniforms {
     int use_fill;
     int reverse_interlaced;
     float interlace_rows; // stereo screens: the extent the interlacing alternates over
-    int pad2;
+    int interlace_use_y;  // 1 when the rows run along the texture's y axis (upscaled screens)
 };
 
 struct PresentVertex {
@@ -177,7 +177,7 @@ fragment float4 present_interlaced_fs(PresentVOut in [[stage_in]],
                                       texture2d<float> right [[texture(1)]],
                                       sampler s [[sampler(0)]],
                                       constant PresentUniforms& u [[buffer(1)]]) {
-    float screen_row = u.interlace_rows * in.tex_coord.x;
+    float screen_row = u.interlace_rows * (u.interlace_use_y != 0 ? in.tex_coord.y : in.tex_coord.x);
     float3 color = (int(screen_row) % 2 == u.reverse_interlaced)
                        ? left.sample(s, in.tex_coord).rgb
                        : right.sample(s, in.tex_coord).rgb;

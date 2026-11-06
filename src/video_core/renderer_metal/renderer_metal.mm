@@ -53,7 +53,7 @@ struct PresentUniforms {
     s32 use_fill;
     s32 reverse_interlaced;
     f32 interlace_rows;
-    s32 pad;
+    s32 interlace_use_y;
 };
 static_assert(sizeof(PresentUniforms) == 48);
 
@@ -195,6 +195,8 @@ private:
     bool EnsureUpscaleSlot(UpscaleSlot& slot, const UpscaleJob& job);
     void DrawUpscaled(id<MTLRenderCommandEncoder> encoder, const UpscaleJob& job, float x,
                       float y, float w, float h);
+    UpscaleJob MakeUpscaleJob(u32 screen_id, float w, float h,
+                              Layout::DisplayOrientation orientation) const;
 #endif
 
 private:
@@ -359,33 +361,7 @@ void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 sc
 #if AZAHAR_HAS_METALFX
     if (upscale_pass == UpscalePass::Collect) {
         // Only records what would be drawn, the scaler runs before the actual draw.
-        UpscaleJob job;
-        job.screen_id = screen_id;
-        job.orientation = orientation;
-        job.texcoords = screen_info.texcoords;
-        id<MTLTexture> texture = screen_info.texture;
-        if (!use_fill[screen_id] && texture != nil && w >= 1.0f && h >= 1.0f) {
-            const bool swap = orientation == Layout::DisplayOrientation::Landscape ||
-                              orientation == Layout::DisplayOrientation::LandscapeFlipped;
-            const auto& tc = job.texcoords;
-            const float source_width =
-                std::abs(tc.bottom - tc.top) * static_cast<float>(texture.width);
-            const float source_height =
-                std::abs(tc.right - tc.left) * static_cast<float>(texture.height);
-            // Size of the screen at the resolution the game renders it in, in the orientation it
-            // is shown in.
-            job.in_width = static_cast<u32>(std::lround(swap ? source_height : source_width));
-            job.in_height = static_cast<u32>(std::lround(swap ? source_width : source_height));
-            job.out_width = static_cast<u32>(std::lround(w));
-            job.out_height = static_cast<u32>(std::lround(h));
-            // Only worth it when the screen is shown clearly larger than it is drawn: the scaler
-            // costs several milliseconds of GPU time, and for a small enlargement (such as the
-            // bottom screen at 3x) plain bilinear filtering looks the same.
-            job.eligible = job.in_width >= 16 && job.in_height >= 16 &&
-                           job.out_width * 4 >= job.in_width * 5 &&
-                           job.out_height * 4 >= job.in_height * 5;
-        }
-        upscale_jobs.push_back(job);
+        upscale_jobs.push_back(MakeUpscaleJob(screen_id, w, h, orientation));
         return;
     }
     if (upscale_pass == UpscalePass::Draw) {
@@ -415,18 +391,49 @@ void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 sc
 void RendererMetal::DrawSingleScreenStereo(id<MTLRenderCommandEncoder> encoder, u32 screen_id_l,
                                            u32 screen_id_r, float x, float y, float w, float h,
                                            Layout::DisplayOrientation orientation) {
-    // MetalFX only handles one eye, stereo screens are drawn as they are.
-    if (upscale_pass == UpscalePass::Collect) {
-        return;
-    }
     const ScreenInfo& left = screen_infos[screen_id_l];
     const ScreenInfo& right = screen_infos[screen_id_r];
     if (left.texture == nil || right.texture == nil) {
         return;
     }
 
+    id<MTLTexture> left_texture = left.texture;
+    id<MTLTexture> right_texture = right.texture;
+    bool upscaled = false;
+#if AZAHAR_HAS_METALFX
+    // Each eye goes through the scaler on its own, the screens that show the same picture in both
+    // eyes (the bottom screen) only once.
+    if (upscale_pass == UpscalePass::Collect) {
+        upscale_jobs.push_back(MakeUpscaleJob(screen_id_l, w, h, orientation));
+        if (screen_id_r != screen_id_l) {
+            upscale_jobs.push_back(MakeUpscaleJob(screen_id_r, w, h, orientation));
+        }
+        return;
+    }
+    if (upscale_pass == UpscalePass::Draw) {
+        const std::size_t first = upscale_cursor;
+        upscale_cursor += screen_id_r != screen_id_l ? 2 : 1;
+        if (upscale_cursor <= upscale_jobs.size()) {
+            const std::size_t second = screen_id_r != screen_id_l ? first + 1 : first;
+            if (upscale_jobs[first].ready && upscale_jobs[second].ready) {
+                left_texture = upscale_slots[first].output;
+                right_texture = upscale_slots[second].output;
+                upscaled = true;
+            }
+        }
+    }
+#endif
+
     std::array<ScreenRectVertex, 4> vertices;
-    if (!MakeScreenVertices(vertices, left.texcoords, x, y, w, h, orientation)) {
+    if (upscaled) {
+        // The scaled screens already have the orientation they are shown in.
+        vertices = {{
+            ScreenRectVertex(x, y, 0.0f, 0.0f),
+            ScreenRectVertex(x + w, y, 1.0f, 0.0f),
+            ScreenRectVertex(x, y + h, 0.0f, 1.0f),
+            ScreenRectVertex(x + w, y + h, 1.0f, 1.0f),
+        }};
+    } else if (!MakeScreenVertices(vertices, left.texcoords, x, y, w, h, orientation)) {
         LOG_ERROR(Render, "Unknown DisplayOrientation: {}", orientation);
         return;
     }
@@ -441,13 +448,15 @@ void RendererMetal::DrawSingleScreenStereo(id<MTLRenderCommandEncoder> encoder, 
         .fill_color = {},
         .use_fill = 0,
         .reverse_interlaced = mode == Settings::StereoRenderOption::ReverseInterlaced ? 1 : 0,
-        .interlace_rows = rotated ? w : h,
+        // Scaled screens have their rows along the y axis of the texture, native ones along x.
+        .interlace_rows = (rotated && !upscaled) ? w : h,
+        .interlace_use_y = upscaled ? 1 : 0,
     };
     [encoder setRenderPipelineState:mode == Settings::StereoRenderOption::Anaglyph
                                         ? present_anaglyph_pipeline
                                         : present_interlaced_pipeline];
-    [encoder setFragmentTexture:left.texture atIndex:0];
-    [encoder setFragmentTexture:right.texture atIndex:1];
+    [encoder setFragmentTexture:left_texture atIndex:0];
+    [encoder setFragmentTexture:right_texture atIndex:1];
     [encoder setVertexBytes:vertices.data()
                      length:sizeof(ScreenRectVertex) * vertices.size()
                     atIndex:0];
@@ -459,6 +468,37 @@ void RendererMetal::DrawSingleScreenStereo(id<MTLRenderCommandEncoder> encoder, 
 }
 
 #if AZAHAR_HAS_METALFX
+
+RendererMetal::UpscaleJob RendererMetal::MakeUpscaleJob(
+    u32 screen_id, float w, float h, Layout::DisplayOrientation orientation) const {
+    const ScreenInfo& screen_info = screen_infos[screen_id];
+    UpscaleJob job;
+    job.screen_id = screen_id;
+    job.orientation = orientation;
+    job.texcoords = screen_info.texcoords;
+    id<MTLTexture> texture = screen_info.texture;
+    if (!use_fill[screen_id] && texture != nil && w >= 1.0f && h >= 1.0f) {
+        const bool swap = orientation == Layout::DisplayOrientation::Landscape ||
+                          orientation == Layout::DisplayOrientation::LandscapeFlipped;
+        const auto& tc = job.texcoords;
+        const float source_width = std::abs(tc.bottom - tc.top) * static_cast<float>(texture.width);
+        const float source_height =
+            std::abs(tc.right - tc.left) * static_cast<float>(texture.height);
+        // Size of the screen at the resolution the game renders it in, in the orientation it is
+        // shown in.
+        job.in_width = static_cast<u32>(std::lround(swap ? source_height : source_width));
+        job.in_height = static_cast<u32>(std::lround(swap ? source_width : source_height));
+        job.out_width = static_cast<u32>(std::lround(w));
+        job.out_height = static_cast<u32>(std::lround(h));
+        // Only worth it when the screen is shown clearly larger than it is drawn: the scaler costs
+        // several milliseconds of GPU time, and for a small enlargement (such as the bottom screen
+        // at 3x) plain bilinear filtering looks the same.
+        job.eligible = job.in_width >= 16 && job.in_height >= 16 &&
+                       job.out_width * 4 >= job.in_width * 5 &&
+                       job.out_height * 4 >= job.in_height * 5;
+    }
+    return job;
+}
 
 bool RendererMetal::UpscalingActive() {
     if (g_upscaler_mode.load(std::memory_order_relaxed) != static_cast<int>(UpscalerMode::Spatial)) {
