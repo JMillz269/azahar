@@ -180,6 +180,7 @@ private:
         id<MTLTexture> output = nil;
         u32 in_width{}, in_height{}, out_width{}, out_height{};
         bool failed{};
+        bool has_output{}; ///< `output` holds the scaled result of a game frame
     };
     enum class UpscalePass { Off, Collect, Draw };
 
@@ -367,11 +368,12 @@ void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 sc
             job.in_height = static_cast<u32>(std::lround(swap ? source_width : source_height));
             job.out_width = static_cast<u32>(std::lround(w));
             job.out_height = static_cast<u32>(std::lround(h));
-            // Only worth it, and only possible, when the screen is shown larger than it is drawn.
+            // Only worth it when the screen is shown clearly larger than it is drawn: the scaler
+            // costs several milliseconds of GPU time, and for a small enlargement (such as the
+            // bottom screen at 3x) plain bilinear filtering looks the same.
             job.eligible = job.in_width >= 16 && job.in_height >= 16 &&
-                           job.out_width >= job.in_width && job.out_height >= job.in_height &&
-                           static_cast<u64>(job.out_width) * job.out_height >
-                               static_cast<u64>(job.in_width) * job.in_height * 11 / 10;
+                           job.out_width * 4 >= job.in_width * 5 &&
+                           job.out_height * 4 >= job.in_height * 5;
         }
         upscale_jobs.push_back(job);
         return;
@@ -499,6 +501,14 @@ void RendererMetal::PrepareUpscaling(const Layout::FramebufferLayout& layout) {
         }
         UpscaleSlot& slot = upscale_slots[i];
 
+        // The game did not present a new frame since the output was made (a 30 fps game shown at
+        // 60 Hz), so scaling the same picture again would only burn GPU time.
+        if (slot.has_output && !Core::PerfStats::game_frames_updated) {
+            job.ready = true;
+            any = true;
+            continue;
+        }
+
         // Draw the screen at the resolution it is rendered in, in the orientation it is shown in.
         // This also crops the part of the texture that is displayed and converts its format.
         MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -532,6 +542,7 @@ void RendererMetal::PrepareUpscaling(const Layout::FramebufferLayout& layout) {
             slot.scaler.inputContentWidth = job.in_width;
             slot.scaler.inputContentHeight = job.in_height;
             [slot.scaler encodeToCommandBuffer:scheduler.CommandBuffer()];
+            slot.has_output = true;
             job.ready = true;
             any = true;
         }
