@@ -53,6 +53,7 @@ const QualityOptions& GetQualityOptions();
 /// Averages per presented frame since the previous call.
 struct FrameStats {
     double gpu_ms = 0.0;   ///< GPU time
+    double present_ms = 0.0; ///< Part of the GPU time spent presenting (MetalFX, screens)
     double stall_ms = 0.0; ///< Time the emulation thread waited for the GPU (readbacks, pacing)
     double stalls = 0.0;   ///< Number of those waits
     double draws = 0.0;    ///< Draw calls

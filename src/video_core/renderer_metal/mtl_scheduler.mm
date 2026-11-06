@@ -32,6 +32,8 @@ id<MTLCommandBuffer> Scheduler::CommandBuffer() {
             command_buffer = [queue commandBuffer];
         }
         const u64 tick = current_tick;
+        // The presentation gets a command buffer of its own, see RendererMetal::RenderToLayer.
+        const bool is_presentation = tick == presentation_tick;
         std::atomic<u64>* gpu_tick_ptr = &gpu_tick;
         [command_buffer addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
           if (buffer.status == MTLCommandBufferStatusError) {
@@ -39,9 +41,11 @@ id<MTLCommandBuffer> Scheduler::CommandBuffer() {
                            [buffer.error.localizedDescription UTF8String]);
           }
           if (buffer.GPUEndTime > buffer.GPUStartTime) {
-              Stats().gpu_ns.fetch_add(
-                  static_cast<u64>((buffer.GPUEndTime - buffer.GPUStartTime) * 1e9),
-                  std::memory_order_relaxed);
+              const u64 ns = static_cast<u64>((buffer.GPUEndTime - buffer.GPUStartTime) * 1e9);
+              Stats().gpu_ns.fetch_add(ns, std::memory_order_relaxed);
+              if (is_presentation) {
+                  Stats().present_ns.fetch_add(ns, std::memory_order_relaxed);
+              }
           }
           u64 known = gpu_tick_ptr->load(std::memory_order_relaxed);
           while (known < tick &&

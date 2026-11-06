@@ -19,6 +19,7 @@ class Instance;
 /// Counters of what the GPU and the emulation thread spent time on, see TakeFrameStats.
 struct GpuStats {
     std::atomic<u64> gpu_ns{};     ///< GPU execution time of the command buffers
+    std::atomic<u64> present_ns{}; ///< Part of gpu_ns spent in the presentation (MetalFX, screens)
     std::atomic<u64> stall_ns{};   ///< Time the emulation thread waited for the GPU
     std::atomic<u32> stalls{};     ///< Number of those waits
     std::atomic<u32> draws{};      ///< Draw calls
@@ -101,6 +102,11 @@ public:
     /// Commits the current command buffer to the GPU.
     void Flush();
 
+    /// Marks the command buffer being recorded as the presentation one for GpuStats::present_ns.
+    void MarkPresentation() {
+        presentation_tick = current_tick;
+    }
+
     /// Commits the current command buffer and waits for all GPU work to complete.
     void Finish();
 
@@ -143,6 +149,7 @@ private:
     bool has_render_target{};
     u64 encoder_generation{};
     u64 current_tick{1};
+    u64 presentation_tick{};
     std::atomic<u64> gpu_tick{0};
     std::deque<std::pair<u64, id<MTLCommandBuffer>>> in_flight;
     std::vector<std::function<void()>> on_submit;

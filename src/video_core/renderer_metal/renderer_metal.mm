@@ -699,6 +699,10 @@ void RendererMetal::RenderToLayer(const Layout::FramebufferLayout& layout) {
         return;
     }
 
+    // Submit the rendering of the game so the presentation (upscaling and drawing the screens)
+    // gets a command buffer of its own, whose GPU time is reported separately.
+    scheduler.Flush();
+    scheduler.MarkPresentation();
 #if AZAHAR_HAS_METALFX
     PrepareUpscaling(layout);
 #endif
@@ -822,6 +826,7 @@ FrameStats TakeFrameStats() {
     FrameStats result;
     result.frames = stats.frames.exchange(0);
     const u64 gpu_ns = stats.gpu_ns.exchange(0);
+    const u64 present_ns = stats.present_ns.exchange(0);
     const u64 stall_ns = stats.stall_ns.exchange(0);
     const u32 stalls = stats.stalls.exchange(0);
     const u32 draws = stats.draws.exchange(0);
@@ -829,6 +834,7 @@ FrameStats TakeFrameStats() {
     if (result.frames > 0) {
         const double frames = static_cast<double>(result.frames);
         result.gpu_ms = static_cast<double>(gpu_ns) / 1e6 / frames;
+        result.present_ms = static_cast<double>(present_ns) / 1e6 / frames;
         result.stall_ms = static_cast<double>(stall_ns) / 1e6 / frames;
         result.stalls = static_cast<double>(stalls) / frames;
         result.draws = static_cast<double>(draws) / frames;
