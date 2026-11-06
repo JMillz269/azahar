@@ -4,6 +4,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -703,9 +704,14 @@ void RendererMetal::RenderToLayer(const Layout::FramebufferLayout& layout) {
     }
 
     id<CAMetalDrawable> drawable = nil;
+    const auto drawable_start = std::chrono::steady_clock::now();
     @autoreleasepool {
         drawable = [layer nextDrawable];
     }
+    Stats().drawable_ns.fetch_add(static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                       std::chrono::steady_clock::now() - drawable_start)
+                                                       .count()),
+                                  std::memory_order_relaxed);
     if (drawable == nil) {
         return;
     }
@@ -842,6 +848,10 @@ FrameStats TakeFrameStats() {
     const u32 stalls = stats.stalls.exchange(0);
     const u32 draws = stats.draws.exchange(0);
     const u32 skipped = stats.skipped.exchange(0);
+    const u32 render_passes = stats.render_passes.exchange(0);
+    const u32 blit_passes = stats.blit_passes.exchange(0);
+    const u32 feedback_copies = stats.feedback_copies.exchange(0);
+    const u64 drawable_ns = stats.drawable_ns.exchange(0);
     if (result.frames > 0) {
         const double frames = static_cast<double>(result.frames);
         result.gpu_ms = static_cast<double>(gpu_ns) / 1e6 / frames;
@@ -850,6 +860,10 @@ FrameStats TakeFrameStats() {
         result.stalls = static_cast<double>(stalls) / frames;
         result.draws = static_cast<double>(draws) / frames;
         result.skipped = static_cast<double>(skipped) / frames;
+        result.render_passes = static_cast<double>(render_passes) / frames;
+        result.blit_passes = static_cast<double>(blit_passes) / frames;
+        result.feedback_copies = static_cast<double>(feedback_copies) / frames;
+        result.drawable_ms = static_cast<double>(drawable_ns) / 1e6 / frames;
     }
     return result;
 }

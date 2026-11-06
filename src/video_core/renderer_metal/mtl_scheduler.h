@@ -25,6 +25,10 @@ struct GpuStats {
     std::atomic<u32> draws{};      ///< Draw calls
     std::atomic<u32> skipped{};    ///< Draws skipped because their pipeline was not built yet
     std::atomic<u32> frames{};     ///< Presented frames
+    std::atomic<u32> render_passes{}; ///< Render encoders, each loads and stores its attachments
+    std::atomic<u32> blit_passes{};   ///< Blit encoders, each one splits the render pass around it
+    std::atomic<u32> feedback_copies{}; ///< Copies of a render target sampled while drawn to
+    std::atomic<u64> drawable_ns{};   ///< Time spent waiting for a drawable from the layer
 };
 
 GpuStats& Stats();

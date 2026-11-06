@@ -575,10 +575,13 @@ NSError* MakeError(NSInteger code, NSString* description) {
                 _drawsPerFrame = gpu.draws;
                 LOG_INFO(Frontend,
                          "Speed {:.0f}%, {:.1f} fps: GPU {:.1f} ms (presenting {:.1f}), CPU waited "
-                         "{:.1f} ms in {:.1f} stalls, {:.0f} draws, {:.1f} skipped per frame",
+                         "{:.1f} ms in {:.1f} stalls, {:.0f} draws, {:.1f} skipped, {:.1f} render passes, "
+                         "{:.1f} blit passes, {:.1f} feedback copies, drawable wait {:.1f} ms "
+                         "per frame",
                          _speed.load(), _fps.load(), gpu.gpu_ms, gpu.present_ms, gpu.stall_ms,
                          gpu.stalls,
-                         gpu.draws, gpu.skipped);
+                         gpu.draws, gpu.skipped, gpu.render_passes, gpu.blit_passes,
+                         gpu.feedback_copies, gpu.drawable_ms);
             }
         }
     }

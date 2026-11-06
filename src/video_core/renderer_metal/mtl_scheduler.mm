@@ -62,6 +62,7 @@ id<MTLBlitCommandEncoder> Scheduler::BlitEncoder() {
     }
     EndEncoding();
     blit_encoder = [CommandBuffer() blitCommandEncoder];
+    Stats().blit_passes.fetch_add(1, std::memory_order_relaxed);
     return blit_encoder;
 }
 
@@ -103,6 +104,7 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
     }
 
     render_encoder = [CommandBuffer() renderCommandEncoderWithDescriptor:descriptor];
+    Stats().render_passes.fetch_add(1, std::memory_order_relaxed);
     current_target = target;
     has_render_target = true;
     encoder_generation++;
@@ -112,6 +114,7 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
 id<MTLRenderCommandEncoder> Scheduler::BeginRendering(MTLRenderPassDescriptor* descriptor) {
     EndEncoding();
     render_encoder = [CommandBuffer() renderCommandEncoderWithDescriptor:descriptor];
+    Stats().render_passes.fetch_add(1, std::memory_order_relaxed);
     has_render_target = false;
     encoder_generation++;
     return render_encoder;

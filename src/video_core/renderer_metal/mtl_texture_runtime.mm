@@ -682,6 +682,7 @@ id<MTLTexture> Surface::CopyTexture() {
                              src.pixelFormat, "copy");
     }
     [scheduler->BlitEncoder() copyFromTexture:src toTexture:copy];
+    Stats().feedback_copies.fetch_add(1, std::memory_order_relaxed);
     return copy;
 }
 

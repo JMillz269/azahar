@@ -58,6 +58,10 @@ struct FrameStats {
     double stalls = 0.0;   ///< Number of those waits
     double draws = 0.0;    ///< Draw calls
     double skipped = 0.0;  ///< Draws skipped while their pipeline was being built
+    double render_passes = 0.0;   ///< Render passes (each loads and stores its attachments)
+    double blit_passes = 0.0;     ///< Blit passes (copies, uploads), each splits a render pass
+    double feedback_copies = 0.0; ///< Copies of a render target that is also sampled
+    double drawable_ms = 0.0;     ///< Time waiting for the layer to hand out a drawable
     u32 frames = 0;
 };
 FrameStats TakeFrameStats();
