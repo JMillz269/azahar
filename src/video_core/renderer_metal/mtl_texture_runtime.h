@@ -59,6 +59,14 @@ public:
     void ClearDepthStencil(id<MTLTexture> texture, u32 level, bool has_stencil,
                            const Common::Rectangle<u32>& rect, float depth, u8 stencil);
 
+    /**
+     * Upscales a rectangle of a texture into the same rectangle of its scaled copy with one of the
+     * texture filters (Settings::values.texture_filter). `res_scale` is the scale of the
+     * destination. Returns false when no filter is enabled, so the caller blits normally.
+     */
+    bool FilterColor(id<MTLTexture> src, const Common::Rectangle<u32>& src_rect, id<MTLTexture> dst,
+                     const Common::Rectangle<u32>& dst_rect, u32 res_scale);
+
     /// Returns (and caches) a utility pipeline using the provided fragment function.
     id<MTLRenderPipelineState> GetPipeline(std::string_view function, MTLPixelFormat color,
                                            MTLPixelFormat depth, MTLPixelFormat stencil);
@@ -75,6 +83,7 @@ private:
     Scheduler& scheduler;
     id<MTLLibrary> library;
     id<MTLLibrary> stencil_library;
+    id<MTLLibrary> filter_library = nil; ///< Compiled when the first filter is used
     id<MTLSamplerState> linear_sampler;
     id<MTLSamplerState> nearest_sampler;
     id<MTLDepthStencilState> depth_write_state;

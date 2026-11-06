@@ -149,6 +149,12 @@ id<MTLRenderPipelineState> BlitHelper::GetPipeline(std::string_view function, MT
     }
 
     id<MTLLibrary> fs_library = function == "blit_depth_stencil_fs" ? stencil_library : library;
+    if (function.starts_with("filter_")) {
+        if (!filter_library) {
+            filter_library = CompileLibrary(instance.GetDevice(), Shaders::FILTERS, "filters");
+        }
+        fs_library = filter_library;
+    }
     if (!library || !fs_library) {
         return nil;
     }
@@ -253,6 +259,57 @@ void BlitHelper::BlitColor(id<MTLTexture> src, u32 src_level, u32 src_slice,
     [encoder setFragmentSamplerState:(linear ? linear_sampler : nearest_sampler) atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     scheduler.EndEncoding();
+}
+
+bool BlitHelper::FilterColor(id<MTLTexture> src, const Common::Rectangle<u32>& src_rect,
+                             id<MTLTexture> dst, const Common::Rectangle<u32>& dst_rect,
+                             u32 res_scale) {
+    using TextureFilter = Settings::TextureFilter;
+    const char* function = nullptr;
+    switch (Settings::values.texture_filter.GetValue()) {
+    case TextureFilter::Anime4K:
+        function = "filter_anime4k_fs";
+        break;
+    case TextureFilter::Bicubic:
+        function = "filter_bicubic_fs";
+        break;
+    case TextureFilter::ScaleForce:
+        function = "filter_scale_force_fs";
+        break;
+    case TextureFilter::xBRZ:
+        function = "filter_xbrz_fs";
+        break;
+    case TextureFilter::MMPX:
+        function = "filter_mmpx_fs";
+        break;
+    default:
+        return false;
+    }
+
+    id<MTLRenderPipelineState> pipeline =
+        GetPipeline(function, dst.pixelFormat, MTLPixelFormatInvalid, MTLPixelFormatInvalid);
+    if (!pipeline) {
+        // The filter cannot be built, fall back to the plain scaling.
+        return false;
+    }
+
+    const auto [src_width, src_height] = LevelExtent(src, 0);
+
+    MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
+    desc.colorAttachments[0].texture = dst;
+    desc.colorAttachments[0].loadAction = MTLLoadActionLoad;
+    desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+
+    id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
+    [encoder setRenderPipelineState:pipeline];
+    // The resolution scale travels in BlitParams::lod (used by xBRZ).
+    SetupRect(encoder, dst, 0, dst_rect, src_rect, src_width, src_height,
+              static_cast<float>(res_scale), {}, 0.0f);
+    [encoder setFragmentTexture:src atIndex:0];
+    [encoder setFragmentSamplerState:linear_sampler atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    scheduler.EndEncoding();
+    return true;
 }
 
 void BlitHelper::BlitDepthStencil(id<MTLTexture> src, id<MTLTexture> src_stencil_view,
@@ -778,7 +835,22 @@ void Surface::Upload(const VideoCore::BufferTextureCopy& upload,
             .src_rect = upload.texture_rect,
             .dst_rect = upload.texture_rect * res_scale,
         };
-        BlitScale(blit, true);
+        // Colors and textures can go through one of the texture filters instead of plain scaling.
+        bool filtered = false;
+        if ((type == SurfaceType::Color || type == SurfaceType::Texture) &&
+            Settings::values.texture_filter.GetValue() != Settings::TextureFilter::NoFilter) {
+            if (upload.texture_level != 0) {
+                // Like the other backends, only the base level is filtered.
+                filtered = true;
+            } else {
+                filtered = runtime->GetBlitHelper().FilterColor(
+                    textures[Type::Base], blit.src_rect, textures[Type::Scaled], blit.dst_rect,
+                    res_scale);
+            }
+        }
+        if (!filtered) {
+            BlitScale(blit, true);
+        }
     }
 }
 

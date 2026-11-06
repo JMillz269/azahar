@@ -126,6 +126,9 @@ struct GraphicsSettingsView: View {
                     }
                 }
                 Toggle("Linear Screen Filtering", isOn: $settings.linearFiltering)
+                Picker("Texture Filter", selection: $settings.textureFilter) {
+                    ForEach(TextureFilterOption.allCases) { Text($0.title).tag($0) }
+                }
                 Picker("Anisotropic Filtering", selection: $settings.anisotropy) {
                     Text("Off").tag(1)
                     ForEach([2, 4, 8, 16], id: \.self) { Text("\($0)x").tag($0) }
@@ -134,9 +137,11 @@ struct GraphicsSettingsView: View {
             } header: {
                 Text("Enhancements")
             } footer: {
-                Text("Lower anisotropic filtering and Fast Shader Math make games run faster. "
+                Text("Texture filters smooth the textures of games when Internal Resolution is above "
+                     + "1x (xBRZ and MMPX suit pixel art, Bicubic and ScaleForce are gentler). "
+                     + "Lower anisotropic filtering and Fast Shader Math make games run faster. "
                      + "Fast Shader Math can cause small graphical differences in some games. "
-                     + "Both apply the next time a game starts.")
+                     + "All of these apply the next time a game starts.")
             }
 
             Section {

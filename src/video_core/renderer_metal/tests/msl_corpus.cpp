@@ -252,6 +252,7 @@ int main(int argc, char** argv) {
     Write(out_dir, "utility.metal", std::string{Metal::Shaders::UTILITY});
     Write(out_dir, "utility_stencil.metal", std::string{Metal::Shaders::STENCIL});
     Write(out_dir, "present.metal", std::string{Metal::Shaders::PRESENT});
+    Write(out_dir, "filters.metal", std::string{Metal::Shaders::FILTERS});
 
     Write(out_dir, "vs_trivial.metal", MSL::GenerateTrivialVertexShader(false));
     Write(out_dir, "vs_trivial_clip.metal", MSL::GenerateTrivialVertexShader(true));
