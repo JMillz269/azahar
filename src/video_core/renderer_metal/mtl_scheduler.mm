@@ -3,6 +3,7 @@
 // Refer to the LICENSE.txt file included.
 
 #include <algorithm>
+#include <chrono>
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
@@ -13,6 +14,11 @@ MICROPROFILE_DEFINE(Metal_WaitForGpu, "Metal", "Wait For GPU", MP_RGB(255, 0, 0)
 MICROPROFILE_DEFINE(Metal_Submit, "Metal", "Submit", MP_RGB(255, 192, 255));
 
 namespace Metal {
+
+GpuStats& Stats() {
+    static GpuStats stats;
+    return stats;
+}
 
 Scheduler::Scheduler(const Instance& instance) : queue{instance.GetCommandQueue()} {}
 
@@ -31,6 +37,11 @@ id<MTLCommandBuffer> Scheduler::CommandBuffer() {
           if (buffer.status == MTLCommandBufferStatusError) {
               LOG_CRITICAL(Render, "Metal command buffer {} failed: {}", tick,
                            [buffer.error.localizedDescription UTF8String]);
+          }
+          if (buffer.GPUEndTime > buffer.GPUStartTime) {
+              Stats().gpu_ns.fetch_add(
+                  static_cast<u64>((buffer.GPUEndTime - buffer.GPUStartTime) * 1e9),
+                  std::memory_order_relaxed);
           }
           u64 known = gpu_tick_ptr->load(std::memory_order_relaxed);
           while (known < tick &&
@@ -175,10 +186,18 @@ void Scheduler::Wait(u64 tick) {
     }
 
     MICROPROFILE_SCOPE(Metal_WaitForGpu);
+    const auto wait_start = std::chrono::steady_clock::now();
     while (!in_flight.empty() && in_flight.front().first <= tick) {
         [in_flight.front().second waitUntilCompleted];
         in_flight.pop_front();
     }
+    GpuStats& stats = Stats();
+    stats.stall_ns.fetch_add(
+        static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             std::chrono::steady_clock::now() - wait_start)
+                             .count()),
+        std::memory_order_relaxed);
+    stats.stalls.fetch_add(1, std::memory_order_relaxed);
 
     // Completion handlers may run slightly after waitUntilCompleted returns, make sure the known
     // tick reflects the wait.

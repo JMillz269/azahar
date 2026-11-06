@@ -798,6 +798,7 @@ void RendererMetal::SwapBuffers() {
 
     scheduler.Flush();
     LimitFramesAheadOfGpu();
+    Stats().frames.fetch_add(1, std::memory_order_relaxed);
 
     system.perf_stats->EndSwap();
     rasterizer.TickFrame();
@@ -805,6 +806,36 @@ void RendererMetal::SwapBuffers() {
 }
 
 } // Anonymous namespace
+
+QualityOptions g_quality_options;
+
+void SetQualityOptions(const QualityOptions& options) {
+    g_quality_options = options;
+}
+
+const QualityOptions& GetQualityOptions() {
+    return g_quality_options;
+}
+
+FrameStats TakeFrameStats() {
+    GpuStats& stats = Stats();
+    FrameStats result;
+    result.frames = stats.frames.exchange(0);
+    const u64 gpu_ns = stats.gpu_ns.exchange(0);
+    const u64 stall_ns = stats.stall_ns.exchange(0);
+    const u32 stalls = stats.stalls.exchange(0);
+    const u32 draws = stats.draws.exchange(0);
+    const u32 skipped = stats.skipped.exchange(0);
+    if (result.frames > 0) {
+        const double frames = static_cast<double>(result.frames);
+        result.gpu_ms = static_cast<double>(gpu_ns) / 1e6 / frames;
+        result.stall_ms = static_cast<double>(stall_ns) / 1e6 / frames;
+        result.stalls = static_cast<double>(stalls) / frames;
+        result.draws = static_cast<double>(draws) / frames;
+        result.skipped = static_cast<double>(skipped) / frames;
+    }
+    return result;
+}
 
 void SetUpscalerMode(UpscalerMode mode) {
     g_upscaler_mode.store(static_cast<int>(mode), std::memory_order_relaxed);

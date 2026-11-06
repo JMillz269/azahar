@@ -19,6 +19,8 @@
     config.upscaling = 0;
     config.skipDuplicateFrames = NO;
     config.asyncShaderCompilation = YES;
+    config.fastShaderMath = NO;
+    config.anisotropy = 4;
     config.diskShaderCache = YES;
     config.layoutOption = AZLayoutOptionDefault;
     config.portraitLayoutOption = AZPortraitLayoutOptionTopFullWidth;

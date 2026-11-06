@@ -36,7 +36,8 @@ struct EmulationView: View {
             VStack {
                 HStack(alignment: .top) {
                     if settings.showPerformanceOverlay {
-                        PerformanceOverlay(fps: session.fps, speed: session.speed)
+                        PerformanceOverlay(fps: session.fps, speed: session.speed, gpuMs: session.gpuMs,
+                                           stallMs: session.stallMs, draws: session.draws)
                     }
                     Spacer()
                     if !editingLayout {
@@ -143,11 +144,17 @@ extension EmulationView {
 private struct PerformanceOverlay: View {
     let fps: Double
     let speed: Double
+    let gpuMs: Double
+    let stallMs: Double
+    let draws: Double
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(String(format: "FPS %.0f", fps))
             Text(String(format: "Speed %.0f%%", speed))
+            Text(String(format: "GPU %.1f ms", gpuMs))
+            Text(String(format: "Wait %.1f ms", stallMs))
+            Text(String(format: "Draws %.0f", draws))
         }
         .font(.system(size: 11, weight: .semibold, design: .monospaced))
         .foregroundStyle(.white)

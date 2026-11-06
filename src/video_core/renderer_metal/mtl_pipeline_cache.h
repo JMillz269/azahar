@@ -150,7 +150,7 @@ private:
     ShaderHandle MakeShader(u64 hash, bool is_vertex, std::string source);
     void CompileShader(Shader& shader);
     void BuildPipeline(Pipeline& pipeline);
-    id<MTLLibrary> Compile(const std::string& source, std::string_view name);
+    id<MTLLibrary> Compile(const std::string& source, std::string_view name, bool fragment);
 
     void OpenDiskCache(u64 title_id);
     void CloseDiskCache();
@@ -162,6 +162,7 @@ private:
     const Instance& instance;
     MTLVertexDescriptor* vertex_descriptor;
     MTLCompileOptions* compile_options;
+    MTLCompileOptions* fragment_compile_options; ///< Like compile_options, optionally fast math
     ShaderHandle trivial_vertex_shader;
 
     // Only accessed from the GPU thread.

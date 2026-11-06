@@ -15,6 +15,7 @@
 #include <string>
 #include <thread>
 #include <pthread.h>
+#include <pthread/qos.h>
 #include <unistd.h>
 
 #include "citra_ios/Bridge/emu_window_ios.h"
@@ -207,6 +208,9 @@ NSError* MakeError(NSInteger code, NSString* description) {
     std::atomic<double> _speed;
     std::atomic<double> _fps;
     std::atomic<double> _shaderProgress;
+    std::atomic<double> _gpuMs;
+    std::atomic<double> _stallMs;
+    std::atomic<double> _drawsPerFrame;
 
     // Pending surface state, applied on the emulation thread.
     std::mutex _surfaceMutex;
@@ -263,6 +267,9 @@ NSError* MakeError(NSInteger code, NSString* description) {
         _speed = 0.0;
         _fps = 0.0;
         _shaderProgress = -1.0;
+        _gpuMs = 0.0;
+        _stallMs = 0.0;
+        _drawsPerFrame = 0.0;
         _surfaceDirty = false;
         _drawableSize = CGSizeZero;
         _userDirectory = @"";
@@ -288,6 +295,18 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
 - (double)shaderBuildProgress {
     return _shaderProgress.load();
+}
+
+- (double)gpuMilliseconds {
+    return _gpuMs.load();
+}
+
+- (double)stallMilliseconds {
+    return _stallMs.load();
+}
+
+- (double)drawsPerFrame {
+    return _drawsPerFrame.load();
 }
 
 - (void)setUpWithUserDirectory:(NSString*)directory {
@@ -344,6 +363,10 @@ NSError* MakeError(NSInteger code, NSString* description) {
     values.filter_mode = configuration.linearFiltering;
     values.texture_filter = static_cast<Settings::TextureFilter>(configuration.textureFilter);
     values.use_skip_duplicate_frames = configuration.skipDuplicateFrames;
+    Metal::QualityOptions quality;
+    quality.fast_math = configuration.fastShaderMath;
+    quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
+    Metal::SetQualityOptions(quality);
     values.async_shader_compilation = configuration.asyncShaderCompilation;
     values.use_disk_shader_cache = configuration.diskShaderCache;
     Metal::SetUpscalerMode(configuration.upscaling == 1 ? Metal::UpscalerMode::Spatial
@@ -449,6 +472,9 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
 - (void)emulationThread:(std::string)filepath {
     pthread_setname_np("EmuThread");
+    // Without this iOS may run the thread on an efficiency core. Emulation is the most latency
+    // sensitive work the app does.
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 
     // An exception escaping this thread would terminate the app. Report it as an emulation error
     // instead so the user gets a message and the log records what happened.
@@ -542,6 +568,17 @@ NSError* MakeError(NSInteger code, NSString* description) {
             const auto stats = system.GetAndResetPerfStats();
             _speed = stats.emulation_speed * 100.0;
             _fps = stats.game_fps;
+            const auto gpu = Metal::TakeFrameStats();
+            if (gpu.frames > 0) {
+                _gpuMs = gpu.gpu_ms;
+                _stallMs = gpu.stall_ms;
+                _drawsPerFrame = gpu.draws;
+                LOG_INFO(Frontend,
+                         "Speed {:.0f}%, {:.1f} fps: GPU {:.1f} ms, CPU waited {:.1f} ms in "
+                         "{:.1f} stalls, {:.0f} draws, {:.1f} skipped per frame",
+                         _speed.load(), _fps.load(), gpu.gpu_ms, gpu.stall_ms, gpu.stalls,
+                         gpu.draws, gpu.skipped);
+            }
         }
     }
     return error;

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <memory>
+#include "common/common_types.h"
 
 // Public entry point of the native Metal renderer. This header is plain C++ so it can be included
 // from the rest of the code base; the implementation is Objective-C++.
@@ -37,6 +38,28 @@ enum class UpscalerMode : int {
 };
 
 void SetUpscalerMode(UpscalerMode mode);
+
+/// Fragment shader math and texture sampling options. They apply to games started afterwards.
+struct QualityOptions {
+    /// Compile fragment shaders with fast math (assumes no NaN/Inf, allows reassociation). Faster,
+    /// but can change the result of a shader that relies on exact floating point behaviour.
+    bool fast_math = false;
+    /// Maximum anisotropic filtering level for linearly filtered textures, 1 disables it.
+    int max_anisotropy = 4;
+};
+void SetQualityOptions(const QualityOptions& options);
+const QualityOptions& GetQualityOptions();
+
+/// Averages per presented frame since the previous call.
+struct FrameStats {
+    double gpu_ms = 0.0;   ///< GPU time
+    double stall_ms = 0.0; ///< Time the emulation thread waited for the GPU (readbacks, pacing)
+    double stalls = 0.0;   ///< Number of those waits
+    double draws = 0.0;    ///< Draw calls
+    double skipped = 0.0;  ///< Draws skipped while their pipeline was being built
+    u32 frames = 0;
+};
+FrameStats TakeFrameStats();
 
 /// Whether MetalFX upscaling can be used on this device.
 bool IsUpscalingSupported();

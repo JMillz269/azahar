@@ -71,6 +71,10 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 @property(nonatomic, readonly) double framesPerSecond;
 /// Progress (0 to 1) of building the cached shaders while a game boots, negative otherwise.
 @property(nonatomic, readonly) double shaderBuildProgress;
+/// Average GPU time, time the emulation thread waited for the GPU, and draw calls per frame.
+@property(nonatomic, readonly) double gpuMilliseconds;
+@property(nonatomic, readonly) double stallMilliseconds;
+@property(nonatomic, readonly) double drawsPerFrame;
 
 /// Called on the main thread when emulation stops on its own (shutdown or error). The error is
 /// nil on a regular shutdown.

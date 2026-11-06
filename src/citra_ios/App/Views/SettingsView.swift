@@ -119,13 +119,24 @@ struct GraphicsSettingsView: View {
                      + "small GPU cost.")
             }
 
-            Section("Enhancements") {
+            Section {
                 Picker("Internal Resolution", selection: $settings.resolutionFactor) {
                     ForEach(1...6, id: \.self) { factor in
                         Text(factor == 1 ? "Native (1x)" : "\(factor)x").tag(factor)
                     }
                 }
                 Toggle("Linear Screen Filtering", isOn: $settings.linearFiltering)
+                Picker("Anisotropic Filtering", selection: $settings.anisotropy) {
+                    Text("Off").tag(1)
+                    ForEach([2, 4, 8, 16], id: \.self) { Text("\($0)x").tag($0) }
+                }
+                Toggle("Fast Shader Math", isOn: $settings.fastShaderMath)
+            } header: {
+                Text("Enhancements")
+            } footer: {
+                Text("Lower anisotropic filtering and Fast Shader Math make games run faster. "
+                     + "Fast Shader Math can cause small graphical differences in some games. "
+                     + "Both apply the next time a game starts.")
             }
 
             Section {

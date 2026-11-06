@@ -121,6 +121,8 @@ final class AppSettings: ObservableObject {
     @Published var textureFilter: TextureFilterOption { didSet { save(textureFilter.rawValue, "textureFilter") } }
     @Published var skipDuplicateFrames: Bool { didSet { save(skipDuplicateFrames, "skipDuplicateFrames") } }
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
+    @Published var fastShaderMath: Bool { didSet { save(fastShaderMath, "fastShaderMath") } }
+    @Published var anisotropy: Int { didSet { save(anisotropy, "anisotropy") } }
     @Published var diskShaderCache: Bool { didSet { save(diskShaderCache, "diskShaderCache") } }
     @Published var upscaling: UpscalingOption { didSet { save(upscaling.rawValue, "upscaling") } }
 
@@ -162,6 +164,8 @@ final class AppSettings: ObservableObject {
         textureFilter = TextureFilterOption(rawValue: value("textureFilter", 0)) ?? .none
         skipDuplicateFrames = value("skipDuplicateFrames", false)
         asyncShaders = value("asyncShaders", true)
+        fastShaderMath = value("fastShaderMath", false)
+        anisotropy = value("anisotropy", 4)
         diskShaderCache = value("diskShaderCache", true)
         upscaling = UpscalingOption(rawValue: value("upscaling", 0)) ?? .off
 
@@ -196,6 +200,8 @@ final class AppSettings: ObservableObject {
         config.textureFilter = textureFilter.rawValue
         config.skipDuplicateFrames = skipDuplicateFrames
         config.asyncShaderCompilation = asyncShaders
+        config.fastShaderMath = fastShaderMath
+        config.anisotropy = anisotropy
         config.diskShaderCache = diskShaderCache
         config.upscaling = upscaling.rawValue
         config.layoutOption = AZLayoutOption(rawValue: layout.rawValue) ?? .default

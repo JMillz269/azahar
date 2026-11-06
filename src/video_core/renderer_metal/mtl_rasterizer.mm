@@ -19,6 +19,7 @@
 #include "video_core/renderer_metal/mtl_instance.h"
 #include "video_core/renderer_metal/mtl_rasterizer.h"
 #include "video_core/renderer_metal/mtl_scheduler.h"
+#include "video_core/renderer_metal/renderer_metal.h"
 #include "video_core/renderer_metal/pica_to_mtl.h"
 #include "video_core/shader/generator/msl_shader_gen.h"
 #include "video_core/shader/generator/shader_gen.h"
@@ -430,6 +431,7 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     id<MTLRenderPipelineState> pipeline =
         pipeline_cache.GetPipeline(key, vertex, fragment, draw_vertices <= 6);
     if (pipeline == nil) {
+        Stats().skipped.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
     id<MTLDepthStencilState> depth_stencil = pipeline_cache.GetDepthStencilState(ds_key);
@@ -467,6 +469,7 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(target);
     if (scheduler.EncoderGeneration() != bound_generation) {
         bound_generation = scheduler.EncoderGeneration();
+        encoder_cache = {};
         [encoder setFragmentBuffer:texture_lf_buffer.Handle()
                             offset:0
                            atIndex:MSL::FS_BUFFER_LUT_LF];
@@ -479,52 +482,101 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
                          atIndex:MSL::VS_BUFFER_VERTEX_BASE];
     }
 
-    [encoder setRenderPipelineState:pipeline];
-    [encoder setDepthStencilState:depth_stencil];
-    [encoder setFrontFacingWinding:PicaToMTL::FrontFace(regs.rasterizer.cull_mode)];
-    [encoder setCullMode:PicaToMTL::CullMode(regs.rasterizer.cull_mode, fb_regs.IsFlipped())];
-    [encoder setStencilReferenceValue:output_merger.stencil_test.reference_value];
+    // Only send what changed since the previous draw on this encoder.
+    EncoderCache& cache = encoder_cache;
+    if (pipeline != cache.pipeline) {
+        [encoder setRenderPipelineState:pipeline];
+        cache.pipeline = pipeline;
+    }
+    if (depth_stencil != cache.depth_stencil) {
+        [encoder setDepthStencilState:depth_stencil];
+        cache.depth_stencil = depth_stencil;
+    }
+    const MTLWinding winding = PicaToMTL::FrontFace(regs.rasterizer.cull_mode);
+    const MTLCullMode cull = PicaToMTL::CullMode(regs.rasterizer.cull_mode, fb_regs.IsFlipped());
+    const u32 stencil_reference = output_merger.stencil_test.reference_value;
     const auto blend_color = PicaToMTL::ColorRGBA8(output_merger.blend_const.raw);
-    [encoder setBlendColorRed:blend_color.x
-                        green:blend_color.y
-                         blue:blend_color.z
-                        alpha:blend_color.w];
+    const std::array<f32, 4> blend_color_array{blend_color.x, blend_color.y, blend_color.z,
+                                               blend_color.w};
+    const auto viewport = fb_helper.Viewport();
+    const MTLViewport mtl_viewport{
+        .originX = static_cast<double>(viewport.x),
+        .originY = static_cast<double>(viewport.y),
+        .width = static_cast<double>(viewport.width),
+        .height = static_cast<double>(viewport.height),
+        .znear = 0.0,
+        .zfar = 1.0,
+    };
+    const MTLScissorRect mtl_scissor{scissor_x, scissor_y, scissor_w, scissor_h};
+    if (!cache.state_valid || winding != cache.winding) {
+        [encoder setFrontFacingWinding:winding];
+        cache.winding = winding;
+    }
+    if (!cache.state_valid || cull != cache.cull) {
+        [encoder setCullMode:cull];
+        cache.cull = cull;
+    }
+    if (!cache.state_valid || stencil_reference != cache.stencil_reference) {
+        [encoder setStencilReferenceValue:stencil_reference];
+        cache.stencil_reference = stencil_reference;
+    }
+    if (!cache.state_valid || blend_color_array != cache.blend_color) {
+        [encoder setBlendColorRed:blend_color.x
+                            green:blend_color.y
+                             blue:blend_color.z
+                            alpha:blend_color.w];
+        cache.blend_color = blend_color_array;
+    }
+    if (!cache.state_valid || std::memcmp(&mtl_viewport, &cache.viewport, sizeof(MTLViewport))) {
+        [encoder setViewport:mtl_viewport];
+        cache.viewport = mtl_viewport;
+    }
+    if (!cache.state_valid || std::memcmp(&mtl_scissor, &cache.scissor, sizeof(MTLScissorRect))) {
+        [encoder setScissorRect:mtl_scissor];
+        cache.scissor = mtl_scissor;
+    }
+    cache.state_valid = true;
     fs_data.blend_color = blend_color;
 
-    const auto viewport = fb_helper.Viewport();
-    [encoder setViewport:MTLViewport{
-                             .originX = static_cast<double>(viewport.x),
-                             .originY = static_cast<double>(viewport.y),
-                             .width = static_cast<double>(viewport.width),
-                             .height = static_cast<double>(viewport.height),
-                             .znear = 0.0,
-                             .zfar = 1.0,
-                         }];
-    [encoder setScissorRect:MTLScissorRect{scissor_x, scissor_y, scissor_w, scissor_h}];
-
-    // Uniforms are small enough to be pushed inline with every draw.
-    [encoder setVertexBytes:&vs_data length:sizeof(vs_data) atIndex:MSL::VS_BUFFER_UNIFORMS];
-    [encoder setFragmentBytes:&fs_data length:sizeof(fs_data) atIndex:MSL::FS_BUFFER_UNIFORMS];
+    // Uniforms are small enough to be pushed inline, but only when they changed.
+    if (!cache.vs_uniforms_valid ||
+        std::memcmp(&vs_data, cache.vs_uniforms.data(), sizeof(vs_data)) != 0) {
+        [encoder setVertexBytes:&vs_data length:sizeof(vs_data) atIndex:MSL::VS_BUFFER_UNIFORMS];
+        std::memcpy(cache.vs_uniforms.data(), &vs_data, sizeof(vs_data));
+        cache.vs_uniforms_valid = true;
+    }
+    if (!cache.fs_uniforms_valid ||
+        std::memcmp(&fs_data, cache.fs_uniforms.data(), sizeof(fs_data)) != 0) {
+        [encoder setFragmentBytes:&fs_data length:sizeof(fs_data) atIndex:MSL::FS_BUFFER_UNIFORMS];
+        std::memcpy(cache.fs_uniforms.data(), &fs_data, sizeof(fs_data));
+        cache.fs_uniforms_valid = true;
+    }
     vs_data_dirty = false;
     fs_data_dirty = false;
 
     for (u32 slot = 0; slot < texture_bindings.size(); slot++) {
-        if (texture_bindings[slot].texture != nil) {
-            [encoder setFragmentTexture:texture_bindings[slot].texture atIndex:slot];
+        id<MTLTexture> texture = texture_bindings[slot].texture;
+        if (texture != nil && texture != cache.textures[slot]) {
+            [encoder setFragmentTexture:texture atIndex:slot];
+            cache.textures[slot] = texture;
         }
     }
     const auto bind_sampler = [&](u32 texture_slot, u32 sampler_slot) {
-        if (texture_bindings[texture_slot].sampler != nil) {
-            [encoder setFragmentSamplerState:texture_bindings[texture_slot].sampler
-                                     atIndex:sampler_slot];
+        id<MTLSamplerState> sampler = texture_bindings[texture_slot].sampler;
+        if (sampler != nil && sampler != cache.samplers[sampler_slot]) {
+            [encoder setFragmentSamplerState:sampler atIndex:sampler_slot];
+            cache.samplers[sampler_slot] = sampler;
         }
     };
     bind_sampler(MSL::FS_TEXTURE_0, MSL::FS_SAMPLER_0);
     bind_sampler(MSL::FS_TEXTURE_1, MSL::FS_SAMPLER_1);
     bind_sampler(MSL::FS_TEXTURE_2, MSL::FS_SAMPLER_2);
     if (shadow_rendering) {
-        [encoder setFragmentTexture:framebuffer->ShadowBuffer()
-                            atIndex:MSL::FS_TEXTURE_SHADOW_BUFFER];
+        id<MTLTexture> shadow_buffer = framebuffer->ShadowBuffer();
+        if (shadow_buffer != cache.shadow_buffer) {
+            [encoder setFragmentTexture:shadow_buffer atIndex:MSL::FS_TEXTURE_SHADOW_BUFFER];
+            cache.shadow_buffer = shadow_buffer;
+        }
     }
 
     if (hw_draw) {
@@ -534,13 +586,19 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
         [encoder setVertexBytes:&hw_draw->layout
                          length:sizeof(hw_draw->layout)
                         atIndex:MSL::VS_BUFFER_VERTEX_LAYOUT];
-        [encoder setVertexBytes:&vs_pica_data
-                         length:sizeof(vs_pica_data)
-                        atIndex:MSL::VS_BUFFER_PICA_UNIFORMS];
+        if (!cache.pica_uniforms_valid ||
+            std::memcmp(&vs_pica_data, cache.pica_uniforms.data(), sizeof(vs_pica_data)) != 0) {
+            [encoder setVertexBytes:&vs_pica_data
+                             length:sizeof(vs_pica_data)
+                            atIndex:MSL::VS_BUFFER_PICA_UNIFORMS];
+            std::memcpy(cache.pica_uniforms.data(), &vs_pica_data, sizeof(vs_pica_data));
+            cache.pica_uniforms_valid = true;
+        }
     } else {
         [encoder setVertexBufferOffset:vertex_offset atIndex:MSL::VS_BUFFER_VERTEX_BASE];
     }
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertex_count];
+    Stats().draws.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 

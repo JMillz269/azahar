@@ -117,6 +117,34 @@ private:
 
     Pica::Shader::Generator::VSPicaUniformData vs_pica_data{};
 
+    /**
+     * What the current render encoder already has bound. Metal keeps the state of an encoder
+     * between draws, so most of it does not need to be sent again: a game draws hundreds of
+     * objects with the same pipeline, textures and uniforms, and every call costs CPU time on the
+     * emulation thread. Reset whenever a new encoder begins.
+     */
+    struct EncoderCache {
+        id<MTLRenderPipelineState> pipeline = nil;
+        id<MTLDepthStencilState> depth_stencil = nil;
+        MTLWinding winding{};
+        MTLCullMode cull{};
+        u32 stencil_reference{};
+        std::array<f32, 4> blend_color{};
+        MTLViewport viewport{};
+        MTLScissorRect scissor{};
+        bool state_valid{};
+        std::array<id<MTLTexture>, 10> textures{};
+        std::array<id<MTLSamplerState>, 3> samplers{};
+        id<MTLTexture> shadow_buffer = nil;
+        bool vs_uniforms_valid{};
+        std::array<u8, sizeof(Pica::Shader::Generator::VSUniformData)> vs_uniforms{};
+        bool fs_uniforms_valid{};
+        std::array<u8, sizeof(Pica::Shader::Generator::FSUniformData)> fs_uniforms{};
+        bool pica_uniforms_valid{};
+        std::array<u8, sizeof(Pica::Shader::Generator::VSPicaUniformData)> pica_uniforms{};
+    };
+    EncoderCache encoder_cache;
+
     std::array<TextureBinding, 10> texture_bindings{};
     u64 bound_generation{~0ULL};
 };

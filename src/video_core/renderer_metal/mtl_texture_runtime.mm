@@ -16,6 +16,7 @@
 #include "video_core/renderer_metal/mtl_texture_runtime.h"
 #include "video_core/renderer_metal/mtl_utility_shaders.h"
 #include "video_core/renderer_metal/pica_to_mtl.h"
+#include "video_core/renderer_metal/renderer_metal.h"
 
 namespace Metal {
 
@@ -1027,7 +1028,9 @@ Sampler::Sampler(TextureRuntime& runtime, const VideoCore::SamplerParams& params
     // Anisotropic filtering only applies when linear filtering is used everywhere.
     const bool use_anisotropy = params.mag_filter == TextureConfig::TextureFilter::Linear &&
                                 params.min_filter == TextureConfig::TextureFilter::Linear;
-    desc.maxAnisotropy = use_anisotropy ? 16 : 1;
+    desc.maxAnisotropy =
+        use_anisotropy ? static_cast<NSUInteger>(std::clamp(GetQualityOptions().max_anisotropy, 1, 16))
+                       : 1;
 
     sampler = [runtime.GetInstance().GetDevice() newSamplerStateWithDescriptor:desc];
 }

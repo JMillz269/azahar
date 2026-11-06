@@ -40,6 +40,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) NSInteger upscaling;
 @property(nonatomic) BOOL skipDuplicateFrames;
 @property(nonatomic) BOOL asyncShaderCompilation;
+@property(nonatomic) BOOL fastShaderMath;
+@property(nonatomic) NSInteger anisotropy;
 @property(nonatomic) BOOL diskShaderCache;
 
 // Layout

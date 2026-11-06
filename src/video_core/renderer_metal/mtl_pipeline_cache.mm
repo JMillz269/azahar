@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstring>
 #include <thread>
+#include <pthread/qos.h>
 #include <fmt/format.h>
 #include "common/logging/log.h"
 #include "common/microprofile.h"
@@ -17,6 +18,7 @@
 #include "video_core/pica/shader_setup.h"
 #include "video_core/renderer_metal/mtl_instance.h"
 #include "video_core/renderer_metal/mtl_pipeline_cache.h"
+#include "video_core/renderer_metal/renderer_metal.h"
 #include "video_core/shader/generator/msl_shader_gen.h"
 #include "video_core/shader/generator/shader_gen.h"
 
@@ -88,18 +90,28 @@ struct PipelineCache::Pipeline {
 
 PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* vertex_descriptor_)
     : instance{instance_}, vertex_descriptor{vertex_descriptor_} {
-    compile_options = [MTLCompileOptions new];
-    if (@available(iOS 16.0, macOS 13.0, *)) {
-        compile_options.languageVersion = MTLLanguageVersion2_4;
-    }
-    // Keep the position output bit-exact between pipelines sharing geometry (multi-pass effects).
-    if (@available(iOS 14.0, macOS 11.0, *)) {
-        compile_options.preserveInvariance = YES;
-    }
-    if (@available(iOS 18.0, macOS 15.0, *)) {
-        compile_options.mathMode = MTLMathModeSafe;
-    } else {
-        compile_options.fastMathEnabled = NO;
+    const auto make_options = [](bool fast_math) {
+        MTLCompileOptions* options = [MTLCompileOptions new];
+        if (@available(iOS 16.0, macOS 13.0, *)) {
+            options.languageVersion = MTLLanguageVersion2_4;
+        }
+        // Keep the position output bit-exact between pipelines sharing geometry (multi-pass
+        // effects).
+        if (@available(iOS 14.0, macOS 11.0, *)) {
+            options.preserveInvariance = YES;
+        }
+        if (@available(iOS 18.0, macOS 15.0, *)) {
+            options.mathMode = fast_math ? MTLMathModeFast : MTLMathModeSafe;
+        } else {
+            options.fastMathEnabled = fast_math;
+        }
+        return options;
+    };
+    // Vertex positions must stay exact, only fragment shaders may opt into fast math.
+    compile_options = make_options(false);
+    fragment_compile_options = make_options(GetQualityOptions().fast_math);
+    if (GetQualityOptions().fast_math) {
+        LOG_INFO(Render, "Fragment shaders are compiled with fast math");
     }
 
     trivial_vertex_shader =
@@ -128,12 +140,14 @@ u64 PipelineCache::HashOf(const ShaderHandle& shader) {
     return shader ? shader->hash : 0;
 }
 
-id<MTLLibrary> PipelineCache::Compile(const std::string& source, std::string_view name) {
+id<MTLLibrary> PipelineCache::Compile(const std::string& source, std::string_view name,
+                                      bool fragment) {
     MICROPROFILE_SCOPE(Metal_ShaderCompile);
     NSError* error = nil;
-    id<MTLLibrary> library = [instance.GetDevice() newLibraryWithSource:ToNSString(source)
-                                                                options:compile_options
-                                                                  error:&error];
+    id<MTLLibrary> library = [instance.GetDevice()
+        newLibraryWithSource:ToNSString(source)
+                     options:fragment ? fragment_compile_options : compile_options
+                       error:&error];
     if (!library) {
         LOG_CRITICAL(Render, "Failed to compile {}: {}\n{}", name,
                      error ? [error.localizedDescription UTF8String] : "unknown error", source);
@@ -159,7 +173,8 @@ void PipelineCache::CompileShader(Shader& shader) {
         if (!shader.source.empty()) {
             @autoreleasepool {
                 id<MTLLibrary> library =
-                    Compile(shader.source, shader.is_vertex ? "vertex shader" : "fragment shader");
+                    Compile(shader.source, shader.is_vertex ? "vertex shader" : "fragment shader",
+                            !shader.is_vertex);
                 if (library) {
                     function = [library
                         newFunctionWithName:ToNSString(shader.is_vertex ? MSL::VS_ENTRY_POINT
@@ -334,7 +349,10 @@ id<MTLRenderPipelineState> PipelineCache::GetPipeline(const PipelineKey& key,
     }
     if (!entry->queued) {
         entry->queued = true;
-        workers->QueueWork([this, pipeline = entry] { BuildPipeline(*pipeline); });
+        workers->QueueWork([this, pipeline = entry] {
+            pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+            BuildPipeline(*pipeline);
+        });
     }
     return nil;
 }
@@ -615,6 +633,7 @@ void PipelineCache::LoadDiskCache(u64 title_id_, const std::atomic_bool& stop_lo
     auto built = std::make_shared<std::atomic<std::size_t>>(0);
     for (auto& pipeline : to_build) {
         workers->QueueWork([this, pipeline, built] {
+            pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
             BuildPipeline(*pipeline);
             built->fetch_add(1, std::memory_order_relaxed);
         });

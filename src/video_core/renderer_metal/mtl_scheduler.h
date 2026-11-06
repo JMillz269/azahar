@@ -5,6 +5,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <utility>
@@ -14,6 +15,18 @@
 namespace Metal {
 
 class Instance;
+
+/// Counters of what the GPU and the emulation thread spent time on, see TakeFrameStats.
+struct GpuStats {
+    std::atomic<u64> gpu_ns{};     ///< GPU execution time of the command buffers
+    std::atomic<u64> stall_ns{};   ///< Time the emulation thread waited for the GPU
+    std::atomic<u32> stalls{};     ///< Number of those waits
+    std::atomic<u32> draws{};      ///< Draw calls
+    std::atomic<u32> skipped{};    ///< Draws skipped because their pipeline was not built yet
+    std::atomic<u32> frames{};     ///< Presented frames
+};
+
+GpuStats& Stats();
 
 /// Describes the attachments of a render pass.
 struct RenderTarget {

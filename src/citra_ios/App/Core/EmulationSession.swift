@@ -15,6 +15,10 @@ final class EmulationSession: ObservableObject {
     @Published private(set) var speed: Double = 0
     /// Progress of building the cached shaders while the game boots, nil when not building.
     @Published private(set) var shaderBuildProgress: Double?
+    /// Average GPU time and time the emulation thread waited for the GPU, per frame, in ms.
+    @Published private(set) var gpuMs: Double = 0
+    @Published private(set) var stallMs: Double = 0
+    @Published private(set) var draws: Double = 0
     @Published var showingError = false
     @Published private(set) var errorMessage: String?
     /// Complete report of an exception in the emulated program, when there is one.
@@ -79,6 +83,9 @@ final class EmulationSession: ObservableObject {
                 guard let self else { return }
                 self.fps = AZEmulator.shared.framesPerSecond
                 self.speed = AZEmulator.shared.emulationSpeed
+                self.gpuMs = AZEmulator.shared.gpuMilliseconds
+                self.stallMs = AZEmulator.shared.stallMilliseconds
+                self.draws = AZEmulator.shared.drawsPerFrame
                 let progress = AZEmulator.shared.shaderBuildProgress
                 self.shaderBuildProgress = progress >= 0 ? progress : nil
             }
