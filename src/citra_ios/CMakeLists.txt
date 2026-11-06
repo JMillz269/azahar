@@ -85,6 +85,7 @@ set(APP_SWIFT_SOURCES
     App/Views/MetalView.swift
     App/Views/MiiSelectorView.swift
     App/Views/SaveStatesView.swift
+    App/Views/ScreenLayoutEditor.swift
     App/Views/SettingsView.swift
 )
 

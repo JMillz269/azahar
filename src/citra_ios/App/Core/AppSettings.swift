@@ -20,6 +20,7 @@ enum ScreenLayout: Int, CaseIterable, Identifiable {
     case largeScreen = 2
     case sideBySide = 3
     case hybrid = 5
+    case custom = 6
 
     var id: Int { rawValue }
     var title: String {
@@ -29,16 +30,50 @@ enum ScreenLayout: Int, CaseIterable, Identifiable {
         case .largeScreen: return "Large Screen"
         case .sideBySide: return "Side by Side"
         case .hybrid: return "Hybrid"
+        case .custom: return "Custom"
         }
     }
 }
 
 enum PortraitScreenLayout: Int, CaseIterable, Identifiable {
     case topFullWidth = 0
+    case custom = 1
     case original = 2
 
     var id: Int { rawValue }
-    var title: String { self == .topFullWidth ? "Top Full Width" : "Original" }
+    var title: String {
+        switch self {
+        case .topFullWidth: return "Top Full Width"
+        case .custom: return "Custom"
+        case .original: return "Original"
+        }
+    }
+}
+
+/// Where the small screen sits next to the large one. The values are Settings::SmallScreenPosition.
+enum SmallScreenPlacement: Int, CaseIterable, Identifiable {
+    case topRight = 0
+    case middleRight = 1
+    case bottomRight = 2
+    case topLeft = 3
+    case middleLeft = 4
+    case bottomLeft = 5
+    case aboveLarge = 6
+    case belowLarge = 7
+
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .topRight: return "Top Right"
+        case .middleRight: return "Middle Right"
+        case .bottomRight: return "Bottom Right"
+        case .topLeft: return "Top Left"
+        case .middleLeft: return "Middle Left"
+        case .bottomLeft: return "Bottom Left"
+        case .aboveLarge: return "Above"
+        case .belowLarge: return "Below"
+        }
+    }
 }
 
 enum ConsoleRegion: Int, CaseIterable, Identifiable {
@@ -170,6 +205,25 @@ final class AppSettings: ObservableObject {
     // Layout
     @Published var layout: ScreenLayout { didSet { save(layout.rawValue, "layout") } }
     @Published var portraitLayout: PortraitScreenLayout { didSet { save(portraitLayout.rawValue, "portraitLayout") } }
+    @Published var uprightScreens: Bool { didSet { save(uprightScreens, "uprightScreens") } }
+    @Published var screenGap: Int { didSet { save(screenGap, "screenGap") } }
+    @Published var largeScreenProportion: Double {
+        didSet { save(largeScreenProportion, "largeScreenProportion") }
+    }
+    @Published var smallScreenPlacement: SmallScreenPlacement {
+        didSet { save(smallScreenPlacement.rawValue, "smallScreenPlacement") }
+    }
+    /// Rectangles of the custom layout as fractions of the screen (top x, y, width, height, then
+    /// the bottom screen). Empty until the layout was edited.
+    @Published var customLayoutLandscape: [Double] {
+        didSet { save(customLayoutLandscape, "customLayoutLandscape") }
+    }
+    @Published var customLayoutPortrait: [Double] {
+        didSet { save(customLayoutPortrait, "customLayoutPortrait") }
+    }
+    @Published var customTextures: Bool { didSet { save(customTextures, "customTextures") } }
+    @Published var preloadTextures: Bool { didSet { save(preloadTextures, "preloadTextures") } }
+    @Published var dumpTextures: Bool { didSet { save(dumpTextures, "dumpTextures") } }
     @Published var swapScreens: Bool { didSet { save(swapScreens, "swapScreens") } }
     @Published var respectNotch: Bool { didSet { save(respectNotch, "respectNotch") } }
 
@@ -217,6 +271,16 @@ final class AppSettings: ObservableObject {
 
         layout = ScreenLayout(rawValue: value("layout", ScreenLayout.standard.rawValue)) ?? .standard
         portraitLayout = PortraitScreenLayout(rawValue: value("portraitLayout", 0)) ?? .topFullWidth
+        uprightScreens = value("uprightScreens", false)
+        screenGap = value("screenGap", 0)
+        largeScreenProportion = value("largeScreenProportion", 4.0)
+        smallScreenPlacement =
+            SmallScreenPlacement(rawValue: value("smallScreenPlacement", 2)) ?? .bottomRight
+        customLayoutLandscape = value("customLayoutLandscape", [Double]())
+        customLayoutPortrait = value("customLayoutPortrait", [Double]())
+        customTextures = value("customTextures", false)
+        preloadTextures = value("preloadTextures", false)
+        dumpTextures = value("dumpTextures", false)
         swapScreens = value("swapScreens", false)
         respectNotch = value("respectNotch", true)
 
@@ -269,6 +333,15 @@ final class AppSettings: ObservableObject {
         config.portraitLayoutOption =
             AZPortraitLayoutOption(rawValue: portraitLayout.rawValue) ?? .topFullWidth
         config.swapScreens = swapScreens
+        config.uprightScreens = uprightScreens
+        config.screenGap = screenGap
+        config.largeScreenProportion = Float(largeScreenProportion)
+        config.smallScreenPosition = smallScreenPlacement.rawValue
+        config.customLayoutLandscape = customLayoutLandscape.map { NSNumber(value: $0) }
+        config.customLayoutPortrait = customLayoutPortrait.map { NSNumber(value: $0) }
+        config.customTextures = customTextures
+        config.preloadTextures = preloadTextures
+        config.dumpTextures = dumpTextures
         config.audioStretching = audioStretching
         config.volume = Float(volume)
         config.isNew3DS = isNew3DS

@@ -145,6 +145,21 @@ struct GraphicsSettingsView: View {
             }
 
             Section {
+                Toggle("Custom Textures", isOn: $settings.customTextures)
+                Toggle("Preload Custom Textures", isOn: $settings.preloadTextures)
+                    .disabled(!settings.customTextures)
+                Toggle("Dump Textures", isOn: $settings.dumpTextures)
+            } header: {
+                Text("Texture Packs")
+            } footer: {
+                Text("Custom Textures replaces the textures of a game with the images in Files › "
+                     + "Azahar › load › textures › the game's title ID. Preloading loads them all "
+                     + "when the game starts (more memory, no stutter). Dump Textures saves the "
+                     + "textures a game uses to Files › Azahar › dump › textures, to make a pack. "
+                     + "Applies the next time a game starts.")
+            }
+
+            Section {
                 Picker("Outer Cameras", selection: $settings.outerCamera) {
                     ForEach(CameraSource.allCases) { Text($0.title).tag($0) }
                 }
@@ -229,18 +244,46 @@ struct LayoutSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Landscape") {
+            Section {
                 Picker("Screen Layout", selection: $settings.layout) {
                     ForEach(ScreenLayout.allCases) { Text($0.title).tag($0) }
                 }
+            } header: {
+                Text("Landscape")
+            } footer: {
+                if settings.layout == .custom {
+                    Text("Place the screens with Edit Screen Layout in the menu while a game runs.")
+                }
             }
-            Section("Portrait") {
+            Section {
                 Picker("Screen Layout", selection: $settings.portraitLayout) {
                     ForEach(PortraitScreenLayout.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Portrait")
+            } footer: {
+                if settings.portraitLayout == .custom {
+                    Text("Place the screens with Edit Screen Layout in the menu while a game runs.")
                 }
             }
             Section {
                 Toggle("Swap Screens", isOn: $settings.swapScreens)
+                Toggle("Upright Screens", isOn: $settings.uprightScreens)
+                Stepper("Screen Gap: \(settings.screenGap)", value: $settings.screenGap,
+                        in: 0...200, step: 5)
+                if settings.layout == .largeScreen {
+                    VStack(alignment: .leading) {
+                        Text(String(format: "Large Screen Size: %.1fx", settings.largeScreenProportion))
+                        Slider(value: $settings.largeScreenProportion, in: 1...16, step: 0.5)
+                    }
+                    Picker("Small Screen Position", selection: $settings.smallScreenPlacement) {
+                        ForEach(SmallScreenPlacement.allCases) { Text($0.title).tag($0) }
+                    }
+                }
+            } footer: {
+                Text("Upright Screens turns the screens on their side. Screen Gap applies to the "
+                     + "layouts that have a gap, the large screen options to the Large Screen "
+                     + "layout.")
             }
             Section {
                 Toggle("Respect Notch", isOn: $settings.respectNotch)

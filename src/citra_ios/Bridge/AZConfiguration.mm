@@ -29,6 +29,15 @@
     config.diskShaderCache = YES;
     config.layoutOption = AZLayoutOptionDefault;
     config.portraitLayoutOption = AZPortraitLayoutOptionTopFullWidth;
+    config.screenGap = 0;
+    config.largeScreenProportion = 4.0f;
+    config.smallScreenPosition = 2;
+    config.customLayoutLandscape = @[];
+    config.customLayoutPortrait = @[];
+    config.customSecondLayerOpacity = 100;
+    config.customTextures = NO;
+    config.preloadTextures = NO;
+    config.dumpTextures = NO;
     config.swapScreens = NO;
     config.uprightScreens = NO;
     config.audioStretching = YES;

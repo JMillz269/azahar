@@ -6,7 +6,10 @@
 #import <AzaharCore/AZEmulator.h>
 #import <Metal/Metal.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <condition_variable>
 #include <exception>
@@ -196,6 +199,42 @@ NSError* MakeError(NSInteger code, NSString* description) {
                            userInfo:@{NSLocalizedDescriptionKey : description}];
 }
 
+/// The custom layout used before the user sets one: landscape has the top screen on the left and
+/// the bottom screen on the right, portrait stacks them. As fractions of the screen.
+std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double height) {
+    // The screens are 400x240 and 320x240, which is 5:3 and 4:3.
+    double top_w, top_h, top_x, top_y, bottom_w, bottom_h, bottom_x, bottom_y;
+    if (portrait) {
+        top_w = width;
+        top_h = top_w * 0.6;
+        top_x = 0.0;
+        top_y = height * 0.05;
+        bottom_w = width * 0.8;
+        bottom_h = bottom_w * 0.75;
+        bottom_x = (width - bottom_w) / 2.0;
+        bottom_y = std::min(top_y + top_h + height * 0.03, height - bottom_h);
+    } else {
+        top_h = height * 0.72;
+        top_w = top_h * 5.0 / 3.0;
+        if (top_w > width * 0.62) {
+            top_w = width * 0.62;
+            top_h = top_w * 0.6;
+        }
+        top_x = width * 0.01;
+        top_y = (height - top_h) / 2.0;
+        bottom_w = std::min(width * 0.34, height * 0.6 * 4.0 / 3.0);
+        bottom_h = bottom_w * 0.75;
+        bottom_x = width - bottom_w - width * 0.01;
+        bottom_y = (height - bottom_h) / 2.0;
+    }
+    const auto fraction = [](double value, double extent) {
+        return static_cast<float>(extent > 0 ? value / extent : 0.0);
+    };
+    return {fraction(top_x, width),    fraction(top_y, height),    fraction(top_w, width),
+            fraction(top_h, height),   fraction(bottom_x, width),  fraction(bottom_y, height),
+            fraction(bottom_w, width), fraction(bottom_h, height)};
+}
+
 } // Anonymous namespace
 
 @implementation AZEmulator {
@@ -215,6 +254,11 @@ NSError* MakeError(NSInteger code, NSString* description) {
 
     // Pending surface state, applied on the emulation thread.
     std::mutex _surfaceMutex;
+    // Fractions of the custom layouts, see AZConfiguration (guarded by _surfaceMutex).
+    std::array<float, 8> _customLandscape;
+    std::array<float, 8> _customPortrait;
+    bool _hasCustomLandscape;
+    bool _hasCustomPortrait;
     CAMetalLayer* _layer;
     CGSize _drawableSize;
     BOOL _portrait;
@@ -394,6 +438,29 @@ NSError* MakeError(NSInteger code, NSString* description) {
         static_cast<Settings::PortraitLayoutOption>(configuration.portraitLayoutOption);
     values.swap_screen = configuration.swapScreens;
     values.upright_screen = configuration.uprightScreens;
+    values.screen_gap = static_cast<int>(configuration.screenGap);
+    values.large_screen_proportion = configuration.largeScreenProportion;
+    values.small_screen_position =
+        static_cast<Settings::SmallScreenPosition>(configuration.smallScreenPosition);
+    values.custom_second_layer_opacity =
+        static_cast<u16>(std::clamp<NSInteger>(configuration.customSecondLayerOpacity, 0, 100));
+    {
+        std::scoped_lock lock{_surfaceMutex};
+        const auto read = [](NSArray<NSNumber*>* source, std::array<float, 8>& target) {
+            if (source.count != 8) {
+                return false;
+            }
+            for (NSUInteger i = 0; i < 8; i++) {
+                target[i] = source[i].floatValue;
+            }
+            return true;
+        };
+        _hasCustomLandscape = read(configuration.customLayoutLandscape, _customLandscape);
+        _hasCustomPortrait = read(configuration.customLayoutPortrait, _customPortrait);
+    }
+    values.custom_textures = configuration.customTextures;
+    values.preload_textures = configuration.preloadTextures;
+    values.dump_textures = configuration.dumpTextures;
 
     values.enable_audio_stretching = configuration.audioStretching;
     values.volume = configuration.volume;
@@ -421,6 +488,19 @@ NSError* MakeError(NSInteger code, NSString* description) {
     _surfaceDirty = true;
 }
 
++ (NSArray<NSNumber*>*)defaultCustomLayoutForSize:(CGSize)size portrait:(BOOL)portrait {
+    const auto layout = DefaultCustomLayout(portrait, size.width, size.height);
+    NSMutableArray<NSNumber*>* result = [NSMutableArray array];
+    for (const float value : layout) {
+        [result addObject:@(value)];
+    }
+    return result;
+}
+
+- (void)refreshLayout {
+    _surfaceDirty = true;
+}
+
 - (void)setDrawableSize:(CGSize)size portrait:(BOOL)portrait {
     std::scoped_lock lock{_surfaceMutex};
     _drawableSize = size;
@@ -440,6 +520,42 @@ NSError* MakeError(NSInteger code, NSString* description) {
         layer = _layer;
         size = _drawableSize;
         portrait = _portrait;
+    }
+    // The custom layouts are kept as fractions and turned into pixels for the current size.
+    {
+        std::array<float, 8> rects;
+        {
+            std::scoped_lock lock{_surfaceMutex};
+            rects = portrait ? (_hasCustomPortrait
+                                    ? _customPortrait
+                                    : DefaultCustomLayout(true, size.width, size.height))
+                             : (_hasCustomLandscape
+                                    ? _customLandscape
+                                    : DefaultCustomLayout(false, size.width, size.height));
+        }
+        const auto pixels = [&](float fraction, double extent) {
+            return static_cast<u16>(std::clamp(std::lround(fraction * extent), 0L, 65535L));
+        };
+        auto& values = Settings::values;
+        if (portrait) {
+            values.custom_portrait_top_x = pixels(rects[0], size.width);
+            values.custom_portrait_top_y = pixels(rects[1], size.height);
+            values.custom_portrait_top_width = pixels(rects[2], size.width);
+            values.custom_portrait_top_height = pixels(rects[3], size.height);
+            values.custom_portrait_bottom_x = pixels(rects[4], size.width);
+            values.custom_portrait_bottom_y = pixels(rects[5], size.height);
+            values.custom_portrait_bottom_width = pixels(rects[6], size.width);
+            values.custom_portrait_bottom_height = pixels(rects[7], size.height);
+        } else {
+            values.custom_top_x = pixels(rects[0], size.width);
+            values.custom_top_y = pixels(rects[1], size.height);
+            values.custom_top_width = pixels(rects[2], size.width);
+            values.custom_top_height = pixels(rects[3], size.height);
+            values.custom_bottom_x = pixels(rects[4], size.width);
+            values.custom_bottom_y = pixels(rects[5], size.height);
+            values.custom_bottom_width = pixels(rects[6], size.width);
+            values.custom_bottom_height = pixels(rects[7], size.height);
+        }
     }
     _window->OnSurfaceChanged((__bridge void*)layer, static_cast<unsigned>(size.width),
                               static_cast<unsigned>(size.height), portrait);

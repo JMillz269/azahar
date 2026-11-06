@@ -162,11 +162,19 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 /// Prepares the emulator user directory and logging. Must be called once at startup.
 - (void)setUpWithUserDirectory:(NSString*)directory NS_SWIFT_NAME(setUp(userDirectory:));
 
+/// Fractions (see AZConfiguration.customLayoutLandscape) of the layout used when none was set,
+/// for a screen of the given shape.
++ (NSArray<NSNumber*>*)defaultCustomLayoutForSize:(CGSize)size
+                                         portrait:(BOOL)portrait
+    NS_SWIFT_NAME(defaultCustomLayout(size:portrait:));
+
 /// Applies a configuration. Settings that can't change while running take effect on next boot.
 - (void)applyConfiguration:(AZConfiguration*)configuration NS_SWIFT_NAME(apply(configuration:));
 
 /// Sets the Metal layer emulation is presented to and its drawable size in pixels.
 - (void)setRenderLayer:(nullable CAMetalLayer*)layer NS_SWIFT_NAME(setRenderLayer(_:));
+/// Recomputes the screen layout, after the layout settings changed while running.
+- (void)refreshLayout;
 - (void)setDrawableSize:(CGSize)size
                portrait:(BOOL)portrait NS_SWIFT_NAME(setDrawableSize(_:portrait:));
 

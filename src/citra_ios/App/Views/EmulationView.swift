@@ -2,6 +2,7 @@
 // Licensed under GPLv3 or any later version
 // Refer to the LICENSE.txt file included.
 
+import AzaharCore
 import SwiftUI
 
 /// Full screen emulation: the rendered 3DS screens, the on-screen controller and a menu.
@@ -18,6 +19,7 @@ struct EmulationView: View {
     @State private var showingLoadStates = false
     @State private var showingCheats = false
     @State private var showingAmiibo = false
+    @State private var editingScreens = false
     @State private var resumeAfterEditing = false
 
     var body: some View {
@@ -31,7 +33,12 @@ struct EmulationView: View {
             }
             .ignoresSafeArea(settings.respectNotch ? [] : .all)
 
-            if settings.showController && controllerVisible {
+            if editingScreens {
+                ScreenLayoutEditor(isEditing: $editingScreens)
+                    .ignoresSafeArea(settings.respectNotch ? [] : .all)
+            }
+
+            if settings.showController && controllerVisible && !editingScreens {
                 ControllerOverlay(opacity: settings.controllerOpacity,
                                   haptics: settings.hapticFeedback,
                                   isEditing: $editingLayout)
@@ -121,6 +128,7 @@ struct EmulationView: View {
                 session.toggleFastForward()
             }
             Button("Take Screenshot") { session.takeScreenshot() }
+            Button("Edit Screen Layout") { beginEditingScreens() }
             Button("Swap Screens") {
                 settings.swapScreens.toggle()
                 session.apply(settings: settings)
@@ -182,6 +190,19 @@ struct EmulationView: View {
 }
 
 extension EmulationView {
+    /// Switches the current orientation to the custom layout and lets the screens be moved.
+    fileprivate func beginEditingScreens() {
+        let portrait = UIScreen.main.bounds.height > UIScreen.main.bounds.width
+        if portrait {
+            settings.portraitLayout = .custom
+        } else {
+            settings.layout = .custom
+        }
+        session.apply(settings: settings)
+        AZEmulator.shared.refreshLayout()
+        editingScreens = true
+    }
+
     /// Pauses the game and lets the controller be moved and resized.
     fileprivate func beginEditingLayout() {
         controllerVisible = true

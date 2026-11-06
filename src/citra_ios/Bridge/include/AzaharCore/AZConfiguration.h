@@ -13,11 +13,13 @@ typedef NS_ENUM(NSInteger, AZLayoutOption) {
     AZLayoutOptionLargeScreen = 2,
     AZLayoutOptionSideScreen = 3,
     AZLayoutOptionHybridScreen = 5,
+    AZLayoutOptionCustom = 6,
 };
 
 /// Screen layouts, matching Settings::PortraitLayoutOption.
 typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
     AZPortraitLayoutOptionTopFullWidth = 0,
+    AZPortraitLayoutOptionCustom = 1,
     AZPortraitLayoutOptionOriginal = 2,
 };
 
@@ -57,6 +59,24 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) AZPortraitLayoutOption portraitLayoutOption;
 @property(nonatomic) BOOL swapScreens;
 @property(nonatomic) BOOL uprightScreens;
+/// Pixels between the screens of the layouts that have a gap.
+@property(nonatomic) NSInteger screenGap;
+/// How many times larger the large screen is than the small one (1 to 16).
+@property(nonatomic) float largeScreenProportion;
+/// Settings::SmallScreenPosition: 0 top right, 1 middle right, 2 bottom right, 3 top left,
+/// 4 middle left, 5 bottom left, 6 above the large screen, 7 below it.
+@property(nonatomic) NSInteger smallScreenPosition;
+/// Rectangles of the custom layouts as fractions of the screen: top x, y, width, height, then the
+/// same for the bottom screen. Empty to use the default.
+@property(nonatomic, copy) NSArray<NSNumber*>* customLayoutLandscape;
+@property(nonatomic, copy) NSArray<NSNumber*>* customLayoutPortrait;
+/// Opacity of the second screen of the custom landscape layout, in percent.
+@property(nonatomic) NSInteger customSecondLayerOpacity;
+
+// Textures
+@property(nonatomic) BOOL customTextures;
+@property(nonatomic) BOOL preloadTextures;
+@property(nonatomic) BOOL dumpTextures;
 
 // Audio
 @property(nonatomic) BOOL audioStretching;
