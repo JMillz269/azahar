@@ -893,6 +893,26 @@ bool RasterizerMetal::AccelerateDisplay(const Pica::FramebufferConfig& config,
     screen_info.texture = src_surface.Texture();
     screen_info.width = config.width;
     screen_info.height = config.height;
+
+    // Log what is displayed whenever it changes: a screen shown from a surface that is not at
+    // the internal resolution looks blurry however it is scaled afterwards.
+    static std::array<u64, 2> last_logged{};
+    const u32 screen_slot = framebuffer_addr == config.address_left1 ||
+                                    framebuffer_addr == config.address_left2 ||
+                                    framebuffer_addr == config.address_right1 ||
+                                    framebuffer_addr == config.address_right2
+                                ? (config.height == 240 && config.width == 400 ? 0 : 1)
+                                : 1;
+    const u64 signature = (static_cast<u64>(screen_info.texture.width) << 32) |
+                          static_cast<u64>(screen_info.texture.height);
+    if (last_logged[screen_slot] != signature) {
+        last_logged[screen_slot] = signature;
+        LOG_INFO(Render, "Screen {}x{} is displayed from a {}x{} texture ({}x internal resolution)",
+                 config.width.Value(), config.height.Value(),
+                 static_cast<u32>(screen_info.texture.width),
+                 static_cast<u32>(screen_info.texture.height),
+                 Settings::values.resolution_factor.GetValue());
+    }
     return true;
 }
 

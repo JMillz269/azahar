@@ -511,9 +511,13 @@ void PipelineCache::SaveBinaryArchive() {
         FileUtil::Rename(temp_path, path);
         archive_dirty.store(false, std::memory_order_relaxed);
     } else {
-        LOG_WARNING(Render, "Unable to save the Metal binary archive: {}",
+        // Some pipelines (e.g. fragment functions without outputs) cannot be serialized, which
+        // fails every later save too. Stop collecting binaries instead of retrying forever.
+        LOG_WARNING(Render, "Unable to save the Metal binary archive, disabling it: {}",
                     error ? [error.localizedDescription UTF8String] : "unknown error");
         FileUtil::Delete(temp_path);
+        binary_archive = nil;
+        archive_dirty.store(false, std::memory_order_relaxed);
     }
 }
 
