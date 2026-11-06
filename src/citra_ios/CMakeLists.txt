@@ -80,6 +80,7 @@ set(APP_SWIFT_SOURCES
     App/Views/GamesListView.swift
     App/Views/KeyboardPromptView.swift
     App/Views/MetalView.swift
+    App/Views/MiiSelectorView.swift
     App/Views/SaveStatesView.swift
     App/Views/SettingsView.swift
 )

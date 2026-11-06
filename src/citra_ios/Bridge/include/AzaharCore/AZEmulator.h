@@ -63,6 +63,17 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 @property(nonatomic, copy) NSString* _Nullable (^submit)(NSString* text, NSInteger button);
 @end
 
+/// A request of the emulated software to choose a Mii (the 3DS Mii selector).
+@interface AZMiiRequest : NSObject
+@property(nonatomic, copy) NSString* title;
+/// Names of the Miis the player can choose from.
+@property(nonatomic, copy) NSArray<NSString*>* names;
+@property(nonatomic) NSInteger initialIndex;
+@property(nonatomic) BOOL allowsCancel;
+/// Hands the choice to the emulated software: the index of a Mii, or -1 to cancel.
+@property(nonatomic, copy) void (^submit)(NSInteger index);
+@end
+
 /// A save state slot that holds a state of the running title.
 @interface AZSaveStateSlot : NSObject
 /// 0 is the quick slot, 1 to 10 the numbered ones.
@@ -135,6 +146,9 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 
 /// Called on the main thread when the emulated software asks for text.
 @property(nonatomic, copy, nullable) void (^onKeyboardRequest)(AZKeyboardRequest* request);
+/// Called on the main thread when the emulated software asks for a Mii. The emulation waits until
+/// the request is submitted.
+@property(nonatomic, copy, nullable) void (^onMiiRequest)(AZMiiRequest* request);
 /// Called on the main thread with a message for the user that is not an error stopping emulation
 /// (for example a failed save state).
 @property(nonatomic, copy, nullable) void (^onNotice)(NSString* title, NSString* message);
@@ -185,8 +199,10 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 /// Save states, cheats, the software keyboard and CIA installation.
 @interface AZEmulator (Features)
 
-/// Registers the software keyboard applet. Internal, called when a title boots.
-- (void)registerKeyboardApplet;
+/// Registers the software keyboard and Mii selector applets. Internal, called when a title boots.
+- (void)registerApplets;
+/// Releases an applet the emulation thread is waiting for so it can stop. Internal.
+- (void)cancelPendingApplets;
 
 // Save states of the running title.
 

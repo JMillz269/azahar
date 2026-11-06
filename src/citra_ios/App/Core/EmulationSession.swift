@@ -21,6 +21,8 @@ final class EmulationSession: ObservableObject {
     @Published private(set) var draws: Double = 0
     /// The software keyboard of the running game, while it waits for text.
     @Published var keyboardRequest: AZKeyboardRequest?
+    /// The Mii selector of the running game, while it waits for a choice.
+    @Published var miiRequest: AZMiiRequest?
     /// A message for the user that does not end the game.
     @Published var notice: SessionNotice?
     /// A short confirmation shown over the game for a moment.
@@ -48,6 +50,11 @@ final class EmulationSession: ObservableObject {
         AZEmulator.shared.onKeyboardRequest = { [weak self] request in
             Task { @MainActor in
                 self?.keyboardRequest = request
+            }
+        }
+        AZEmulator.shared.onMiiRequest = { [weak self] request in
+            Task { @MainActor in
+                self?.miiRequest = request
             }
         }
         AZEmulator.shared.onNotice = { [weak self] title, message in
@@ -222,6 +229,7 @@ final class EmulationSession: ObservableObject {
         currentGame = nil
         isFastForwarding = false
         keyboardRequest = nil
+        miiRequest = nil
         isPaused = false
         fps = 0
         speed = 0
@@ -239,6 +247,10 @@ struct SessionNotice: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+}
+
+extension AZMiiRequest: Identifiable {
+    public var id: ObjectIdentifier { ObjectIdentifier(self) }
 }
 
 extension AZKeyboardRequest: Identifiable {

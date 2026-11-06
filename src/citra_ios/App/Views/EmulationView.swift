@@ -140,6 +140,9 @@ struct EmulationView: View {
         .sheet(isPresented: $showingAmiibo) {
             AmiiboView()
         }
+        .sheet(item: $session.miiRequest) { request in
+            MiiSelectorView(request: request) { session.miiRequest = nil }
+        }
         .sheet(item: $session.keyboardRequest) { request in
             KeyboardPromptView(request: request) { session.keyboardRequest = nil }
         }

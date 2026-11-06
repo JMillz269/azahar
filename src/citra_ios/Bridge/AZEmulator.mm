@@ -512,7 +512,7 @@ NSError* MakeError(NSInteger code, NSString* description) {
     system.ApplySettings();
     Settings::LogSettings();
     Frontend::RegisterDefaultApplets(system);
-    [self registerKeyboardApplet];
+    [self registerApplets];
     IOSInput::BindInputProfile();
 
     const Core::System::ResultStatus load_result = system.Load(*_window, filepath);
@@ -652,6 +652,8 @@ NSError* MakeError(NSInteger code, NSString* description) {
         _pauseRequested = false;
     }
     _cv.notify_all();
+    // The emulation thread may be waiting for a Mii to be chosen.
+    [self cancelPendingApplets];
     if (_thread.joinable()) {
         _thread.join();
     }

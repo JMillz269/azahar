@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -19,6 +21,8 @@
 #include "core/cheats/cheats.h"
 #include "core/cheats/gateway_cheat.h"
 #include "core/core.h"
+#include "common/string_util.h"
+#include "core/frontend/applets/mii_selector.h"
 #include "core/frontend/applets/swkbd.h"
 #include "core/frontend/framebuffer_layout.h"
 #include "core/hle/kernel/kernel.h"
@@ -35,6 +39,9 @@
 #include "core/savestate.h"
 
 @implementation AZKeyboardRequest
+@end
+
+@implementation AZMiiRequest
 @end
 
 @implementation AZSaveStateSlot {
@@ -171,6 +178,72 @@ private:
     u32 error_generation{};
 };
 
+/// The Mii selector applet. The HLE applet reads the choice right after Setup returns, so Setup
+/// blocks the emulation thread until the app submits it (like the Qt frontend's modal dialog).
+class IOSMiiSelector final : public Frontend::MiiSelector {
+public:
+    using RequestHandler = std::function<void(const Frontend::MiiSelectorConfig&,
+                                              const std::vector<std::string>&)>;
+
+    explicit IOSMiiSelector(RequestHandler on_request_) : on_request{std::move(on_request_)} {}
+
+    void Setup(const Frontend::MiiSelectorConfig& config_) override {
+        MiiSelector::Setup(config_);
+        const std::vector<Mii::MiiData> miis = Frontend::LoadMiis();
+        if (miis.empty()) {
+            // Nothing to choose from: the console's default Mii, like the default applet.
+            Finalize(0, HLE::Applets::MiiSelector::GetStandardMiiResult().selected_mii_data);
+            return;
+        }
+
+        std::vector<std::string> names;
+        for (const Mii::MiiData& mii : miis) {
+            std::u16string name{mii.mii_name.data(), mii.mii_name.size()};
+            name.resize(name.find(u'\0') == std::u16string::npos ? name.size() : name.find(u'\0'));
+            names.push_back(Common::UTF16ToUTF8(name));
+        }
+        {
+            std::scoped_lock lock{mutex};
+            selected = -1;
+            done = false;
+        }
+        on_request(config, names);
+        int index;
+        {
+            std::unique_lock lock{mutex};
+            condition.wait(lock, [this] { return done; });
+            index = selected;
+        }
+        if (index >= 0 && static_cast<std::size_t>(index) < miis.size()) {
+            Finalize(0, miis[static_cast<std::size_t>(index)]);
+        } else {
+            Finalize(1, Mii::MiiData{});
+        }
+    }
+
+    /// Called with the chosen index, or -1 to cancel.
+    void Select(int index) {
+        {
+            std::scoped_lock lock{mutex};
+            if (done) {
+                return;
+            }
+            selected = index;
+            done = true;
+        }
+        condition.notify_all();
+    }
+
+private:
+    RequestHandler on_request;
+    std::mutex mutex;
+    std::condition_variable condition;
+    int selected{-1};
+    bool done{true};
+};
+
+std::shared_ptr<IOSMiiSelector> g_mii_selector;
+
 /// The keyboard of the current run. Replaced for every title that starts.
 std::shared_ptr<IOSKeyboard> g_keyboard;
 
@@ -224,6 +297,54 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
 @implementation AZEmulator (Features)
 
 // MARK: Software keyboard
+
+- (void)cancelPendingApplets {
+    if (g_mii_selector) {
+        g_mii_selector->Select(-1);
+    }
+}
+
+- (void)registerApplets {
+    [self registerMiiSelectorApplet];
+    [self registerKeyboardApplet];
+}
+
+- (void)registerMiiSelectorApplet {
+    __weak AZEmulator* weak_self = self;
+    auto selector = std::make_shared<IOSMiiSelector>(
+        [weak_self](const Frontend::MiiSelectorConfig& config,
+                    const std::vector<std::string>& names) {
+            AZEmulator* emulator = weak_self;
+            if (emulator == nil) {
+                g_mii_selector->Select(-1);
+                return;
+            }
+            AZMiiRequest* request = [[AZMiiRequest alloc] init];
+            request.title = ToNSString(config.title);
+            NSMutableArray<NSString*>* list = [NSMutableArray array];
+            for (const auto& name : names) {
+                [list addObject:ToNSString(name)];
+            }
+            request.names = list;
+            request.initialIndex = config.initially_selected_mii_index < names.size()
+                                       ? static_cast<NSInteger>(config.initially_selected_mii_index)
+                                       : 0;
+            request.allowsCancel = config.enable_cancel_button;
+            std::shared_ptr<IOSMiiSelector> keep = g_mii_selector;
+            request.submit = ^(NSInteger index) {
+              keep->Select(static_cast<int>(index));
+            };
+            dispatch_async(dispatch_get_main_queue(), ^{
+              if (emulator.onMiiRequest) {
+                  emulator.onMiiRequest(request);
+              } else {
+                  request.submit(request.initialIndex);
+              }
+            });
+        });
+    g_mii_selector = selector;
+    Core::System::GetInstance().RegisterMiiSelector(selector);
+}
 
 - (void)registerKeyboardApplet {
     __weak AZEmulator* weak_self = self;
