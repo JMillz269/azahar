@@ -14,7 +14,10 @@
  */
 class EmuWindow_iOS final : public Frontend::EmuWindow {
 public:
-    explicit EmuWindow_iOS(void* metal_layer, unsigned width, unsigned height, bool portrait);
+    /// `is_secondary` makes it the window of an external display, which shows the other screen of
+    /// the separate windows layout.
+    explicit EmuWindow_iOS(void* metal_layer, unsigned width, unsigned height, bool portrait,
+                           bool is_secondary = false);
     ~EmuWindow_iOS() override;
 
     void PollEvents() override {}

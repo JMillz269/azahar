@@ -6,8 +6,9 @@
 #include "citra_ios/Bridge/emu_window_ios.h"
 #include "common/logging/log.h"
 
-EmuWindow_iOS::EmuWindow_iOS(void* metal_layer, unsigned width, unsigned height, bool portrait)
-    : Frontend::EmuWindow{false} {
+EmuWindow_iOS::EmuWindow_iOS(void* metal_layer, unsigned width, unsigned height, bool portrait,
+                             bool is_secondary)
+    : Frontend::EmuWindow{is_secondary} {
     window_info.type = Frontend::WindowSystemType::MacOS;
     window_info.render_surface = metal_layer;
     window_info.render_surface_scale = 1.0f;

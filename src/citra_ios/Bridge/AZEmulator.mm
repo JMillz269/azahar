@@ -260,6 +260,13 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
 
     // Pending surface state, applied on the emulation thread.
     std::mutex _surfaceMutex;
+    // The external display (guarded by _surfaceMutex).
+    std::unique_ptr<EmuWindow_iOS> _secondaryWindow;
+    CAMetalLayer* _secondaryLayer;
+    CGSize _secondarySize;
+    bool _externalDisplayEnabled;
+    Settings::LayoutOption _userLayoutOption;
+    bool _userSwapScreens;
     // Fractions of the custom layouts, see AZConfiguration (guarded by _surfaceMutex).
     std::array<float, 8> _customLandscape;
     std::array<float, 8> _customPortrait;
@@ -439,10 +446,13 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     Metal::SetUpscalerMode(configuration.upscaling == 1 ? Metal::UpscalerMode::Spatial
                                                         : Metal::UpscalerMode::Off);
 
-    values.layout_option = static_cast<Settings::LayoutOption>(configuration.layoutOption);
+    _externalDisplayEnabled = configuration.useExternalDisplay;
+    _userLayoutOption = static_cast<Settings::LayoutOption>(configuration.layoutOption);
+    values.layout_option = _userLayoutOption;
     values.portrait_layout_option =
         static_cast<Settings::PortraitLayoutOption>(configuration.portraitLayoutOption);
-    values.swap_screen = configuration.swapScreens;
+    _userSwapScreens = configuration.swapScreens;
+    values.swap_screen = _userSwapScreens;
     values.upright_screen = configuration.uprightScreens;
     values.screen_gap = static_cast<int>(configuration.screenGap);
     values.large_screen_proportion = configuration.largeScreenProportion;
@@ -486,6 +496,29 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
         Core::System::GetInstance().ApplySettings();
         _surfaceDirty = true;
     }
+}
+
+/// With an external display the screens go to separate windows: the external display shows the
+/// top screen, this device the bottom screen (the layout hands the top screen to the primary
+/// window unless the screens are swapped).
+- (void)applyLayoutSettingsForExternal:(BOOL)external {
+    auto& values = Settings::values;
+    if (external) {
+        values.layout_option = Settings::LayoutOption::SeparateWindows;
+        values.swap_screen = !_userSwapScreens;
+    } else {
+        values.layout_option = _userLayoutOption;
+        values.swap_screen = _userSwapScreens;
+    }
+}
+
+- (void)setSecondaryRenderLayer:(CAMetalLayer*)layer size:(CGSize)size {
+    {
+        std::scoped_lock lock{_surfaceMutex};
+        _secondaryLayer = layer;
+        _secondarySize = size;
+    }
+    _surfaceDirty = true;
 }
 
 - (void)setRenderLayer:(CAMetalLayer*)layer {
@@ -563,8 +596,31 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
             values.custom_bottom_height = pixels(rects[7], size.height);
         }
     }
+    CAMetalLayer* secondary_layer;
+    CGSize secondary_size;
+    {
+        std::scoped_lock lock{_surfaceMutex};
+        secondary_layer = _secondaryLayer;
+        secondary_size = _secondarySize;
+    }
+    const bool external = _externalDisplayEnabled && secondary_layer != nil &&
+                          secondary_size.width > 0 && secondary_size.height > 0;
+    [self applyLayoutSettingsForExternal:external];
+
     _window->OnSurfaceChanged((__bridge void*)layer, static_cast<unsigned>(size.width),
                               static_cast<unsigned>(size.height), portrait);
+    if (_secondaryWindow) {
+        _secondaryWindow->OnSurfaceChanged(
+            external ? (__bridge void*)secondary_layer : nullptr,
+            static_cast<unsigned>(std::max(secondary_size.width, 1.0)),
+            static_cast<unsigned>(std::max(secondary_size.height, 1.0)), false);
+        if (_secondaryWindow->TakeSurfaceChanged()) {
+            auto& system = Core::System::GetInstance();
+            if (system.IsPoweredOn()) {
+                system.GPU().Renderer().NotifySurfaceChanged(true);
+            }
+        }
+    }
     if (_window->TakeSurfaceChanged()) {
         auto& system = Core::System::GetInstance();
         if (system.IsPoweredOn()) {
@@ -600,6 +656,17 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     _window =
         std::make_unique<EmuWindow_iOS>((__bridge void*)layer, static_cast<unsigned>(size.width),
                                         static_cast<unsigned>(size.height), portrait);
+    {
+        // The window of the external display exists for the whole run, headless while none is
+        // connected, so one can be plugged in at any time.
+        std::scoped_lock lock{_surfaceMutex};
+        const bool connected = _externalDisplayEnabled && _secondaryLayer != nil &&
+                               _secondarySize.width > 0 && _secondarySize.height > 0;
+        _secondaryWindow = std::make_unique<EmuWindow_iOS>(
+            connected ? (__bridge void*)_secondaryLayer : nullptr,
+            static_cast<unsigned>(std::max(_secondarySize.width, 1.0)),
+            static_cast<unsigned>(std::max(_secondarySize.height, 1.0)), false, true);
+    }
     _surfaceDirty = false;
     _stopRequested = false;
     _pauseRequested = false;
@@ -655,7 +722,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     [self registerApplets];
     IOSInput::BindInputProfile();
 
-    const Core::System::ResultStatus load_result = system.Load(*_window, filepath);
+    const Core::System::ResultStatus load_result = system.Load(*_window, filepath, _secondaryWindow.get());
     if (load_result != Core::System::ResultStatus::Success) {
         return MakeResultError(load_result, system.GetStatusDetails());
     }
@@ -765,6 +832,10 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
           self->_thread.join();
       }
       self->_window.reset();
+      {
+          std::scoped_lock lock{self->_surfaceMutex};
+          self->_secondaryWindow.reset();
+      }
       if (!requested && self.onStopped) {
           self.onStopped(error);
       }
@@ -798,6 +869,10 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
         _thread.join();
     }
     _window.reset();
+    {
+        std::scoped_lock lock{_surfaceMutex};
+        _secondaryWindow.reset();
+    }
 }
 
 - (void)setButton:(AZButton)button pressed:(BOOL)pressed {

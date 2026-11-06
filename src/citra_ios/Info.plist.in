@@ -34,6 +34,18 @@
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
         <false/>
+        <key>UISceneConfigurations</key>
+        <dict>
+            <key>UIWindowSceneSessionRoleExternalDisplayNonInteractive</key>
+            <array>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>External</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>ExternalSceneDelegate</string>
+                </dict>
+            </array>
+        </dict>
     </dict>
     <key>UILaunchScreen</key>
     <dict/>

@@ -221,6 +221,7 @@ final class AppSettings: ObservableObject {
     @Published var customLayoutPortrait: [Double] {
         didSet { save(customLayoutPortrait, "customLayoutPortrait") }
     }
+    @Published var useExternalDisplay: Bool { didSet { save(useExternalDisplay, "useExternalDisplay") } }
     @Published var customTextures: Bool { didSet { save(customTextures, "customTextures") } }
     @Published var preloadTextures: Bool { didSet { save(preloadTextures, "preloadTextures") } }
     @Published var dumpTextures: Bool { didSet { save(dumpTextures, "dumpTextures") } }
@@ -278,6 +279,7 @@ final class AppSettings: ObservableObject {
             SmallScreenPlacement(rawValue: value("smallScreenPlacement", 2)) ?? .bottomRight
         customLayoutLandscape = value("customLayoutLandscape", [Double]())
         customLayoutPortrait = value("customLayoutPortrait", [Double]())
+        useExternalDisplay = value("useExternalDisplay", true)
         customTextures = value("customTextures", false)
         preloadTextures = value("preloadTextures", false)
         dumpTextures = value("dumpTextures", false)
@@ -339,6 +341,7 @@ final class AppSettings: ObservableObject {
         config.smallScreenPosition = smallScreenPlacement.rawValue
         config.customLayoutLandscape = customLayoutLandscape.map { NSNumber(value: $0) }
         config.customLayoutPortrait = customLayoutPortrait.map { NSNumber(value: $0) }
+        config.useExternalDisplay = useExternalDisplay
         config.customTextures = customTextures
         config.preloadTextures = preloadTextures
         config.dumpTextures = dumpTextures

@@ -175,6 +175,11 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 - (void)setRenderLayer:(nullable CAMetalLayer*)layer NS_SWIFT_NAME(setRenderLayer(_:));
 /// Recomputes the screen layout, after the layout settings changed while running.
 - (void)refreshLayout;
+/// The Metal layer of an external display and its size in pixels, or nil when it is gone. While
+/// there is one (and the setting is on) the external display shows the top screen and this device
+/// the bottom screen.
+- (void)setSecondaryRenderLayer:(nullable CAMetalLayer*)layer
+                           size:(CGSize)size NS_SWIFT_NAME(setSecondaryRenderLayer(_:size:));
 - (void)setDrawableSize:(CGSize)size
                portrait:(BOOL)portrait NS_SWIFT_NAME(setDrawableSize(_:portrait:));
 

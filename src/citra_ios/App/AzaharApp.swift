@@ -8,6 +8,7 @@ import SwiftUI
 
 @main
 struct AzaharApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var settings = AppSettings()
     @StateObject private var library = GameLibrary()
     @StateObject private var session = EmulationSession()

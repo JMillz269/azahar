@@ -35,6 +35,7 @@
     config.customLayoutLandscape = @[];
     config.customLayoutPortrait = @[];
     config.customSecondLayerOpacity = 100;
+    config.useExternalDisplay = YES;
     config.customTextures = NO;
     config.preloadTextures = NO;
     config.dumpTextures = NO;

@@ -133,7 +133,9 @@ public:
     }
 
     void NotifySurfaceChanged(bool second) override {
-        if (!second) {
+        if (second) {
+            second_layer_dirty = true;
+        } else {
             layer_dirty = true;
         }
     }
@@ -145,10 +147,12 @@ public:
 private:
     void CompilePresentPipelines();
     void AcquireLayer();
+    CAMetalLayer* ConfigureLayer(void* surface);
     void PrepareRendertarget();
     void LoadFBToScreenInfo(const Pica::FramebufferConfig& framebuffer, ScreenInfo& screen_info,
                             bool right_eye);
-    void RenderToLayer(const Layout::FramebufferLayout& layout);
+    void RenderToLayer(CAMetalLayer* target, const Layout::FramebufferLayout& layout,
+                       bool allow_upscale);
     void RenderScreenshot();
     void DrawScreens(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout);
     void DrawTopScreen(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout,
@@ -207,6 +211,8 @@ private:
 
     CAMetalLayer* layer = nil;
     bool layer_dirty{};
+    CAMetalLayer* second_layer = nil; ///< Layer of the secondary window (an external display)
+    bool second_layer_dirty{true};
 
     id<MTLRenderPipelineState> present_pipeline = nil;
     id<MTLRenderPipelineState> present_anaglyph_pipeline = nil;
@@ -273,19 +279,24 @@ void RendererMetal::CompilePresentPipelines() {
     present_samplers[1] = [device newSamplerStateWithDescriptor:sampler_desc];
 }
 
+CAMetalLayer* RendererMetal::ConfigureLayer(void* surface) {
+    if (!surface) {
+        return nil;
+    }
+    CAMetalLayer* result = (__bridge CAMetalLayer*)surface;
+    result.device = instance.GetDevice();
+    result.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    result.framebufferOnly = YES;
+    result.maximumDrawableCount = 3;
+    return result;
+}
+
 void RendererMetal::AcquireLayer() {
     layer_dirty = false;
-    void* surface = render_window.GetWindowInfo().render_surface;
-    if (!surface) {
-        layer = nil;
+    layer = ConfigureLayer(render_window.GetWindowInfo().render_surface);
+    if (layer == nil) {
         LOG_WARNING(Render, "No render surface provided, the Metal renderer runs headless");
-        return;
     }
-    layer = (__bridge CAMetalLayer*)surface;
-    layer.device = instance.GetDevice();
-    layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-    layer.framebufferOnly = YES;
-    layer.maximumDrawableCount = 3;
 }
 
 void RendererMetal::PrepareRendertarget() {
@@ -795,23 +806,21 @@ void RendererMetal::DrawScreens(id<MTLRenderCommandEncoder> encoder,
     }
 }
 
-void RendererMetal::RenderToLayer(const Layout::FramebufferLayout& layout) {
-    if (layer_dirty) {
-        AcquireLayer();
-    }
-    if (layer == nil || layout.width == 0 || layout.height == 0) {
+void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::FramebufferLayout& layout,
+                                  bool allow_upscale) {
+    if (target == nil || layout.width == 0 || layout.height == 0) {
         return;
     }
 
     const CGSize size = CGSizeMake(layout.width, layout.height);
-    if (!CGSizeEqualToSize(layer.drawableSize, size)) {
-        layer.drawableSize = size;
+    if (!CGSizeEqualToSize(target.drawableSize, size)) {
+        target.drawableSize = size;
     }
 
     id<CAMetalDrawable> drawable = nil;
     const auto drawable_start = std::chrono::steady_clock::now();
     @autoreleasepool {
-        drawable = [layer nextDrawable];
+        drawable = [target nextDrawable];
     }
     Stats().drawable_ns.fetch_add(static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                                        std::chrono::steady_clock::now() - drawable_start)
@@ -826,7 +835,10 @@ void RendererMetal::RenderToLayer(const Layout::FramebufferLayout& layout) {
     scheduler.Flush();
     scheduler.MarkPresentation();
 #if AZAHAR_HAS_METALFX
-    PrepareUpscaling(layout);
+    // MetalFX keeps its textures per screen, only the main layer uses it.
+    if (allow_upscale) {
+        PrepareUpscaling(layout);
+    }
 #endif
 
     MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
@@ -919,7 +931,20 @@ void RendererMetal::SwapBuffers() {
 
     if (!Settings::values.use_skip_duplicate_frames.GetValue() ||
         Core::PerfStats::game_frames_updated) {
-        RenderToLayer(layout);
+        if (layer_dirty) {
+            AcquireLayer();
+        }
+        RenderToLayer(layer, layout, true);
+        // The secondary window (an external display) shows the other part of the layout.
+        if (secondary_window != nullptr) {
+            if (second_layer_dirty) {
+                second_layer_dirty = false;
+                second_layer = ConfigureLayer(secondary_window->GetWindowInfo().render_surface);
+            }
+            if (second_layer != nil) {
+                RenderToLayer(second_layer, secondary_window->GetFramebufferLayout(), false);
+            }
+        }
         Core::PerfStats::game_frames_updated = false;
     }
 
@@ -990,9 +1015,6 @@ bool IsUpscalingSupported() {
 std::unique_ptr<VideoCore::RendererBase> CreateRenderer(Core::System& system, Pica::PicaCore& pica,
                                                         Frontend::EmuWindow& window,
                                                         Frontend::EmuWindow* secondary_window) {
-    if (secondary_window) {
-        LOG_WARNING(Render, "The Metal renderer does not support secondary windows yet");
-    }
     return std::make_unique<RendererMetal>(system, pica, window, secondary_window);
 }
 

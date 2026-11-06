@@ -145,6 +145,17 @@ struct GraphicsSettingsView: View {
             }
 
             Section {
+                Toggle("Use External Display", isOn: $settings.useExternalDisplay)
+            } header: {
+                Text("External Display")
+            } footer: {
+                Text("With a TV or AirPlay display connected, it shows the top screen and this device "
+                     + "the bottom screen with the controls. Takes effect when a game starts. "
+                     + "Running inside another app (such as LiveContainer) may stop iOS from "
+                     + "offering the display to Azahar.")
+            }
+
+            Section {
                 Toggle("Custom Textures", isOn: $settings.customTextures)
                 Toggle("Preload Custom Textures", isOn: $settings.preloadTextures)
                     .disabled(!settings.customTextures)

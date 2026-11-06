@@ -73,6 +73,9 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 /// Opacity of the second screen of the custom landscape layout, in percent.
 @property(nonatomic) NSInteger customSecondLayerOpacity;
 
+/// Show the top screen on an external display (AirPlay, HDMI) and the touch screen on the device.
+@property(nonatomic) BOOL useExternalDisplay;
+
 // Textures
 @property(nonatomic) BOOL customTextures;
 @property(nonatomic) BOOL preloadTextures;
