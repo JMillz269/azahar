@@ -849,7 +849,18 @@ void RasterizerMetal::ClearAll(bool flush) {
 }
 
 bool RasterizerMetal::AccelerateDisplayTransfer(const Pica::DisplayTransferConfig& config) {
-    return res_cache.AccelerateDisplayTransfer(config);
+    const bool accelerated = res_cache.AccelerateDisplayTransfer(config);
+    // The first transfers show whether the game's display transfers run on the GPU at all.
+    static u32 logged_transfers = 0;
+    if (logged_transfers < 24) {
+        logged_transfers++;
+        LOG_INFO(Render, "Display transfer {:#010x} -> {:#010x} {}x{} -> {}x{}: {}",
+                 config.GetPhysicalInputAddress(), config.GetPhysicalOutputAddress(),
+                 config.input_width.Value(), config.input_height.Value(),
+                 config.output_width.Value(), config.output_height.Value(),
+                 accelerated ? "accelerated" : "NOT accelerated (CPU path)");
+    }
+    return accelerated;
 }
 
 bool RasterizerMetal::AccelerateTextureCopy(const Pica::DisplayTransferConfig& config) {
@@ -894,24 +905,33 @@ bool RasterizerMetal::AccelerateDisplay(const Pica::FramebufferConfig& config,
     screen_info.width = config.width;
     screen_info.height = config.height;
 
-    // Log what is displayed whenever it changes: a screen shown from a surface that is not at
-    // the internal resolution looks blurry however it is scaled afterwards.
-    static std::array<u64, 2> last_logged{};
-    const u32 screen_slot = framebuffer_addr == config.address_left1 ||
-                                    framebuffer_addr == config.address_left2 ||
-                                    framebuffer_addr == config.address_right1 ||
-                                    framebuffer_addr == config.address_right2
-                                ? (config.height == 240 && config.width == 400 ? 0 : 1)
-                                : 1;
-    const u64 signature = (static_cast<u64>(screen_info.texture.width) << 32) |
-                          static_cast<u64>(screen_info.texture.height);
-    if (last_logged[screen_slot] != signature) {
-        last_logged[screen_slot] = signature;
-        LOG_INFO(Render, "Screen {}x{} is displayed from a {}x{} texture ({}x internal resolution)",
-                 config.width.Value(), config.height.Value(),
-                 static_cast<u32>(screen_info.texture.width),
-                 static_cast<u32>(screen_info.texture.height),
-                 Settings::values.resolution_factor.GetValue());
+    // Log what is displayed whenever it changes: a screen shown from a surface that is not at the
+    // internal resolution looks blurry however it is scaled afterwards.
+    struct Logged {
+        const ScreenInfo* screen;
+        u64 signature;
+    };
+    static std::array<Logged, 3> logged{};
+    const u64 signature = (static_cast<u64>(screen_info.texture.width) << 40) |
+                          (static_cast<u64>(screen_info.texture.height) << 16) |
+                          static_cast<u64>(src_surface.res_scale);
+    for (auto& entry : logged) {
+        if (entry.screen == &screen_info || entry.screen == nullptr) {
+            if (entry.signature != signature) {
+                entry.screen = &screen_info;
+                entry.signature = signature;
+                LOG_INFO(Render,
+                         "Display {:#010x} {}x{} fmt {}: surface res scale {} (setting {}x), "
+                         "texture {}x{}, covers {}x{}",
+                         framebuffer_addr, config.width.Value(), config.height.Value(),
+                         static_cast<u32>(config.color_format.Value()), src_surface.res_scale,
+                         Settings::values.resolution_factor.GetValue(),
+                         static_cast<u32>(screen_info.texture.width),
+                         static_cast<u32>(screen_info.texture.height), src_rect.GetWidth(),
+                         src_rect.GetHeight());
+            }
+            break;
+        }
     }
     return true;
 }
