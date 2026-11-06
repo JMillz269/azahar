@@ -40,6 +40,9 @@ struct ScreenLayoutEditor: View {
 
     @State private var selected = EditedScreen.top
     @State private var dragStart: CGRect?
+    /// The frames while a screen is dragged or resized. Only the layout is sent to the emulator
+    /// while it changes; the settings are saved once the gesture ends.
+    @State private var draft: [CGRect]?
     @State private var panelAtBottom = false
 
     /// How close (in points) an edge has to come to another one to snap to it.
@@ -51,7 +54,7 @@ struct ScreenLayoutEditor: View {
         GeometryReader { geometry in
             let size = geometry.size
             let portrait = size.height > size.width
-            let frames = currentFrames(size: size, portrait: portrait)
+            let frames = draft ?? currentFrames(size: size, portrait: portrait)
 
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(0.25)
@@ -101,7 +104,10 @@ struct ScreenLayoutEditor: View {
                             store(placed, for: screen, size: size, portrait: portrait)
                         }
                     }
-                    .onEnded { _ in dragStart = nil })
+                    .onEnded { _ in
+                        dragStart = nil
+                        commit(size: size, portrait: portrait)
+                    })
     }
 
     private func panel(frames: [CGRect], size: CGSize, portrait: Bool) -> some View {
@@ -122,7 +128,10 @@ struct ScreenLayoutEditor: View {
                         get: { Double(frame.width / maxWidth) },
                         set: { resize(selected, to: $0, frames: frames, size: size,
                                       portrait: portrait) }),
-                    in: Self.minimumSize...1.0)
+                    in: Self.minimumSize...1.0,
+                    onEditingChanged: { editing in
+                        if !editing { commit(size: size, portrait: portrait) }
+                    })
                 Image(systemName: "plus.magnifyingglass")
                 Text("\(Int((frame.width / maxWidth * 100).rounded()))%")
                     .font(.callout.monospacedDigit())
@@ -253,24 +262,39 @@ struct ScreenLayoutEditor: View {
         return AZEmulator.defaultCustomLayout(size: size, portrait: portrait).map(\.doubleValue)
     }
 
+    /// Moves a screen while the gesture runs: updates the draft and the emulator's layout only.
     private func store(_ frame: CGRect, for screen: EditedScreen, size: CGSize, portrait: Bool) {
         guard size.width > 0, size.height > 0 else { return }
-        var fractions = currentFractions(size: size, portrait: portrait)
-        let index = screen.offset
-        fractions[index] = Double(frame.minX / size.width)
-        fractions[index + 1] = Double(frame.minY / size.height)
-        fractions[index + 2] = Double(frame.width / size.width)
-        fractions[index + 3] = Double(frame.height / size.height)
+        var frames = draft ?? currentFrames(size: size, portrait: portrait)
+        frames[screen.rawValue] = frame
+        draft = frames
+        AZEmulator.shared.setCustomLayout(
+            fractions(of: frames, size: size).map { NSNumber(value: $0) }, portrait: portrait)
+    }
+
+    /// Saves the draft to the settings once the gesture ends.
+    private func commit(size: CGSize, portrait: Bool) {
+        guard let frames = draft, size.width > 0, size.height > 0 else { return }
+        draft = nil
+        let values = fractions(of: frames, size: size)
         if portrait {
-            settings.customLayoutPortrait = fractions
+            settings.customLayoutPortrait = values
         } else {
-            settings.customLayoutLandscape = fractions
+            settings.customLayoutLandscape = values
         }
         session.apply(settings: settings)
         AZEmulator.shared.refreshLayout()
     }
 
+    private func fractions(of frames: [CGRect], size: CGSize) -> [Double] {
+        frames.flatMap { frame in
+            [Double(frame.minX / size.width), Double(frame.minY / size.height),
+             Double(frame.width / size.width), Double(frame.height / size.height)]
+        }
+    }
+
     private func reset(_ portrait: Bool) {
+        draft = nil
         if portrait {
             settings.customLayoutPortrait = []
         } else {

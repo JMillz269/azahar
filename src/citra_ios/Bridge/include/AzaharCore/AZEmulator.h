@@ -168,6 +168,11 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
                                          portrait:(BOOL)portrait
     NS_SWIFT_NAME(defaultCustomLayout(size:portrait:));
 
+/// Replaces the custom layout fractions (8 values, or none for the default) of one orientation
+/// without applying the rest of the configuration. Cheap enough to call on every drag update.
+- (void)setCustomLayout:(NSArray<NSNumber*>*)fractions
+               portrait:(BOOL)portrait NS_SWIFT_NAME(setCustomLayout(_:portrait:));
+
 /// Applies a configuration. Settings that can't change while running take effect on next boot.
 - (void)applyConfiguration:(AZConfiguration*)configuration NS_SWIFT_NAME(apply(configuration:));
 

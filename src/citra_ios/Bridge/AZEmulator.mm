@@ -540,6 +540,21 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     _surfaceDirty = true;
 }
 
+- (void)setCustomLayout:(NSArray<NSNumber*>*)fractions portrait:(BOOL)portrait {
+    {
+        std::scoped_lock lock{_surfaceMutex};
+        auto& target = portrait ? _customPortrait : _customLandscape;
+        bool& has = portrait ? _hasCustomPortrait : _hasCustomLandscape;
+        has = fractions.count == 8;
+        if (has) {
+            for (NSUInteger i = 0; i < 8; i++) {
+                target[i] = fractions[i].floatValue;
+            }
+        }
+    }
+    _surfaceDirty = true;
+}
+
 - (void)setDrawableSize:(CGSize)size portrait:(BOOL)portrait {
     std::scoped_lock lock{_surfaceMutex};
     _drawableSize = size;
@@ -667,7 +682,9 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
             static_cast<unsigned>(std::max(_secondarySize.width, 1.0)),
             static_cast<unsigned>(std::max(_secondarySize.height, 1.0)), false, true);
     }
-    _surfaceDirty = false;
+    // The first pass of the emulation loop turns the custom layout fractions into pixels for this
+    // size and applies the layout overrides (external display), so the first frame uses them.
+    _surfaceDirty = true;
     _stopRequested = false;
     _pauseRequested = false;
     _state = AZEmulationStateRunning;
