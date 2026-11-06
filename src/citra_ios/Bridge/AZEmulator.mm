@@ -18,6 +18,7 @@
 #include <pthread/qos.h>
 #include <unistd.h>
 
+#include "citra_ios/Bridge/camera_ios.h"
 #include "citra_ios/Bridge/emu_window_ios.h"
 #include "citra_ios/Bridge/input_ios.h"
 #include "common/apple_jit.h"
@@ -335,8 +336,9 @@ NSError* MakeError(NSInteger code, NSString* description) {
     for (const auto& service_module : Service::service_module_map) {
         Settings::values.lle_modules.emplace(service_module.name, false);
     }
-    // No camera support yet, avoid "unknown camera" errors.
+    // The cameras are off until the settings say otherwise (see applyConfiguration).
     Settings::values.camera_name.fill("blank");
+    Camera::RegisterIOSCameraFactory();
 
     // The native Metal renderer is the only hardware renderer on iOS.
     Settings::values.graphics_api = Settings::GraphicsAPI::Metal;
@@ -367,6 +369,15 @@ NSError* MakeError(NSInteger code, NSString* description) {
     quality.fast_math = configuration.fastShaderMath;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);
+    // Camera slots: 0 outer right, 1 inner, 2 outer left.
+    const auto set_camera = [&](std::size_t slot, NSInteger choice) {
+        values.camera_name[slot] = choice == 0 ? "blank" : Camera::IOS_CAMERA_NAME;
+        values.camera_config[slot] = choice == 2 ? "front" : "back";
+        values.camera_flip[slot] = 0;
+    };
+    set_camera(0, configuration.outerCamera);
+    set_camera(1, configuration.innerCamera);
+    set_camera(2, configuration.outerCamera);
     values.render_3d = static_cast<Settings::StereoRenderOption>(configuration.stereoMode);
     values.render_3d_which_display = configuration.stereoMode == 0
                                          ? Settings::StereoWhichDisplay::None

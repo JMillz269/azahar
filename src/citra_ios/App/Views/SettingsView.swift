@@ -145,6 +145,21 @@ struct GraphicsSettingsView: View {
             }
 
             Section {
+                Picker("Outer Cameras", selection: $settings.outerCamera) {
+                    ForEach(CameraSource.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Inner Camera", selection: $settings.innerCamera) {
+                    ForEach(CameraSource.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Cameras")
+            } footer: {
+                Text("Choose which camera of this device a camera of the 3DS shows. Off shows a "
+                     + "black picture. The first time a game uses a camera, iOS asks for "
+                     + "permission. Applies the next time a game starts.")
+            }
+
+            Section {
                 Picker("3D Mode", selection: $settings.stereoMode) {
                     ForEach(StereoModeOption.allCases) { Text($0.title).tag($0) }
                 }

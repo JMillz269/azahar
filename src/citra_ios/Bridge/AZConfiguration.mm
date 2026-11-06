@@ -21,6 +21,8 @@
     config.asyncShaderCompilation = YES;
     config.fastShaderMath = NO;
     config.stereoMode = 0;
+    config.outerCamera = 0;
+    config.innerCamera = 0;
     config.stereoDepth = 50;
     config.swapEyes3D = NO;
     config.anisotropy = 4;

@@ -74,6 +74,22 @@ enum UpscalingOption: Int, CaseIterable, Identifiable {
     var title: String { self == .off ? "Off" : "MetalFX Spatial" }
 }
 
+/// Which camera of the device a camera of the 3DS shows. The values are the ones of AZConfiguration.
+enum CameraSource: Int, CaseIterable, Identifiable {
+    case off = 0
+    case back = 1
+    case front = 2
+
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .back: return "Back Camera"
+        case .front: return "Front Camera"
+        }
+    }
+}
+
 /// How the two screens' 3D picture is shown. The values are Settings::StereoRenderOption.
 enum StereoModeOption: Int, CaseIterable, Identifiable {
     case off = 0
@@ -140,6 +156,8 @@ final class AppSettings: ObservableObject {
     @Published var linearFiltering: Bool { didSet { save(linearFiltering, "linearFiltering") } }
     @Published var textureFilter: TextureFilterOption { didSet { save(textureFilter.rawValue, "textureFilter") } }
     @Published var skipDuplicateFrames: Bool { didSet { save(skipDuplicateFrames, "skipDuplicateFrames") } }
+    @Published var outerCamera: CameraSource { didSet { save(outerCamera.rawValue, "outerCamera") } }
+    @Published var innerCamera: CameraSource { didSet { save(innerCamera.rawValue, "innerCamera") } }
     @Published var stereoMode: StereoModeOption { didSet { save(stereoMode.rawValue, "stereoMode") } }
     @Published var stereoDepth: Int { didSet { save(stereoDepth, "stereoDepth") } }
     @Published var swapEyes3D: Bool { didSet { save(swapEyes3D, "swapEyes3D") } }
@@ -186,6 +204,8 @@ final class AppSettings: ObservableObject {
         linearFiltering = value("linearFiltering", true)
         textureFilter = TextureFilterOption(rawValue: value("textureFilter", 0)) ?? .none
         skipDuplicateFrames = value("skipDuplicateFrames", false)
+        outerCamera = CameraSource(rawValue: value("outerCamera", 0)) ?? .off
+        innerCamera = CameraSource(rawValue: value("innerCamera", 0)) ?? .off
         stereoMode = StereoModeOption(rawValue: value("stereoMode", 0)) ?? .off
         stereoDepth = value("stereoDepth", 50)
         swapEyes3D = value("swapEyes3D", false)
@@ -226,6 +246,8 @@ final class AppSettings: ObservableObject {
     /// Builds the core configuration from the current settings.
     func makeConfiguration() -> AZConfiguration {
         let config = AZConfiguration.makeDefault()
+        config.outerCamera = outerCamera.rawValue
+        config.innerCamera = innerCamera.rawValue
         config.stereoMode = stereoMode.rawValue
         config.stereoDepth = stereoDepth
         config.swapEyes3D = swapEyes3D

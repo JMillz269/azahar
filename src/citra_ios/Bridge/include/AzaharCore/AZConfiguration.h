@@ -43,6 +43,9 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL fastShaderMath;
 /// Settings::StereoRenderOption: 0 off, 1 side by side, 3 anaglyph, 4 interlaced, 5 reverse.
 @property(nonatomic) NSInteger stereoMode;
+/// Device cameras behind the 3DS cameras: 0 none, 1 back camera, 2 front camera.
+@property(nonatomic) NSInteger outerCamera;
+@property(nonatomic) NSInteger innerCamera;
 /// Strength of the 3D effect in percent.
 @property(nonatomic) NSInteger stereoDepth;
 @property(nonatomic) BOOL swapEyes3D;

@@ -51,6 +51,7 @@ final class EmulatorLayerView: UIView {
         AZEmulator.shared.setDrawableSize(size, portrait: bounds.height > bounds.width)
         if let orientation = window?.windowScene?.interfaceOrientation {
             MotionInput.orientation = orientation
+            AZEmulator.setCameraOrientationLandscapeLeft(orientation == .landscapeLeft)
         }
         onReady?()
     }

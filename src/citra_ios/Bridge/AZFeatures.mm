@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "citra_ios/Bridge/camera_ios.h"
 #include "common/logging/log.h"
 #include "core/cheats/cheat_base.h"
 #include "core/cheats/cheats.h"
@@ -529,6 +530,12 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
         }
     }
     return invalid;
+}
+
+// MARK: Camera
+
++ (void)setCameraOrientationLandscapeLeft:(BOOL)landscapeLeft {
+    Camera::SetIOSCameraOrientation(landscapeLeft);
 }
 
 // MARK: Amiibo

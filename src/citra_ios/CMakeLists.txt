@@ -21,10 +21,12 @@ set(BRIDGE_OBJCXX_SOURCES
     Bridge/AZEmulator.mm
     Bridge/AZFeatures.mm
     Bridge/AZGameInfo.mm
+    Bridge/camera_ios.mm
 )
 
 add_library(azahar_ios_bridge STATIC
     ${BRIDGE_OBJCXX_SOURCES}
+    Bridge/camera_ios.h
     Bridge/emu_window_ios.cpp
     Bridge/emu_window_ios.h
     Bridge/input_ios.cpp
@@ -49,6 +51,7 @@ target_include_directories(azahar_ios_bridge
 target_link_libraries(azahar_ios_bridge PRIVATE
     citra_common citra_core video_core audio_core input_common fmt
     "-framework Foundation" "-framework Metal" "-framework QuartzCore" "-weak_framework MetalFX"
+    "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo"
 )
 
 set_target_properties(azahar_ios_bridge PROPERTIES

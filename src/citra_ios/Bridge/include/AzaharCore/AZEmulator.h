@@ -222,6 +222,10 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 /// 1-based numbers of the lines of a code that are not a valid Gateway code line.
 + (NSArray<NSNumber*>*)invalidCheatLinesInCode:(NSString*)code;
 
+/// Tells the cameras which way the app is held, so they deliver upright pictures. Call it when the
+/// interface orientation changes.
++ (void)setCameraOrientationLandscapeLeft:(BOOL)landscapeLeft;
+
 // Amiibo.
 
 /// Puts the amiibo file on the virtual NFC reader. Changes the game makes to it are saved to the
