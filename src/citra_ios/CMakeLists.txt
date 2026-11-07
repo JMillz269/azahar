@@ -83,6 +83,7 @@ set(APP_SWIFT_SOURCES
     App/Views/AmiiboView.swift
     App/Views/ArticView.swift
     App/Views/CheatsView.swift
+    App/Views/ControllerMappingView.swift
     App/Views/ControllerOverlay.swift
     App/Views/EmulationView.swift
     App/Views/GameRowView.swift

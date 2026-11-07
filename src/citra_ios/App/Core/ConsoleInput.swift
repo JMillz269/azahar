@@ -28,14 +28,232 @@ enum ConsoleStick: Int {
     }
 }
 
-/// Maps MFi / Xbox / PlayStation / Switch controllers to the 3DS controls. Face buttons are
-/// mapped by position (east = A, south = B, north = X, west = Y) like on a Nintendo console.
+/// A button of a physical controller, by position (south is A on an Xbox pad, Cross on a
+/// PlayStation pad).
+enum PhysicalInput: String, CaseIterable, Codable, Identifiable {
+    case south, east, west, north
+    case leftShoulder, rightShoulder, leftTrigger, rightTrigger
+    case dpadUp, dpadDown, dpadLeft, dpadRight
+    case menu, options, home
+    case leftStickButton, rightStickButton
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .south: return "South Button"
+        case .east: return "East Button"
+        case .west: return "West Button"
+        case .north: return "North Button"
+        case .leftShoulder: return "Left Shoulder"
+        case .rightShoulder: return "Right Shoulder"
+        case .leftTrigger: return "Left Trigger"
+        case .rightTrigger: return "Right Trigger"
+        case .dpadUp: return "D-Pad Up"
+        case .dpadDown: return "D-Pad Down"
+        case .dpadLeft: return "D-Pad Left"
+        case .dpadRight: return "D-Pad Right"
+        case .menu: return "Menu"
+        case .options: return "Options"
+        case .home: return "Home"
+        case .leftStickButton: return "Left Stick Click"
+        case .rightStickButton: return "Right Stick Click"
+        }
+    }
+
+    func isPressed(on pad: GCExtendedGamepad) -> Bool {
+        switch self {
+        case .south: return pad.buttonA.isPressed
+        case .east: return pad.buttonB.isPressed
+        case .west: return pad.buttonX.isPressed
+        case .north: return pad.buttonY.isPressed
+        case .leftShoulder: return pad.leftShoulder.isPressed
+        case .rightShoulder: return pad.rightShoulder.isPressed
+        case .leftTrigger: return pad.leftTrigger.isPressed
+        case .rightTrigger: return pad.rightTrigger.isPressed
+        case .dpadUp: return pad.dpad.up.isPressed
+        case .dpadDown: return pad.dpad.down.isPressed
+        case .dpadLeft: return pad.dpad.left.isPressed
+        case .dpadRight: return pad.dpad.right.isPressed
+        case .menu: return pad.buttonMenu.isPressed
+        case .options: return pad.buttonOptions?.isPressed ?? false
+        case .home: return pad.buttonHome?.isPressed ?? false
+        case .leftStickButton: return pad.leftThumbstickButton?.isPressed ?? false
+        case .rightStickButton: return pad.rightThumbstickButton?.isPressed ?? false
+        }
+    }
+}
+
+/// Things a controller button can do besides playing the game.
+enum Hotkey: String, CaseIterable, Codable, Identifiable {
+    case menu
+    case fastForward
+    case screenshot
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .menu: return "Open Menu"
+        case .fastForward: return "Fast Forward"
+        case .screenshot: return "Take Screenshot"
+        }
+    }
+}
+
+extension ConsoleButton {
+    /// The buttons that can be remapped, in the order they are listed.
+    static let remappable: [ConsoleButton] = [
+        .a, .b, .x, .y, .l, .r, .zl, .zr, .start, .select, .home, .up, .down, .left, .right,
+    ]
+
+    var title: String {
+        switch self {
+        case .a: return "A"
+        case .b: return "B"
+        case .x: return "X"
+        case .y: return "Y"
+        case .l: return "L"
+        case .r: return "R"
+        case .zl: return "ZL"
+        case .zr: return "ZR"
+        case .start: return "Start"
+        case .select: return "Select"
+        case .home: return "Home"
+        case .up: return "D-Pad Up"
+        case .down: return "D-Pad Down"
+        case .left: return "D-Pad Left"
+        case .right: return "D-Pad Right"
+        default: return "Button \(rawValue)"
+        }
+    }
+}
+
+/// Which sticks drive the 3DS sticks.
+enum StickSource: String, CaseIterable, Codable, Identifiable {
+    case left, right, none
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .left: return "Left Stick"
+        case .right: return "Right Stick"
+        case .none: return "Not Used"
+        }
+    }
+}
+
+/// How a physical controller maps to the 3DS. The default is the layout of a Nintendo console:
+/// east is A, south is B, north is X and west is Y.
+struct ControllerMapping: Codable, Equatable {
+    var buttons: [String: PhysicalInput] = ControllerMapping.defaultButtons
+    var circlePad = StickSource.left
+    var cStick = StickSource.right
+    var hotkeys: [String: PhysicalInput] = [:]
+
+    static let defaultButtons: [String: PhysicalInput] = [
+        "a": .east, "b": .south, "x": .north, "y": .west,
+        "l": .leftShoulder, "r": .rightShoulder, "zl": .leftTrigger, "zr": .rightTrigger,
+        "start": .menu, "select": .options, "home": .home,
+        "up": .dpadUp, "down": .dpadDown, "left": .dpadLeft, "right": .dpadRight,
+    ]
+
+    static func key(_ button: ConsoleButton) -> String {
+        "\(button)"
+    }
+
+    func input(for button: ConsoleButton) -> PhysicalInput? {
+        buttons[Self.key(button)]
+    }
+
+    /// Gives a button a controller input. A button that had that input gets the one this button
+    /// had, so two buttons can be swapped; a hotkey on it is taken off.
+    mutating func assign(_ input: PhysicalInput, to button: ConsoleButton) {
+        let key = Self.key(button)
+        let previous = buttons[key]
+        for (other, value) in buttons where value == input && other != key {
+            if let previous {
+                buttons[other] = previous
+            } else {
+                buttons[other] = nil
+            }
+        }
+        for (hotkey, value) in hotkeys where value == input {
+            hotkeys[hotkey] = nil
+        }
+        buttons[key] = input
+    }
+
+    /// Gives a hotkey a controller input, taking it from the hotkey or button that had it.
+    mutating func assign(_ input: PhysicalInput, to hotkey: Hotkey) {
+        for (other, value) in hotkeys where value == input {
+            hotkeys[other] = nil
+        }
+        for (button, value) in buttons where value == input {
+            buttons[button] = nil
+        }
+        hotkeys[hotkey.rawValue] = input
+    }
+
+    // The mapping the controller handler reads, which runs on another thread than the settings.
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var storage = ControllerMappingStore.load()
+
+    static var current: ControllerMapping {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
+    }
+}
+
+/// The saved mapping, shared with the settings screen.
+@MainActor
+final class ControllerMappingStore: ObservableObject {
+    nonisolated private static let key = "controllerMapping.v1"
+
+    @Published var mapping: ControllerMapping {
+        didSet {
+            ControllerMapping.current = mapping
+            if let data = try? JSONEncoder().encode(mapping) {
+                UserDefaults.standard.set(data, forKey: Self.key)
+            }
+        }
+    }
+
+    init() {
+        mapping = ControllerMappingStore.load()
+    }
+
+    nonisolated static func load() -> ControllerMapping {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let mapping = try? JSONDecoder().decode(ControllerMapping.self, from: data)
+        else { return ControllerMapping() }
+        return mapping
+    }
+
+    func reset() {
+        mapping = ControllerMapping()
+    }
+}
+
+/// Maps MFi / Xbox / PlayStation / Switch controllers to the 3DS controls, following the
+/// mapping the user set (see `ControllerMapping`).
 final class GameControllerInput {
     private var observers: [NSObjectProtocol] = []
+    private var hotkeyState: [Hotkey: Bool] = [:]
 
     /// Called on the main thread with whether a physical controller is connected, when that
     /// changes and when the input starts.
     var onConnectionChange: ((Bool) -> Void)?
+    /// Called when a button with a hotkey goes down.
+    var onHotkey: ((Hotkey) -> Void)?
 
     private func reportConnection() {
         onConnectionChange?(GCController.controllers().contains { $0.extendedGamepad != nil })
@@ -77,26 +295,33 @@ final class GameControllerInput {
 
     private func attach(_ controller: GCController) {
         guard let gamepad = controller.extendedGamepad else { return }
-        gamepad.valueChangedHandler = { gamepad, _ in
-            ConsoleButton.a.set(gamepad.buttonB.isPressed)
-            ConsoleButton.b.set(gamepad.buttonA.isPressed)
-            ConsoleButton.x.set(gamepad.buttonY.isPressed)
-            ConsoleButton.y.set(gamepad.buttonX.isPressed)
-            ConsoleButton.l.set(gamepad.leftShoulder.isPressed)
-            ConsoleButton.r.set(gamepad.rightShoulder.isPressed)
-            ConsoleButton.zl.set(gamepad.leftTrigger.isPressed)
-            ConsoleButton.zr.set(gamepad.rightTrigger.isPressed)
-            ConsoleButton.start.set(gamepad.buttonMenu.isPressed)
-            ConsoleButton.select.set(gamepad.buttonOptions?.isPressed ?? false)
-            ConsoleButton.home.set(gamepad.buttonHome?.isPressed ?? false)
-            ConsoleButton.up.set(gamepad.dpad.up.isPressed)
-            ConsoleButton.down.set(gamepad.dpad.down.isPressed)
-            ConsoleButton.left.set(gamepad.dpad.left.isPressed)
-            ConsoleButton.right.set(gamepad.dpad.right.isPressed)
-            ConsoleStick.circlePad.set(
-                x: gamepad.leftThumbstick.xAxis.value, y: gamepad.leftThumbstick.yAxis.value)
-            ConsoleStick.cStick.set(
-                x: gamepad.rightThumbstick.xAxis.value, y: gamepad.rightThumbstick.yAxis.value)
+        gamepad.valueChangedHandler = { [weak self] gamepad, _ in
+            let mapping = ControllerMapping.current
+            for button in ConsoleButton.remappable {
+                let pressed = mapping.input(for: button)?.isPressed(on: gamepad) ?? false
+                button.set(pressed)
+            }
+            for (name, input) in mapping.hotkeys {
+                guard let hotkey = Hotkey(rawValue: name) else { continue }
+                let pressed = input.isPressed(on: gamepad)
+                if pressed && self?.hotkeyState[hotkey] != true {
+                    self?.onHotkey?(hotkey)
+                }
+                self?.hotkeyState[hotkey] = pressed
+            }
+            let stick = { (source: StickSource) -> (Float, Float) in
+                switch source {
+                case .left: return (gamepad.leftThumbstick.xAxis.value,
+                                    gamepad.leftThumbstick.yAxis.value)
+                case .right: return (gamepad.rightThumbstick.xAxis.value,
+                                     gamepad.rightThumbstick.yAxis.value)
+                case .none: return (0, 0)
+                }
+            }
+            let circle = stick(mapping.circlePad)
+            ConsoleStick.circlePad.set(x: circle.0, y: circle.1)
+            let c = stick(mapping.cStick)
+            ConsoleStick.cStick.set(x: c.0, y: c.1)
         }
     }
 }

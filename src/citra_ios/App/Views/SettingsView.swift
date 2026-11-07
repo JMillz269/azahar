@@ -409,8 +409,10 @@ struct ControlsSettingsView: View {
                 Text("Uses the gyroscope and accelerometer for games that use motion controls.")
             }
             Section {
+                NavigationLink("Controller Mapping") { ControllerMappingView() }
                 Text("MFi, Xbox, PlayStation and Switch controllers are detected automatically. "
-                     + "Face buttons are mapped by position like on a Nintendo console.")
+                     + "By default the face buttons are mapped by position like on a Nintendo "
+                     + "console. Controller Mapping changes that and adds shortcuts.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } header: {

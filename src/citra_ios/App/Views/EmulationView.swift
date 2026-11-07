@@ -126,6 +126,9 @@ struct EmulationView: View {
             controllerLayout.activate(gameID: nil)
             RefreshRateController.shared.apply(.automatic)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openEmulationMenu)) { _ in
+            showingMenu = true
+        }
         .onChange(of: session.hardwareControllerConnected) { _ in showDespiteHardware = false }
         .onChange(of: settings.refreshRate) { RefreshRateController.shared.apply($0) }
         .statusBarHidden()

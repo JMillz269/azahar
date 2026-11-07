@@ -50,6 +50,11 @@ final class EmulationSession: ObservableObject {
         controllers.onConnectionChange = { [weak self] connected in
             self?.hardwareControllerConnected = connected
         }
+        controllers.onHotkey = { [weak self] hotkey in
+            Task { @MainActor in
+                self?.perform(hotkey)
+            }
+        }
         AZEmulator.shared.onStopped = { [weak self] error in
             Task { @MainActor in
                 self?.handleStopped(error: error)
@@ -98,6 +103,16 @@ final class EmulationSession: ObservableObject {
         isFastForwarding.toggle()
         AZEmulator.shared.setFastForward(isFastForwarding)
         showToast(isFastForwarding ? "Fast forward on" : "Fast forward off")
+    }
+
+    /// What a controller shortcut does.
+    private func perform(_ hotkey: Hotkey) {
+        guard isActive else { return }
+        switch hotkey {
+        case .menu: NotificationCenter.default.post(name: .openEmulationMenu, object: nil)
+        case .fastForward: toggleFastForward()
+        case .screenshot: takeScreenshot()
+        }
     }
 
     func takeScreenshot() {
@@ -286,4 +301,9 @@ extension AZMiiRequest: Identifiable {
 
 extension AZKeyboardRequest: Identifiable {
     public var id: ObjectIdentifier { ObjectIdentifier(self) }
+}
+
+extension Notification.Name {
+    /// Asks the game view to show its menu (a controller shortcut).
+    static let openEmulationMenu = Notification.Name("azahar.openEmulationMenu")
 }
