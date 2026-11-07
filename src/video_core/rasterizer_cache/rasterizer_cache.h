@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <type_traits>
 #include <boost/container/small_vector.hpp>
 #include <boost/range/iterator_range.hpp>
@@ -1032,6 +1033,28 @@ void RasterizerCache<T>::ValidateSurface(SurfaceId surface_id, PAddr addr, u32 s
         if (ValidateByReinterpretation(surface, params, interval)) {
             notify_validated(interval);
             continue;
+        }
+
+        // No GPU side way to make this texture from the surfaces in the cache: the memory is read
+        // back to the CPU and uploaded again. Say why, for the first few times and every 400th.
+        static std::atomic<u32> readback_count{0};
+        if (const u32 count = readback_count.fetch_add(1); count < 4 || count % 400 == 0) {
+            LOG_INFO(Render,
+                     "Validating texture by readback: {:#x}-{:#x} {}x{} stride {} format {} tiled "
+                     "{} scale {} (needs {:#x}-{:#x})",
+                     surface.addr, surface.end, surface.width, surface.height, surface.stride,
+                     static_cast<int>(surface.pixel_format), surface.is_tiled, surface.res_scale,
+                     boost::icl::first(interval), boost::icl::last_next(interval));
+            ForEachSurfaceInRegion(
+                params.addr, params.size, [&](SurfaceId other_id, Surface& other) {
+                    LOG_INFO(Render,
+                             "  overlaps surface {}: {:#x}-{:#x} {}x{} stride {} type {} format {} "
+                             "tiled {} scale {} valid {}",
+                             other_id.index == surface_id.index ? "(itself)" : "", other.addr,
+                             other.end, other.width, other.height, other.stride,
+                             static_cast<int>(other.type), static_cast<int>(other.pixel_format),
+                             other.is_tiled, other.res_scale, other.IsRegionValid(interval));
+                });
         }
 
         FlushRegion(params.addr, params.size);
