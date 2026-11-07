@@ -13,6 +13,7 @@ struct AzaharApp: App {
     @StateObject private var library = GameLibrary()
     @StateObject private var session = EmulationSession()
     @StateObject private var controllerLayout = ControllerLayoutStore()
+    @StateObject private var multiplayer = MultiplayerSession()
 
     init() {
         FileLocations.createDirectories()
@@ -30,6 +31,7 @@ struct AzaharApp: App {
                 .environmentObject(library)
                 .environmentObject(session)
                 .environmentObject(controllerLayout)
+                .environmentObject(multiplayer)
                 .onOpenURL { url in
                     library.importFiles([url])
                 }

@@ -22,6 +22,7 @@ struct EmulationView: View {
     @State private var showingLoadStates = false
     @State private var showingCheats = false
     @State private var showingAmiibo = false
+    @State private var showingMultiplayer = false
     @State private var editingScreens = false
     @State private var resumeAfterEditing = false
 
@@ -151,6 +152,7 @@ struct EmulationView: View {
             Button("Load State…") { showingLoadStates = true }
             Button("Cheats…") { showingCheats = true }
             Button("Amiibo…") { showingAmiibo = true }
+            Button("Multiplayer…") { showingMultiplayer = true }
             Button(session.isFastForwarding ? "Normal Speed" : "Fast Forward") {
                 session.toggleFastForward()
             }
@@ -174,6 +176,9 @@ struct EmulationView: View {
         }
         .sheet(isPresented: $showingAmiibo) {
             AmiiboView()
+        }
+        .sheet(isPresented: $showingMultiplayer) {
+            MultiplayerView()
         }
         .sheet(item: $session.miiRequest) { request in
             MiiSelectorView(request: request) { session.miiRequest = nil }

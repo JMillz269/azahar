@@ -21,6 +21,7 @@ set(BRIDGE_OBJCXX_SOURCES
     Bridge/AZEmulator.mm
     Bridge/AZFeatures.mm
     Bridge/AZGameInfo.mm
+    Bridge/AZMultiplayer.mm
     Bridge/camera_ios.mm
 )
 
@@ -35,6 +36,7 @@ add_library(azahar_ios_bridge STATIC
     Bridge/include/AzaharCore/AZConfiguration.h
     Bridge/include/AzaharCore/AZEmulator.h
     Bridge/include/AzaharCore/AZGameInfo.h
+    Bridge/include/AzaharCore/AZMultiplayer.h
     Bridge/include/AzaharCore/module.modulemap
 )
 
@@ -49,7 +51,7 @@ target_include_directories(azahar_ios_bridge
 )
 
 target_link_libraries(azahar_ios_bridge PRIVATE
-    citra_common citra_core video_core audio_core input_common fmt
+    citra_common citra_core video_core audio_core input_common network fmt
     "-framework Foundation" "-framework Metal" "-framework QuartzCore" "-weak_framework MetalFX"
     "-framework AVFoundation" "-framework CoreMedia" "-framework CoreVideo"
 )
@@ -75,6 +77,7 @@ set(APP_SWIFT_SOURCES
     App/Core/GameSettings.swift
     App/Core/GameLibrary.swift
     App/Core/LogExporter.swift
+    App/Core/MultiplayerSession.swift
     App/Views/AmiiboView.swift
     App/Views/ArticView.swift
     App/Views/CheatsView.swift
@@ -86,6 +89,7 @@ set(APP_SWIFT_SOURCES
     App/Views/KeyboardPromptView.swift
     App/Views/MetalView.swift
     App/Views/MiiSelectorView.swift
+    App/Views/MultiplayerView.swift
     App/Views/SaveStatesView.swift
     App/Views/ScreenLayoutEditor.swift
     App/Views/SettingsView.swift

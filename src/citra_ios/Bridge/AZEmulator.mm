@@ -4,6 +4,7 @@
 
 #import <AzaharCore/AZConfiguration.h>
 #import <AzaharCore/AZEmulator.h>
+#import <AzaharCore/AZMultiplayer.h>
 #import <Metal/Metal.h>
 
 #include <algorithm>
@@ -847,6 +848,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
 
 - (void)finishWithError:(NSError*)error {
     Settings::ResetTemporaryFrameLimit();
+    // A room needs the emulated console, leave it before that goes away.
+    [[AZMultiplayer shared] leave];
     Core::System::GetInstance().Shutdown();
     _speed = 0.0;
     _fps = 0.0;
