@@ -270,7 +270,7 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
     void DefineMembers() {
         std::vector<std::pair<std::string, std::string>> members; // (type, name)
         members.emplace_back("constant FSUniforms&", "fs");
-        members.emplace_back("const device float2*", "lut_lf");
+        members.emplace_back(metal.half_luts ? "const device half2*" : "const device float2*", "lut_lf");
         members.emplace_back("const device float2*", "lut_rg");
         members.emplace_back("const device float4*", "lut_rgba");
 
