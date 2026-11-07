@@ -15,6 +15,7 @@ struct AzaharApp: App {
     @StateObject private var controllerLayout = ControllerLayoutStore()
     @StateObject private var multiplayer = MultiplayerSession()
     @StateObject private var controllerMapping = ControllerMappingStore()
+    @StateObject private var compressor = GameCompressor()
 
     init() {
         FileLocations.createDirectories()
@@ -34,6 +35,7 @@ struct AzaharApp: App {
                 .environmentObject(controllerLayout)
                 .environmentObject(multiplayer)
                 .environmentObject(controllerMapping)
+                .environmentObject(compressor)
                 .onOpenURL { url in
                     library.importFiles([url])
                 }

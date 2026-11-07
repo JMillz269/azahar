@@ -114,6 +114,14 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
     AZInstallStatusUnknown,
 };
 
+typedef NS_ENUM(NSInteger, AZCompressStatus) {
+    AZCompressStatusSuccess = 0,
+    /// The format cannot be compressed (encrypted, bundled, not a 3DS file).
+    AZCompressStatusNotSupported,
+    AZCompressStatusAlreadyCompressed,
+    AZCompressStatusFailed,
+};
+
 /// Owns the emulated 3DS. All methods must be called from the main thread unless stated
 /// otherwise; emulation itself runs on a dedicated thread.
 @interface AZEmulator : NSObject
@@ -272,6 +280,18 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 + (BOOL)areNew3DSSystemFilesInstalled;
 /// Removes the installed system files of one setup before it is done again.
 + (void)uninstallSystemFilesForOld3DS:(BOOL)old3DS;
+
+// Compression of games to the .zcci, .zcxi, .z3dsx and .zcia formats.
+
+/// Compresses a game on a background queue into `directory`, named like the game with the
+/// compressed extension. The result is written under a temporary name first, so an interrupted
+/// compression never leaves a broken game behind. `progress` and `completion` are called on the
+/// main thread, the completion gets the path of the new file when it worked.
++ (void)compressGameAtPath:(NSString*)path
+               toDirectory:(NSString*)directory
+                  progress:(void (^)(double fraction))progress
+                completion:(void (^)(AZCompressStatus status, NSString* _Nullable outputPath))
+                               completion;
 
 // CIA installation, safe to call from any thread while no title is running.
 

@@ -59,6 +59,8 @@ private struct JITStatusRow: View {
 
 struct GeneralSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var library: GameLibrary
+    @EnvironmentObject private var compressor: GameCompressor
 
     var body: some View {
         Form {
@@ -91,8 +93,53 @@ struct GeneralSettingsView: View {
                     ForEach(LibraryStyle.allCases) { Text($0.title).tag($0) }
                 }
             }
+
+            Section {
+                Toggle("Keep Original Files", isOn: $settings.keepOriginalsWhenCompressing)
+                Button("Compress Games…") {
+                    DocumentImporter.present { urls in
+                        compressor.compress(urls, deleteSources: false, library: library)
+                    }
+                }
+                .disabled(compressor.isRunning)
+                Button("Compress the Games in the Library") {
+                    compressor.compress(GameCompressor.compressibleFilesInLibrary(),
+                                        deleteSources: !settings.keepOriginalsWhenCompressing,
+                                        library: library)
+                }
+                .disabled(compressor.isRunning)
+                if compressor.isRunning, let name = compressor.currentName {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("\(compressor.position) of \(compressor.total): \(name)")
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        ProgressView(value: compressor.progress)
+                    }
+                }
+                Button("Show Games Folder in Files") {
+                    FileLocations.showInFiles(FileLocations.romsDirectory)
+                }
+            } header: {
+                Text("Compression")
+            } footer: {
+                Text("Compressed games (.zcci, .zcxi, .z3dsx and .zcia) are smaller and play the "
+                     + "same. They are written to the games folder (Files › ROMs). Compress the "
+                     + "Games… picks files to compress, the originals you pick are left where "
+                     + "they are; the library button compresses the games in the games folder "
+                     + "and removes their originals unless Keep Original Files is on. A .zcia "
+                     + "installs like a .cia. Encrypted and bundled games cannot be compressed.")
+            }
         }
         .navigationTitle("General")
+        .alert("Compression", isPresented: Binding(
+            get: { compressor.summary != nil },
+            set: { if !$0 { compressor.summary = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(compressor.summary ?? "")
+        }
     }
 }
 

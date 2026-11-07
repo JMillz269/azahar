@@ -22,7 +22,9 @@
 #include "core/cheats/cheats.h"
 #include "core/cheats/gateway_cheat.h"
 #include "core/core.h"
+#include "common/file_util.h"
 #include "common/string_util.h"
+#include "common/zstd_compression.h"
 #include "core/frontend/applets/mii_selector.h"
 #include "core/frontend/applets/swkbd.h"
 #include "core/frontend/framebuffer_layout.h"
@@ -667,6 +669,70 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
 }
 
 // MARK: CIA installation
+
++ (void)compressGameAtPath:(NSString*)path
+               toDirectory:(NSString*)directory
+                  progress:(void (^)(double))progress
+                completion:(void (^)(AZCompressStatus, NSString* _Nullable))completion {
+    const std::string source{path.UTF8String};
+    NSString* base = [[path lastPathComponent] stringByDeletingPathExtension];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+      const auto finish = ^(AZCompressStatus status, NSString* output) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+          completion(status, output);
+        });
+      };
+      const auto info = Loader::GetLoaderFileInfo(source);
+      if (!info.is_valid || !info.is_compress_supported) {
+          finish(AZCompressStatusNotSupported, nil);
+          return;
+      }
+      if (info.is_compressed) {
+          finish(AZCompressStatusAlreadyCompressed, nil);
+          return;
+      }
+
+      NSString* name = [base stringByAppendingPathExtension:
+                                 [NSString stringWithUTF8String:
+                                               info.recommended_compressed_extension.c_str()]];
+      NSString* output = [directory stringByAppendingPathComponent:name];
+      NSString* partial = [output stringByAppendingPathExtension:@"partial"];
+      const std::string partial_path{partial.UTF8String};
+      FileUtil::Delete(partial_path);
+
+      auto last_percent = std::make_shared<std::atomic<int>>(-1);
+      const bool ok = FileUtil::CompressZ3DSFile(
+          source, partial_path, info.underlying_magic, info.default_compress_frame_size,
+          [progress, last_percent](std::size_t written, std::size_t total) {
+              if (total == 0) {
+                  return;
+              }
+              const int percent = static_cast<int>(100.0 * static_cast<double>(written) /
+                                                   static_cast<double>(total));
+              if (last_percent->exchange(percent) == percent) {
+                  return;
+              }
+              dispatch_async(dispatch_get_main_queue(), ^{
+                progress(static_cast<double>(percent) / 100.0);
+              });
+          },
+          info.default_metadata);
+      NSFileManager* files = [NSFileManager defaultManager];
+      if (!ok) {
+          FileUtil::Delete(partial_path);
+          finish(AZCompressStatusFailed, nil);
+          return;
+      }
+      [files removeItemAtPath:output error:nil];
+      NSError* error = nil;
+      if (![files moveItemAtPath:partial toPath:output error:&error]) {
+          FileUtil::Delete(partial_path);
+          finish(AZCompressStatusFailed, nil);
+          return;
+      }
+      finish(AZCompressStatusSuccess, output);
+    });
+}
 
 + (void)installCIAAtPath:(NSString*)path
                 progress:(void (^)(double))progress

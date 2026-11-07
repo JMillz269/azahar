@@ -255,6 +255,21 @@ final class GameLibrary: ObservableObject {
         }
 
         var all = games(in: directory, installed: false)
+        // A game kept both as the original and as its compressed copy is listed once, as the
+        // original.
+        var chosen: [UInt64: Game] = [:]
+        for game in all {
+            if let other = chosen[game.programID] {
+                let otherCompressed = other.url.pathExtension.lowercased().hasPrefix("z")
+                let gameCompressed = game.url.pathExtension.lowercased().hasPrefix("z")
+                if otherCompressed && !gameCompressed {
+                    chosen[game.programID] = game
+                }
+            } else {
+                chosen[game.programID] = game
+            }
+        }
+        all = all.filter { chosen[$0.programID]?.url == $0.url }
         // A title that is both imported and installed is listed once.
         let imported = Set(all.map(\.programID))
         all += games(in: installedDirectory, installed: true).filter {
