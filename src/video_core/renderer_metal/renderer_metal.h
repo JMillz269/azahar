@@ -44,6 +44,13 @@ void SetUpscalerMode(UpscalerMode mode);
 /// Holds each frame on screen for the time of an emulated frame so frames are evenly spaced.
 void SetFramePacing(bool enabled);
 
+/// How textures are kept in GPU memory, see Surface::CreateTexture.
+enum class TextureCompression : int {
+    Off = 0,
+    Lossless = 1, ///< The GPU's lossless compression, identical results
+    Lossy = 2,    ///< Lossy compression (A15 and later), lossless on older GPUs
+};
+
 /// Fragment shader math and texture sampling options. They apply to games started afterwards.
 struct QualityOptions {
     /// Compile fragment shaders with fast math (assumes no NaN/Inf, allows reassociation). Faster,
@@ -52,6 +59,12 @@ struct QualityOptions {
     /// Fragment lighting in half precision with fast normalization. Faster on Apple GPUs, the
     /// lighting can come out very slightly different (lookup table positions are less exact).
     bool fast_lighting = false;
+    /// Map the depth in the vertex shader so fragment shaders do not write it, which keeps the
+    /// hidden surface removal of Apple GPUs working (not for W-buffering).
+    bool vertex_depth = false;
+    /// Texture combiners in half precision.
+    bool fast_color = false;
+    TextureCompression texture_compression = TextureCompression::Off;
     /// Maximum anisotropic filtering level for linearly filtered textures, 1 disables it.
     int max_anisotropy = 4;
 };

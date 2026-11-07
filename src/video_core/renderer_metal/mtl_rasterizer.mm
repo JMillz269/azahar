@@ -417,6 +417,7 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     const bool has_depth = framebuffer->Attachment(SurfaceType::Depth) != nil && !shadow_rendering;
     const auto fragment =
         pipeline_cache.UseFragmentShader(regs, user_config, has_color, has_depth);
+    const bool vertex_depth = pipeline_cache.UsesVertexDepth(regs, has_depth);
     const auto& vertex = hw_draw ? hw_draw->vertex : pipeline_cache.TrivialVertexShader();
 
     // Sync the LUTs within the texture buffers
@@ -565,6 +566,26 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     }
     cache.state_valid = true;
     fs_data.blend_color = blend_color;
+
+    // Depth mapped in the vertex shader: the depth is clamped instead of clipped, the clip
+    // distances of the vertex shader keep the PICA clip volume.
+    const MSL::VSDepthData depth_data{
+        .scale = vertex_depth ? fs_data.depth_scale : 0.0f,
+        .offset = vertex_depth ? fs_data.depth_offset : 0.0f,
+        .enabled = vertex_depth ? 1u : 0u,
+        .pad = 0,
+    };
+    if (!cache.depth_valid || cache.depth.enabled != depth_data.enabled) {
+        [encoder setDepthClipMode:vertex_depth ? MTLDepthClipModeClamp : MTLDepthClipModeClip];
+    }
+    if (!cache.depth_valid ||
+        std::memcmp(&depth_data, &cache.depth, sizeof(MSL::VSDepthData)) != 0) {
+        [encoder setVertexBytes:&depth_data
+                         length:sizeof(depth_data)
+                        atIndex:MSL::VS_BUFFER_DEPTH];
+        cache.depth = depth_data;
+        cache.depth_valid = true;
+    }
 
     // Uniforms are small enough to be pushed inline, but only when they changed.
     if (!cache.vs_uniforms_valid ||

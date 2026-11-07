@@ -22,6 +22,9 @@
     config.framePacing = YES;
     config.fastShaderMath = NO;
     config.fastLighting = NO;
+    config.fastColor = NO;
+    config.hiddenSurfaceRemoval = NO;
+    config.textureCompression = 0;
     config.stereoMode = 0;
     config.outerCamera = 0;
     config.innerCamera = 0;

@@ -27,6 +27,12 @@ struct GameSettingsView: View {
                                options: [1, 2, 4, 8, 16]) { $0 == 1 ? "Off" : "\($0)x" }
                 OverrideToggle("Fast Shader Math", value: $overrides.fastShaderMath)
                 OverrideToggle("Fast Lighting Math", value: $overrides.fastLighting)
+                OverrideToggle("Fast Color Math", value: $overrides.fastColor)
+                OverrideToggle("Hidden Surface Removal", value: $overrides.hiddenSurfaceRemoval)
+                OverridePicker("Texture Compression", value: $overrides.textureCompression,
+                               options: TextureCompressionOption.allCases.map(\.rawValue)) {
+                    TextureCompressionOption(rawValue: $0)?.title ?? "\($0)"
+                }
                 OverrideToggle("Hardware Shaders", value: $overrides.hardwareShaders)
                 OverridePicker("3D Mode", value: $overrides.stereoMode,
                                options: StereoModeOption.allCases.map(\.rawValue)) {

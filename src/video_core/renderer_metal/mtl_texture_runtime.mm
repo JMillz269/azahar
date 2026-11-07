@@ -656,6 +656,7 @@ Surface::Surface(TextureRuntime& runtime_, const VideoCore::SurfaceParams& param
             CreateTexture(GetScaledWidth(), GetScaledHeight(), traits.native, "scaled");
     }
     current = res_scale != 1 ? Type::Scaled : Type::Base;
+    SyncHandle();
 }
 
 Surface::Surface(TextureRuntime& runtime_, const VideoCore::SurfaceBase& surface,
@@ -680,12 +681,13 @@ Surface::Surface(TextureRuntime& runtime_, const VideoCore::SurfaceBase& surface
         textures[Type::Custom] = CreateTexture(mat->width, mat->height, traits.native, "normal");
     }
     current = res_scale != 1 ? Type::Scaled : Type::Base;
+    SyncHandle();
 }
 
 Surface::~Surface() = default;
 
 id<MTLTexture> Surface::CreateTexture(u32 tex_width, u32 tex_height, MTLPixelFormat format,
-                                      std::string_view label) const {
+                                      std::string_view label, bool full_usage) const {
     MTLTextureDescriptor* desc = [MTLTextureDescriptor new];
     desc.textureType = texture_type == TextureType::CubeMap ? MTLTextureTypeCube : MTLTextureType2D;
     desc.pixelFormat = format;
@@ -697,12 +699,30 @@ id<MTLTexture> Surface::CreateTexture(u32 tex_width, u32 tex_height, MTLPixelFor
     const bool is_compressed =
         VideoCore::IsCustomFormatCompressed(custom_format) && format != MTLPixelFormatRGBA8Unorm;
     MTLTextureUsage usage = MTLTextureUsageShaderRead;
-    if (!is_compressed) {
-        usage |= MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView;
-    }
-    if (format == MTLPixelFormatRGBA8Unorm) {
-        // Allows R32Uint views for shadow mapping and texture writes for shadow rendering.
-        usage |= MTLTextureUsageShaderWrite;
+    // Apple GPUs compress textures in memory (losslessly, or lossy when asked) unless they can be
+    // written by shaders or viewed in another format. Color textures only need that for shadow
+    // mapping, which replaces the texture when it happens (StorageTexture). Depth textures keep
+    // it for their stencil views.
+    const TextureCompression compression = GetQualityOptions().texture_compression;
+    const bool compress = compression != TextureCompression::Off && !full_usage &&
+                          !is_compressed && format == MTLPixelFormatRGBA8Unorm;
+    if (compress) {
+        usage |= MTLTextureUsageRenderTarget;
+        if (compression == TextureCompression::Lossy) {
+            if (@available(iOS 15.0, macOS 12.0, *)) {
+                if ([instance->GetDevice() supportsFamily:MTLGPUFamilyApple8]) {
+                    desc.compressionType = MTLTextureCompressionTypeLossy;
+                }
+            }
+        }
+    } else {
+        if (!is_compressed) {
+            usage |= MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView;
+        }
+        if (format == MTLPixelFormatRGBA8Unorm) {
+            // Allows R32Uint views for shadow mapping and texture writes for shadow rendering.
+            usage |= MTLTextureUsageShaderWrite;
+        }
     }
     desc.usage = usage;
 
@@ -733,6 +753,18 @@ id<MTLTexture> Surface::StorageTexture() {
     id<MTLTexture> texture = Texture();
     if (!storage_capable || !texture) {
         return nil;
+    }
+    if ((texture.usage & MTLTextureUsageShaderWrite) == 0) {
+        // Made compressible: replace it by one that allows the R32Uint view, with the same
+        // contents. Framebuffers follow through the handle.
+        id<MTLTexture> replacement = CreateTexture(static_cast<u32>(texture.width),
+                                                   static_cast<u32>(texture.height),
+                                                   texture.pixelFormat, "storage", true);
+        [scheduler->BlitEncoder() copyFromTexture:texture toTexture:replacement];
+        textures[current] = replacement;
+        textures[Type::Copy] = nil;
+        texture = replacement;
+        SyncHandle();
     }
     if (!storage_view || storage_view.parentTexture != texture) {
         storage_view = [texture newTextureViewWithPixelFormat:MTLPixelFormatR32Uint];
@@ -973,6 +1005,7 @@ void Surface::ScaleUp(u32 new_scale) {
     storage_view = nil;
     stencil_view = nil;
     current = Type::Scaled;
+    SyncHandle();
 
     for (u32 level = 0; level < levels; level++) {
         const VideoCore::TextureBlit blit = {
@@ -1052,6 +1085,7 @@ Framebuffer::Framebuffer(TextureRuntime& runtime, const VideoCore::FramebufferPa
         height = std::min(height, h);
         formats[0] = color->pixel_format;
         attachments[0] = color->Texture();
+        handles[0] = color->Handle();
         target.color = attachments[0];
         target.color_level = color_level;
     }
@@ -1061,6 +1095,7 @@ Framebuffer::Framebuffer(TextureRuntime& runtime, const VideoCore::FramebufferPa
         height = std::min(height, h);
         formats[1] = depth->pixel_format;
         attachments[1] = depth->Texture();
+        handles[1] = depth->Handle();
         target.depth = attachments[1];
         target.depth_level = depth_level;
         target.has_stencil = depth->HasStencil();

@@ -2,6 +2,7 @@
 // Licensed under GPLv3 or any later version
 // Refer to the LICENSE.txt file included.
 
+#include <cctype>
 #include <cmath>
 #include <string_view>
 #include <utility>
@@ -61,8 +62,15 @@ using namespace metal;
 #define NUM_LIGHTING_SAMPLERS 24
 )";
 
-// Must match Pica::Shader::Generator::VSUniformData
+// Must match Pica::Shader::Generator::VSUniformData (and MSL::VSDepthData)
 constexpr std::string_view VSUniformDef = R"(
+struct VSDepth {
+    float scale;
+    float offset;
+    uint enabled;
+    uint pad;
+};
+
 struct VSUniforms {
     uint enable_clip1;
     uint flip_viewport;
@@ -134,7 +142,7 @@ struct VSOutput {
     float4 normquat [[user(normquat)]];
     float3 view [[user(view)]];
 #ifdef USE_CLIP_PLANES
-    float clip_distance [[clip_distance]] [2];
+    float clip_distance [[clip_distance]] [3];
 #endif
 };
 )";
@@ -193,7 +201,8 @@ public:
                                 (needs_logic_op || needs_minmax);
         // A [[depth]] output is only valid when a depth attachment is bound. Shadow rendering
         // writes depth through the shadow buffer image instead.
-        write_fragment_depth = metal.has_depth_attachment && !config.framebuffer.shadow_rendering;
+        write_fragment_depth = metal.has_depth_attachment && !config.framebuffer.shadow_rendering &&
+                               !metal.vertex_depth;
     }
 
     std::string Generate() {
@@ -419,6 +428,18 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
 
     static float4 byteround(float4 x) {
         return round(x * 255.0f) * (1.0f / 255.0f);
+    }
+
+    static half byteround(half x) {
+        return round(x * 255.0h) * (1.0h / 255.0h);
+    }
+
+    static half3 byteround(half3 x) {
+        return round(x * 255.0h) * (1.0h / 255.0h);
+    }
+
+    static half4 byteround(half4 x) {
+        return round(x * 255.0h) * (1.0h / 255.0h);
     }
 
     static float getLod(float2 coord) {
@@ -904,6 +925,18 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
 
     std::string GetSource(TevStageConfig::Source source, u32 tev_index) {
         using Source = TevStageConfig::Source;
+        std::string value = GetSourceValue(source, tev_index);
+        // With fast color math the combiners run in half precision (see ToHalfPrecision), the
+        // float inputs are converted explicitly (float4 becomes half4 there).
+        if (metal.fast_color && source != Source::PreviousBuffer && source != Source::Previous &&
+            !value.starts_with("float4(")) {
+            value = "float4(" + value + ")";
+        }
+        return value;
+    }
+
+    std::string GetSourceValue(TevStageConfig::Source source, u32 tev_index) {
+        using Source = TevStageConfig::Source;
         switch (source) {
         case Source::PrimaryColor:
             return "rounded_primary_color";
@@ -1103,6 +1136,62 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         }
     }
 
+    /**
+     * Turns combiner code into half precision code: float types become half types, float
+     * literals become half literals, and the combiner variables get names of their own so the
+     * float combiner_output can be assigned from them afterwards.
+     */
+    static std::string ToHalfPrecision(const std::string& code) {
+        const auto is_ident = [](char c) {
+            return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+        };
+        std::string result;
+        result.reserve(code.size());
+        std::size_t i = 0;
+        while (i < code.size()) {
+            const char c = code[i];
+            if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
+                std::size_t end = i;
+                while (end < code.size() && is_ident(code[end])) {
+                    end++;
+                }
+                std::string word = code.substr(i, end - i);
+                if (word == "float" || word == "float2" || word == "float3" || word == "float4") {
+                    word = "half" + word.substr(5);
+                } else if (word == "next_combiner_buffer") {
+                    word = "tev_next";
+                } else if (word == "combiner_buffer") {
+                    word = "tev_buffer";
+                } else if (word == "combiner_output") {
+                    word = "tev_out";
+                }
+                result += word;
+                i = end;
+                continue;
+            }
+            if (std::isdigit(static_cast<unsigned char>(c))) {
+                std::size_t end = i;
+                bool has_dot = false;
+                while (end < code.size() &&
+                       (std::isdigit(static_cast<unsigned char>(code[end])) || code[end] == '.')) {
+                    has_dot |= code[end] == '.';
+                    end++;
+                }
+                result += code.substr(i, end - i);
+                if (has_dot && end < code.size() && code[end] == 'f' &&
+                    (end + 1 >= code.size() || !is_ident(code[end + 1]))) {
+                    result += 'h';
+                    end++;
+                }
+                i = end;
+                continue;
+            }
+            result += c;
+            i++;
+        }
+        return result;
+    }
+
     void WriteTevStage(u32 index) {
         const TevStageConfig stage = config.texture.tev_stages[index];
         if (!IsPassThroughTevStage(stage)) {
@@ -1175,6 +1264,11 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         // The PICA depth range is [-1, 0]. The vertex shader outputs the negated Z value. Metal's
         // depth range is [0, 1] so all we need to do is un-negate the value to range [-1, 0].
         // Once we have z_over_w, we can do our own transformation according to PICA spec.
+        if (metal.vertex_depth) {
+            // The vertex shader already produced the final depth, see VSDepthData.
+            out += "        float depth = frag_coord.z;\n";
+            return;
+        }
         out += "        float z_over_w = -frag_coord.z;\n";
         out += "        float depth = z_over_w * fs.depth_scale + fs.depth_offset;\n";
         if (config.framebuffer.depthmap_enable == RasterizerRegs::DepthBuffering::WBuffering) {
@@ -1706,8 +1800,11 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         // Write shader source to emulate all enabled PICA lights
         WriteLighting();
 
+        // With fast color math the combiner code below is turned into half precision code in a
+        // block of its own, which hands its result back as the float combiner_output.
+        const std::size_t tev_start = out.size();
         out += "        float4 combiner_buffer = float4(0.0f);\n"
-               "        float4 next_combiner_buffer = fs.tev_combiner_buffer_color;\n"
+               "        float4 next_combiner_buffer = float4(fs.tev_combiner_buffer_color);\n"
                "        float4 combiner_output = float4(0.0f);\n"
                "        float3 color_results_1 = float3(0.0f);\n"
                "        float3 color_results_2 = float3(0.0f);\n"
@@ -1719,6 +1816,13 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         // Write shader source to emulate PICA TEV stages
         for (u32 index = 0; index < config.texture.tev_stages.size(); index++) {
             WriteTevStage(index);
+        }
+        if (metal.fast_color) {
+            const std::string block = ToHalfPrecision(out.substr(tev_start));
+            out.resize(tev_start);
+            out += "        float4 combiner_output;\n        {\n";
+            out += block;
+            out += "        combiner_output = float4(tev_out);\n        }\n";
         }
 
         // Append the alpha test condition
@@ -1801,7 +1905,8 @@ struct VSInput {
 )";
 
     out += fmt::format(R"(
-vertex VSOutput {}(VSInput in [[stage_in]], constant VSUniforms& vs [[buffer({})]]) {{
+vertex VSOutput {}(VSInput in [[stage_in]], constant VSUniforms& vs [[buffer({})]],
+                    constant VSDepth& vs_depth [[buffer({})]]) {{
     VSOutput out;
     out.primary_color = in.color;
     out.texcoord0 = in.texcoord0;
@@ -1822,15 +1927,19 @@ vertex VSOutput {}(VSInput in [[stage_in]], constant VSUniforms& vs [[buffer({})
     // Metal NDC has +Y pointing up while Vulkan's points down. Negate Y so the rendered image has
     // exactly the same memory layout as the one produced by the Vulkan backend.
     clip_pos.y = -clip_pos.y;
+    if (vs_depth.enabled != 0u) {{
+        clip_pos.z = vtx_pos.z * vs_depth.scale + vs_depth.offset * vtx_pos.w;
+    }}
     out.position = clip_pos;
 #ifdef USE_CLIP_PLANES
     out.clip_distance[0] = -vtx_pos.z; // fixed PICA clipping plane z <= 0
     out.clip_distance[1] = vs.enable_clip1 != 0 ? dot(vs.clip_coef, vtx_pos) : 0.0f;
+    out.clip_distance[2] = vtx_pos.z + vtx_pos.w; // PICA far plane z >= -w, see VSDepthData
 #endif
     return out;
 }}
 )",
-                       VS_ENTRY_POINT, +VS_BUFFER_UNIFORMS);
+                       VS_ENTRY_POINT, +VS_BUFFER_UNIFORMS, +VS_BUFFER_DEPTH);
     return out;
 }
 
@@ -2038,7 +2147,8 @@ std::string GenerateVertexShader(const Pica::ShaderSetup& setup, const PicaVSCon
 vertex VSOutput {}(uint vid [[vertex_id]], constant VSUniforms& vs [[buffer({})]],
                     constant PicaUniforms& pica_uniforms [[buffer({})]],
                     constant VertexLayout& layout [[buffer({})]],
-                    device const uchar* vertex_data [[buffer({})]]) {{
+                    device const uchar* vertex_data [[buffer({})]],
+                    constant VSDepth& vs_depth [[buffer({})]]) {{
     const uint triangle = vid / 3u;
     const uint corner = vid - triangle * 3u;
 
@@ -2048,7 +2158,7 @@ vertex VSOutput {}(uint vid [[vertex_id]], constant VSUniforms& vs [[buffer({})]
     sh.Run();
 )",
                        VS_ENTRY_POINT, +VS_BUFFER_UNIFORMS, +VS_BUFFER_PICA_UNIFORMS,
-                       +VS_BUFFER_VERTEX_LAYOUT, +VS_BUFFER_VERTEX_DATA);
+                       +VS_BUFFER_VERTEX_LAYOUT, +VS_BUFFER_VERTEX_DATA, +VS_BUFFER_DEPTH);
 
     const auto sh_vec = [&](std::string_view type,
                             std::initializer_list<VSOutputAttributes::Semantic> semantics) {
@@ -2125,10 +2235,14 @@ vertex VSOutput {}(uint vid [[vertex_id]], constant VSUniforms& vs [[buffer({})]
 #endif
     // Metal NDC has +Y pointing up, see GenerateTrivialVertexShader.
     clip_pos.y = -clip_pos.y;
+    if (vs_depth.enabled != 0u) {
+        clip_pos.z = vtx_pos.z * vs_depth.scale + vs_depth.offset * vtx_pos.w;
+    }
     out.position = clip_pos;
 #ifdef USE_CLIP_PLANES
     out.clip_distance[0] = -vtx_pos.z; // fixed PICA clipping plane z <= 0
     out.clip_distance[1] = vs.enable_clip1 != 0 ? dot(vs.clip_coef, vtx_pos) : 0.0f;
+    out.clip_distance[2] = vtx_pos.z + vtx_pos.w; // PICA far plane z >= -w, see VSDepthData
 #endif
     return out;
 }

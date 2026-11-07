@@ -33,6 +33,7 @@ enum VSBuffer : u32 {
     VS_BUFFER_PICA_UNIFORMS = 1, ///< VSPicaUniformData (hardware vertex shaders)
     VS_BUFFER_VERTEX_LAYOUT = 2, ///< VSVertexLayout (hardware vertex shaders)
     VS_BUFFER_VERTEX_DATA = 3,   ///< Raw PICA vertex and index data (hardware vertex shaders)
+    VS_BUFFER_DEPTH = 4,         ///< VSDepthData
     /// Vertex buffers are placed after the uniform buffers in the argument table.
     VS_BUFFER_VERTEX_BASE = 16,
 };
@@ -81,6 +82,22 @@ struct MetalFSConfig {
     /// Fragment lighting with half precision directions and fast normalization, see
     /// QualityOptions::fast_lighting.
     bool fast_lighting = false;
+    /// The vertex shader already maps the depth to the PICA depth range (VSDepthData::enabled),
+    /// so the fragment shader does not write [[depth]]. Not for W-buffering.
+    bool vertex_depth = false;
+    /// The texture combiners compute in half precision, see QualityOptions::fast_color.
+    bool fast_color = false;
+};
+
+/// Depth mapping done in the vertex shader instead of the fragment shader. Writing [[depth]] in a
+/// fragment shader turns off the hidden surface removal of Apple GPUs, so every hidden fragment
+/// is shaded too. With `enabled` the clip space Z becomes z * scale + offset * w, which gives the
+/// same depth as the fragment shader computes, and clip distances keep the PICA clip volume.
+struct VSDepthData {
+    float scale;
+    float offset;
+    u32 enabled;
+    u32 pad;
 };
 
 /**

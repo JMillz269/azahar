@@ -162,6 +162,12 @@ private:
     StreamBuffer download_buffer;
 };
 
+/// The current texture of a surface, shared with the framebuffers that render to it so they
+/// follow when the surface replaces its texture (see Surface::StorageTexture).
+struct TextureHandle {
+    id<MTLTexture> texture = nil;
+};
+
 class Surface : public VideoCore::SurfaceBase {
     friend class TextureRuntime;
 
@@ -186,8 +192,15 @@ public:
     /// Returns a copy of the current texture, used to break feedback loops.
     id<MTLTexture> CopyTexture();
 
-    /// Returns a R32Uint view of the current texture used by shadow mapping.
+    /// Returns a R32Uint view of the current texture used by shadow mapping. With texture
+    /// compression the texture is made without the usage that needs, it is replaced by one that
+    /// has it (and keeps its contents) the first time.
     id<MTLTexture> StorageTexture();
+
+    /// The shared handle of the current texture.
+    const std::shared_ptr<TextureHandle>& Handle() const noexcept {
+        return handle;
+    }
 
     /// Returns a stencil view of the current depth-stencil texture.
     id<MTLTexture> StencilTexture();
@@ -232,8 +245,17 @@ public:
     u32 GetInternalBytesPerPixel() const;
 
 private:
+    /// `full_usage` adds the usage texture compression leaves out (shader writes, other format
+    /// views).
     id<MTLTexture> CreateTexture(u32 width, u32 height, MTLPixelFormat format,
-                                 std::string_view label) const;
+                                 std::string_view label, bool full_usage = false) const;
+
+    void SyncHandle() {
+        if (!handle) {
+            handle = std::make_shared<TextureHandle>();
+        }
+        handle->texture = Texture();
+    }
 
     /// Performs blit between the scaled/unscaled images
     void BlitScale(const VideoCore::TextureBlit& blit, bool up_scale);
@@ -248,6 +270,7 @@ public:
     id<MTLTexture> storage_view = nil;
     id<MTLTexture> stencil_view = nil;
     bool storage_capable{};
+    std::shared_ptr<TextureHandle> handle;
 };
 
 class Framebuffer : public VideoCore::FramebufferParams {
@@ -268,6 +291,7 @@ public:
 
     /// Returns the texture attached for the surface type (nil if none).
     id<MTLTexture> Attachment(VideoCore::SurfaceType type) const noexcept {
+        Refresh();
         return attachments[Index(type)];
     }
 
@@ -278,6 +302,7 @@ public:
 
     /// Returns the render pass description for this framebuffer.
     const RenderTarget& Target() const noexcept {
+        Refresh();
         return target;
     }
 
@@ -299,11 +324,24 @@ public:
     }
 
 private:
-    std::array<id<MTLTexture>, 2> attachments{};
+    /// Follows a surface that replaced its texture.
+    void Refresh() const noexcept {
+        if (handles[0] && handles[0]->texture != attachments[0]) {
+            attachments[0] = handles[0]->texture;
+            target.color = attachments[0];
+        }
+        if (handles[1] && handles[1]->texture != attachments[1]) {
+            attachments[1] = handles[1]->texture;
+            target.depth = attachments[1];
+        }
+    }
+
+    mutable std::array<id<MTLTexture>, 2> attachments{};
+    std::array<std::shared_ptr<TextureHandle>, 2> handles{};
     std::array<VideoCore::PixelFormat, 2> formats{VideoCore::PixelFormat::Invalid,
                                                   VideoCore::PixelFormat::Invalid};
     id<MTLTexture> shadow_buffer = nil;
-    RenderTarget target{};
+    mutable RenderTarget target{};
     u32 width{};
     u32 height{};
     u32 res_scale{1};

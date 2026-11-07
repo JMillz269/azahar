@@ -136,6 +136,8 @@ private:
         std::array<id<MTLTexture>, 10> textures{};
         std::array<id<MTLSamplerState>, 3> samplers{};
         id<MTLTexture> shadow_buffer = nil;
+        bool depth_valid{};
+        Pica::Shader::Generator::MSL::VSDepthData depth{};
         bool vs_uniforms_valid{};
         std::array<u8, sizeof(Pica::Shader::Generator::VSUniformData)> vs_uniforms{};
         bool fs_uniforms_valid{};

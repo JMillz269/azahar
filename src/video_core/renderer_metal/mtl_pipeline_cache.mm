@@ -33,7 +33,7 @@ namespace {
 
 /// Disk cache file layout: a CacheHeader followed by records (RecordHeader + payload).
 constexpr u32 CACHE_MAGIC = 0x434C544D; // "MTLC"
-constexpr u32 CACHE_VERSION = 1;
+constexpr u32 CACHE_VERSION = 2; // 2: vertex shaders take VSDepth
 
 struct CacheHeader {
     u32 magic;
@@ -189,6 +189,13 @@ void PipelineCache::CompileShader(Shader& shader) {
     });
 }
 
+bool PipelineCache::UsesVertexDepth(const Pica::RegsInternal& regs,
+                                    bool has_depth_attachment) const {
+    return GetQualityOptions().vertex_depth && has_depth_attachment &&
+           GetProfile().has_clip_planes && !regs.framebuffer.IsShadowRendering() &&
+           regs.rasterizer.depthmap_enable != Pica::RasterizerRegs::DepthBuffering::WBuffering;
+}
+
 PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInternal& regs,
                                                              const Pica::Shader::UserConfig& user,
                                                              bool has_color_attachment,
@@ -202,8 +209,16 @@ PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInt
     u64 hash = Common::HashCombine(fs_config.Hash(), static_cast<u64>(user.raw),
                                    static_cast<u64>(has_color_attachment),
                                    static_cast<u64>(has_depth_attachment));
+    metal_config.vertex_depth = UsesVertexDepth(regs, has_depth_attachment);
+    metal_config.fast_color = GetQualityOptions().fast_color;
     if (metal_config.fast_lighting) {
         hash = Common::HashCombine(hash, 0xFA57'1164'7000'0001ULL);
+    }
+    if (metal_config.vertex_depth) {
+        hash = Common::HashCombine(hash, 0x0DE9'7400'0000'0002ULL);
+    }
+    if (metal_config.fast_color) {
+        hash = Common::HashCombine(hash, 0xFA57'C010'0000'0003ULL);
     }
     hash = hash == 0 ? 1 : hash;
     if (const auto it = fragment_shaders.find(hash); it != fragment_shaders.end()) {

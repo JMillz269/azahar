@@ -135,6 +135,11 @@ struct GraphicsSettingsView: View {
                 }
                 Toggle("Fast Shader Math", isOn: $settings.fastShaderMath)
                 Toggle("Fast Lighting Math", isOn: $settings.fastLighting)
+                Toggle("Fast Color Math", isOn: $settings.fastColor)
+                Toggle("Hidden Surface Removal", isOn: $settings.hiddenSurfaceRemoval)
+                Picker("Texture Compression", selection: $settings.textureCompression) {
+                    ForEach(TextureCompressionOption.allCases) { Text($0.title).tag($0) }
+                }
             } header: {
                 Text("Enhancements")
             } footer: {
@@ -144,6 +149,11 @@ struct GraphicsSettingsView: View {
                      + "Fast Shader Math can cause small graphical differences in some games. "
                      + "Fast Lighting Math computes lighting in half precision, which helps games "
                      + "with a lot of lighting (Luigi's Mansion) and can shift highlights slightly. "
+                     + "Fast Color Math does the color combiners in half precision, the same "
+                     + "8-bit result in practice. Hidden Surface Removal lets the GPU skip "
+                     + "pixels hidden behind others (not for games using W-buffering). Texture "
+                     + "Compression saves GPU memory bandwidth: Lossless looks identical, Lossy "
+                     + "(A15 and later) saves more with a tiny loss of quality. "
                      + "All of these apply the next time a game starts.")
             }
 

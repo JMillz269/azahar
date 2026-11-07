@@ -117,6 +117,22 @@ enum ConsoleRegion: Int, CaseIterable, Identifiable {
     }
 }
 
+/// GPU memory compression of textures. The values are AZConfiguration.textureCompression.
+enum TextureCompressionOption: Int, CaseIterable, Identifiable {
+    case off = 0
+    case lossless = 1
+    case lossy = 2
+
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .lossless: return "Lossless"
+        case .lossy: return "Lossy"
+        }
+    }
+}
+
 enum UpscalingOption: Int, CaseIterable, Identifiable {
     case off = 0
     case spatial = 1
@@ -217,6 +233,13 @@ final class AppSettings: ObservableObject {
     @Published var framePacing: Bool { didSet { save(framePacing, "framePacing") } }
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
     @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
+    @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
+    @Published var hiddenSurfaceRemoval: Bool {
+        didSet { save(hiddenSurfaceRemoval, "hiddenSurfaceRemoval") }
+    }
+    @Published var textureCompression: TextureCompressionOption {
+        didSet { save(textureCompression.rawValue, "textureCompression") }
+    }
     @Published var fastShaderMath: Bool { didSet { save(fastShaderMath, "fastShaderMath") } }
     @Published var anisotropy: Int { didSet { save(anisotropy, "anisotropy") } }
     @Published var diskShaderCache: Bool { didSet { save(diskShaderCache, "diskShaderCache") } }
@@ -291,6 +314,9 @@ final class AppSettings: ObservableObject {
         asyncShaders = value("asyncShaders", true)
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
+        fastColor = value("fastColor", false)
+        hiddenSurfaceRemoval = value("hiddenSurfaceRemoval", false)
+        textureCompression = TextureCompressionOption(rawValue: value("textureCompression", 0)) ?? .off
         anisotropy = value("anisotropy", 4)
         diskShaderCache = value("diskShaderCache", true)
         upscaling = UpscalingOption(rawValue: value("upscaling", 0)) ?? .off
@@ -356,6 +382,9 @@ final class AppSettings: ObservableObject {
         config.framePacing = framePacing
         config.fastShaderMath = fastShaderMath
         config.fastLighting = fastLighting
+        config.fastColor = fastColor
+        config.hiddenSurfaceRemoval = hiddenSurfaceRemoval
+        config.textureCompression = textureCompression.rawValue
         config.anisotropy = anisotropy
         config.diskShaderCache = diskShaderCache
         config.upscaling = upscaling.rawValue

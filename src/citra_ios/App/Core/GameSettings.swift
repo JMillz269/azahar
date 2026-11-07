@@ -13,6 +13,9 @@ struct GameOverrides: Codable, Equatable {
     var anisotropy: Int?
     var fastShaderMath: Bool?
     var fastLighting: Bool?
+    var fastColor: Bool?
+    var hiddenSurfaceRemoval: Bool?
+    var textureCompression: Int?
     var hardwareShaders: Bool?
     var cpuClockPercentage: Int?
     var stereoMode: Int?
@@ -31,6 +34,9 @@ struct GameOverrides: Codable, Equatable {
         if let anisotropy { config.anisotropy = anisotropy }
         if let fastShaderMath { config.fastShaderMath = fastShaderMath }
         if let fastLighting { config.fastLighting = fastLighting }
+        if let fastColor { config.fastColor = fastColor }
+        if let hiddenSurfaceRemoval { config.hiddenSurfaceRemoval = hiddenSurfaceRemoval }
+        if let textureCompression { config.textureCompression = textureCompression }
         if let hardwareShaders { config.useHardwareShaders = hardwareShaders }
         if let cpuClockPercentage { config.cpuClockPercentage = cpuClockPercentage }
         if let stereoMode { config.stereoMode = stereoMode }

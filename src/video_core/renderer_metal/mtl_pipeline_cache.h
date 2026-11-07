@@ -90,6 +90,10 @@ public:
     /// Returns the shader generator profile.
     const Pica::Shader::Profile& GetProfile() const;
 
+    /// Whether the depth of the current draw is mapped in the vertex shader (see
+    /// MSL::VSDepthData), which leaves the fragment shader without a [[depth]] output.
+    bool UsesVertexDepth(const Pica::RegsInternal& regs, bool has_depth_attachment) const;
+
     /// Returns the fragment program for the current PICA state, generating it if it was never
     /// seen before. Compilation happens when a pipeline using it is built.
     ShaderHandle UseFragmentShader(const Pica::RegsInternal& regs,

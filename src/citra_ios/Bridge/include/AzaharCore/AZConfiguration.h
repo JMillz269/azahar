@@ -44,6 +44,12 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL asyncShaderCompilation;
 /// Fragment lighting in half precision with fast normalization (applies to the next game).
 @property(nonatomic) BOOL fastLighting;
+/// Texture combiners in half precision (applies to the next game).
+@property(nonatomic) BOOL fastColor;
+/// Depth mapped in the vertex shader so the GPU's hidden surface removal works (next game).
+@property(nonatomic) BOOL hiddenSurfaceRemoval;
+/// GPU memory compression of textures: 0 off, 1 lossless, 2 lossy (next game).
+@property(nonatomic) NSInteger textureCompression;
 /// Holds each frame on screen for the time of a game frame so frames are evenly spaced.
 @property(nonatomic) BOOL framePacing;
 @property(nonatomic) BOOL fastShaderMath;
