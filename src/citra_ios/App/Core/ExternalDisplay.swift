@@ -8,37 +8,24 @@ import SwiftUI
 import UIKit
 
 /// The view shown on an external display (AirPlay, HDMI). It is backed by a CAMetalLayer the
-/// emulator renders the top screen into while a game runs.
+/// emulator renders the top screen into while a game runs, and is plain black otherwise.
 final class ExternalDisplayView: UIView {
     override class var layerClass: AnyClass { CAMetalLayer.self }
 
     var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
 
-    private let idleLabel = UILabel()
-
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
         metalLayer.isOpaque = true
-        idleLabel.text = "Azahar"
-        idleLabel.textColor = UIColor(white: 1, alpha: 0.35)
-        idleLabel.font = .systemFont(ofSize: 40, weight: .semibold)
-        idleLabel.textAlignment = .center
-        addSubview(idleLabel)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// The idle label is hidden while the emulator draws into the layer.
-    func setIdleVisible(_ visible: Bool) {
-        idleLabel.isHidden = !visible
-    }
-
     override func layoutSubviews() {
         super.layoutSubviews()
-        idleLabel.frame = bounds
         guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
         let scale = window?.screen.scale ?? UIScreen.main.scale
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
