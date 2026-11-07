@@ -7,6 +7,7 @@
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
+#include "common/settings.h"
 #include "video_core/renderer_metal/mtl_instance.h"
 #include "video_core/renderer_metal/mtl_scheduler.h"
 
@@ -18,6 +19,18 @@ namespace Metal {
 GpuStats& Stats() {
     static GpuStats stats;
     return stats;
+}
+
+namespace {
+std::atomic<bool> g_frame_pacing{true};
+/// Presented time of the previous frame of the main display, 0 when there is none.
+std::atomic<double> g_last_presented{0.0};
+/// Duration of an emulated frame at full speed (a 3DS runs at about 59.83 frames per second).
+constexpr double kFramePeriod = 1.0 / 59.83;
+} // namespace
+
+void SetFramePacing(bool enabled) {
+    g_frame_pacing.store(enabled, std::memory_order_relaxed);
 }
 
 Scheduler::Scheduler(const Instance& instance) : queue{instance.GetCommandQueue()} {}
@@ -132,8 +145,8 @@ void Scheduler::EndEncoding() {
     }
 }
 
-void Scheduler::PresentDrawable(id<CAMetalDrawable> drawable) {
-    pending_drawables.push_back(drawable);
+void Scheduler::PresentDrawable(id<CAMetalDrawable> drawable, bool measure) {
+    pending_drawables.push_back({drawable, measure});
 }
 
 void Scheduler::PushDebugGroup(std::string_view label) {
@@ -164,8 +177,46 @@ void Scheduler::Flush() {
         [buffer popDebugGroup];
         debug_group_depth--;
     }
-    for (id<CAMetalDrawable> drawable : pending_drawables) {
-        [buffer presentDrawable:drawable];
+    // The time a frame lasts at the current speed limit. No pacing when there is none (fast
+    // forward, unlimited speed), where holding frames back would only slow things down.
+    const double limit = Settings::GetFrameLimit();
+    const double period = limit > 0.0 ? kFramePeriod * 100.0 / limit : 0.0;
+    const bool pace = g_frame_pacing.load(std::memory_order_relaxed) && period > 0.0;
+    for (const PendingDrawable& pending : pending_drawables) {
+        if (pace && pending.measure) {
+            // Slightly less than a frame so a display refreshing at a multiple of 60 Hz shows the
+            // frame for a whole number of refreshes rather than waiting for one more. Without
+            // this a frame of 16.71 ms on a 120 Hz display would always miss its second refresh.
+            [buffer presentDrawable:pending.drawable afterMinimumDuration:period * 0.96];
+        } else {
+            [buffer presentDrawable:pending.drawable];
+        }
+        if (pending.measure) {
+            [pending.drawable addPresentedHandler:^(id<MTLDrawable> presented) {
+              const double now = presented.presentedTime;
+              if (now <= 0.0) {
+                  return; // The frame was dropped
+              }
+              const double last = g_last_presented.exchange(now, std::memory_order_relaxed);
+              if (last <= 0.0 || now <= last) {
+                  return;
+              }
+              const double interval = now - last;
+              if (interval > 0.25) {
+                  return; // A pause or a menu, not a pacing problem
+              }
+              GpuStats& stats = Stats();
+              const u64 us = static_cast<u64>(interval * 1e6);
+              stats.present_intervals.fetch_add(1, std::memory_order_relaxed);
+              stats.present_interval_us.fetch_add(us, std::memory_order_relaxed);
+              stats.present_interval_sq_us.fetch_add(us * us, std::memory_order_relaxed);
+              // Compared with the frame time of the moment, which changes with fast forward.
+              const double limit_now = Settings::GetFrameLimit();
+              if (limit_now > 0.0 && interval > kFramePeriod * 100.0 / limit_now * 1.4) {
+                  stats.present_late.fetch_add(1, std::memory_order_relaxed);
+              }
+            }];
+        }
     }
     pending_drawables.clear();
     [buffer commit];

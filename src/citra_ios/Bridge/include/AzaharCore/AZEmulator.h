@@ -143,6 +143,9 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
 @property(nonatomic, readonly) double gpuMilliseconds;
 @property(nonatomic, readonly) double stallMilliseconds;
 @property(nonatomic, readonly) double drawsPerFrame;
+/// Spread (standard deviation) of the time between frames reaching the display, in ms. Smooth
+/// motion needs this to be small, at 60 fps about 0.5 ms or less.
+@property(nonatomic, readonly) double paceJitterMilliseconds;
 
 /// Called on the main thread when the emulated software asks for text.
 @property(nonatomic, copy, nullable) void (^onKeyboardRequest)(AZKeyboardRequest* request);

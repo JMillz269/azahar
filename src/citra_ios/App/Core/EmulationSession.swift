@@ -18,6 +18,7 @@ final class EmulationSession: ObservableObject {
     /// Average GPU time and time the emulation thread waited for the GPU, per frame, in ms.
     @Published private(set) var gpuMs: Double = 0
     @Published private(set) var stallMs: Double = 0
+    @Published private(set) var paceJitterMs: Double = 0
     @Published private(set) var draws: Double = 0
     /// The software keyboard of the running game, while it waits for text.
     @Published var keyboardRequest: AZKeyboardRequest?
@@ -184,6 +185,7 @@ final class EmulationSession: ObservableObject {
                 self.speed = AZEmulator.shared.emulationSpeed
                 self.gpuMs = AZEmulator.shared.gpuMilliseconds
                 self.stallMs = AZEmulator.shared.stallMilliseconds
+                self.paceJitterMs = AZEmulator.shared.paceJitterMilliseconds
                 self.draws = AZEmulator.shared.drawsPerFrame
                 let progress = AZEmulator.shared.shaderBuildProgress
                 self.shaderBuildProgress = progress >= 0 ? progress : nil

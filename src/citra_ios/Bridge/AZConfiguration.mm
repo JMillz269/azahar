@@ -19,6 +19,7 @@
     config.upscaling = 0;
     config.skipDuplicateFrames = NO;
     config.asyncShaderCompilation = YES;
+    config.framePacing = YES;
     config.fastShaderMath = NO;
     config.stereoMode = 0;
     config.outerCamera = 0;

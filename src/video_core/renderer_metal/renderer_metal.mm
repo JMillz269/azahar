@@ -852,7 +852,8 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
-    scheduler.PresentDrawable(drawable);
+    // The second display is not paced or measured, it only follows the first.
+    scheduler.PresentDrawable(drawable, allow_upscale);
 #if AZAHAR_HAS_METALFX
     upscale_pass = UpscalePass::Off;
 #endif
@@ -983,6 +984,18 @@ FrameStats TakeFrameStats() {
     const u32 blit_passes = stats.blit_passes.exchange(0);
     const u32 feedback_copies = stats.feedback_copies.exchange(0);
     const u64 drawable_ns = stats.drawable_ns.exchange(0);
+    const u32 intervals = stats.present_intervals.exchange(0);
+    const u64 interval_us = stats.present_interval_us.exchange(0);
+    const u64 interval_sq_us = stats.present_interval_sq_us.exchange(0);
+    result.present_late = static_cast<double>(stats.present_late.exchange(0));
+    if (intervals > 1) {
+        const double n = static_cast<double>(intervals);
+        const double mean = static_cast<double>(interval_us) / n;
+        const double variance =
+            std::max(0.0, static_cast<double>(interval_sq_us) / n - mean * mean);
+        result.present_interval_ms = mean / 1000.0;
+        result.present_jitter_ms = std::sqrt(variance) / 1000.0;
+    }
     if (result.frames > 0) {
         const double frames = static_cast<double>(result.frames);
         result.gpu_ms = static_cast<double>(gpu_ns) / 1e6 / frames;

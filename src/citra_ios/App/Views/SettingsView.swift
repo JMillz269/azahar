@@ -224,6 +224,18 @@ struct GraphicsSettingsView: View {
             }
 
             Section {
+                Toggle("Frame Pacing", isOn: $settings.framePacing)
+            } header: {
+                Text("Smoothness")
+            } footer: {
+                Text("Frame Pacing shows each frame for the same amount of time, which makes motion "
+                     + "look smoother, most on displays that refresh faster than the game. It does "
+                     + "not apply while fast-forwarding. The performance overlay's Pace value is "
+                     + "how much the time between frames varies (lower is smoother). Applies "
+                     + "when a game starts.")
+            }
+
+            Section {
                 Toggle("Async Shader Compilation", isOn: $settings.asyncShaders)
                 Toggle("Disk Shader Cache", isOn: $settings.diskShaderCache)
                 Button("Clear Shader Cache", role: .destructive) {

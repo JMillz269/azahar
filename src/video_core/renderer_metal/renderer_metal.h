@@ -39,6 +39,9 @@ enum class UpscalerMode : int {
 
 void SetUpscalerMode(UpscalerMode mode);
 
+/// Holds each frame on screen for the time of an emulated frame so frames are evenly spaced.
+void SetFramePacing(bool enabled);
+
 /// Fragment shader math and texture sampling options. They apply to games started afterwards.
 struct QualityOptions {
     /// Compile fragment shaders with fast math (assumes no NaN/Inf, allows reassociation). Faster,
@@ -62,6 +65,9 @@ struct FrameStats {
     double blit_passes = 0.0;     ///< Blit passes (copies, uploads), each splits a render pass
     double feedback_copies = 0.0; ///< Copies of a render target that is also sampled
     double drawable_ms = 0.0;     ///< Time waiting for the layer to hand out a drawable
+    double present_interval_ms = 0.0; ///< Average time between frames reaching the display
+    double present_jitter_ms = 0.0;   ///< Standard deviation of that time
+    double present_late = 0.0;        ///< Frames shown clearly later than the frame time, per second
     u32 frames = 0;
 };
 FrameStats TakeFrameStats();

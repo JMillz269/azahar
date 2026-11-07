@@ -196,6 +196,7 @@ final class AppSettings: ObservableObject {
     @Published var stereoMode: StereoModeOption { didSet { save(stereoMode.rawValue, "stereoMode") } }
     @Published var stereoDepth: Int { didSet { save(stereoDepth, "stereoDepth") } }
     @Published var swapEyes3D: Bool { didSet { save(swapEyes3D, "swapEyes3D") } }
+    @Published var framePacing: Bool { didSet { save(framePacing, "framePacing") } }
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
     @Published var fastShaderMath: Bool { didSet { save(fastShaderMath, "fastShaderMath") } }
     @Published var anisotropy: Int { didSet { save(anisotropy, "anisotropy") } }
@@ -264,6 +265,7 @@ final class AppSettings: ObservableObject {
         stereoMode = StereoModeOption(rawValue: value("stereoMode", 0)) ?? .off
         stereoDepth = value("stereoDepth", 50)
         swapEyes3D = value("swapEyes3D", false)
+        framePacing = value("framePacing", true)
         asyncShaders = value("asyncShaders", true)
         fastShaderMath = value("fastShaderMath", false)
         anisotropy = value("anisotropy", 4)
@@ -327,6 +329,7 @@ final class AppSettings: ObservableObject {
         config.textureFilter = textureFilter.rawValue
         config.skipDuplicateFrames = skipDuplicateFrames
         config.asyncShaderCompilation = asyncShaders
+        config.framePacing = framePacing
         config.fastShaderMath = fastShaderMath
         config.anisotropy = anisotropy
         config.diskShaderCache = diskShaderCache

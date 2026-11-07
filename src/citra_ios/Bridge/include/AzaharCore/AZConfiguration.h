@@ -42,6 +42,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) NSInteger upscaling;
 @property(nonatomic) BOOL skipDuplicateFrames;
 @property(nonatomic) BOOL asyncShaderCompilation;
+/// Holds each frame on screen for the time of a game frame so frames are evenly spaced.
+@property(nonatomic) BOOL framePacing;
 @property(nonatomic) BOOL fastShaderMath;
 /// Settings::StereoRenderOption: 0 off, 1 side by side, 3 anaglyph, 4 interlaced, 5 reverse.
 @property(nonatomic) NSInteger stereoMode;

@@ -257,6 +257,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     std::atomic<double> _gpuMs;
     std::atomic<double> _stallMs;
     std::atomic<double> _drawsPerFrame;
+    std::atomic<double> _paceJitterMs;
 
     // Pending surface state, applied on the emulation thread.
     std::mutex _surfaceMutex;
@@ -328,6 +329,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
         _gpuMs = 0.0;
         _stallMs = 0.0;
         _drawsPerFrame = 0.0;
+        _paceJitterMs = 0.0;
         _surfaceDirty = false;
         _drawableSize = CGSizeZero;
         _userDirectory = @"";
@@ -361,6 +363,10 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
 
 - (double)stallMilliseconds {
     return _stallMs.load();
+}
+
+- (double)paceJitterMilliseconds {
+    return _paceJitterMs.load();
 }
 
 - (double)drawsPerFrame {
@@ -442,6 +448,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     values.factor_3d = static_cast<u32>(std::clamp<NSInteger>(configuration.stereoDepth, 0, 100));
     values.swap_eyes_3d = configuration.swapEyes3D;
     values.async_shader_compilation = configuration.asyncShaderCompilation;
+    Metal::SetFramePacing(configuration.framePacing);
     values.use_disk_shader_cache = configuration.diskShaderCache;
     Metal::SetUpscalerMode(configuration.upscaling == 1 ? Metal::UpscalerMode::Spatial
                                                         : Metal::UpscalerMode::Off);
@@ -821,15 +828,17 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
                 _gpuMs = gpu.gpu_ms;
                 _stallMs = gpu.stall_ms;
                 _drawsPerFrame = gpu.draws;
+                _paceJitterMs = gpu.present_jitter_ms;
                 LOG_INFO(Frontend,
                          "Speed {:.0f}%, {:.1f} fps: GPU {:.1f} ms (presenting {:.1f}), CPU waited "
                          "{:.1f} ms in {:.1f} stalls, {:.0f} draws, {:.1f} skipped, {:.1f} render passes, "
                          "{:.1f} blit passes, {:.1f} feedback copies, drawable wait {:.1f} ms "
-                         "per frame",
+                         "per frame; frames on screen every {:.2f} ms (spread {:.2f} ms), {:.0f} late",
                          _speed.load(), _fps.load(), gpu.gpu_ms, gpu.present_ms, gpu.stall_ms,
                          gpu.stalls,
                          gpu.draws, gpu.skipped, gpu.render_passes, gpu.blit_passes,
-                         gpu.feedback_copies, gpu.drawable_ms);
+                         gpu.feedback_copies, gpu.drawable_ms, gpu.present_interval_ms,
+                         gpu.present_jitter_ms, gpu.present_late);
             }
         }
     }

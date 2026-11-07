@@ -29,7 +29,15 @@ struct GpuStats {
     std::atomic<u32> blit_passes{};   ///< Blit encoders, each one splits the render pass around it
     std::atomic<u32> feedback_copies{}; ///< Copies of a render target sampled while drawn to
     std::atomic<u64> drawable_ns{};   ///< Time spent waiting for a drawable from the layer
+    // Intervals between frames reaching the display (see Scheduler::PresentDrawable)
+    std::atomic<u32> present_intervals{};
+    std::atomic<u64> present_interval_us{};    ///< Sum of the intervals
+    std::atomic<u64> present_interval_sq_us{}; ///< Sum of their squares
+    std::atomic<u32> present_late{};           ///< Intervals well above the frame time
 };
+
+/// Turns even frame pacing on or off, see Scheduler::PresentDrawable.
+void SetFramePacing(bool enabled);
 
 GpuStats& Stats();
 
@@ -100,8 +108,11 @@ public:
     /// Ends the active encoder, if any.
     void EndEncoding();
 
-    /// Schedules a drawable to be presented when the current command buffer is committed.
-    void PresentDrawable(id<CAMetalDrawable> drawable);
+    /// Schedules a drawable to be presented when the current command buffer is committed. With
+    /// frame pacing on, it is held on screen for the time of an emulated frame, which keeps the
+    /// frames evenly spaced on displays that refresh faster than the game runs. `measure` adds the
+    /// presentation to the frame interval statistics (the main display only).
+    void PresentDrawable(id<CAMetalDrawable> drawable, bool measure = true);
 
     /// Commits the current command buffer to the GPU.
     void Flush();
@@ -157,7 +168,11 @@ private:
     std::atomic<u64> gpu_tick{0};
     std::deque<std::pair<u64, id<MTLCommandBuffer>>> in_flight;
     std::vector<std::function<void()>> on_submit;
-    std::vector<id<CAMetalDrawable>> pending_drawables;
+    struct PendingDrawable {
+        id<CAMetalDrawable> drawable;
+        bool measure;
+    };
+    std::vector<PendingDrawable> pending_drawables;
     u32 debug_group_depth{};
 };
 
