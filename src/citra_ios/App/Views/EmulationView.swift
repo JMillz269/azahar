@@ -14,6 +14,8 @@ struct EmulationView: View {
 
     @State private var showingMenu = false
     @State private var controllerVisible = true
+    /// Keeps the on-screen controller up although a physical one is connected (until it changes).
+    @State private var showDespiteHardware = false
     @State private var pausedForBackground = false
     @State private var editingLayout = false
     @State private var showingSaveStates = false
@@ -39,7 +41,7 @@ struct EmulationView: View {
                     .ignoresSafeArea(settings.respectNotch ? [] : .all)
             }
 
-            if settings.showController && controllerVisible && !editingScreens {
+            if controllerShown && !editingScreens {
                 ControllerOverlay(opacity: settings.controllerOpacity,
                                   haptics: settings.hapticFeedback,
                                   isEditing: $editingLayout)
@@ -123,6 +125,7 @@ struct EmulationView: View {
             controllerLayout.activate(gameID: nil)
             RefreshRateController.shared.apply(.automatic)
         }
+        .onChange(of: session.hardwareControllerConnected) { _ in showDespiteHardware = false }
         .onChange(of: settings.refreshRate) { RefreshRateController.shared.apply($0) }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
@@ -133,8 +136,13 @@ struct EmulationView: View {
         .confirmationDialog(session.currentGame?.title ?? "Emulation",
                             isPresented: $showingMenu, titleVisibility: .visible) {
             Button(session.isPaused ? "Resume" : "Pause") { session.togglePause() }
-            Button(controllerVisible ? "Hide Controller" : "Show Controller") {
-                controllerVisible.toggle()
+            Button(controllerShown ? "Hide Controller" : "Show Controller") {
+                if controllerShown {
+                    controllerVisible = false
+                } else {
+                    controllerVisible = true
+                    showDespiteHardware = true
+                }
             }
             if settings.showController {
                 Button("Edit Controller Layout") { beginEditingLayout() }
@@ -209,6 +217,15 @@ struct EmulationView: View {
 }
 
 extension EmulationView {
+    /// Whether the on-screen controller is drawn: it is hidden by the menu, and while a physical
+    /// controller is connected (when the setting says so).
+    fileprivate var controllerShown: Bool {
+        guard settings.showController && controllerVisible else { return false }
+        let hiddenByHardware = settings.hideControllerWithHardware
+            && session.hardwareControllerConnected && !showDespiteHardware
+        return !hiddenByHardware
+    }
+
     /// Switches the current orientation to the custom layout and lets the screens be moved.
     fileprivate func beginEditingScreens() {
         let portrait = UIScreen.main.bounds.height > UIScreen.main.bounds.width
@@ -225,6 +242,7 @@ extension EmulationView {
     /// Pauses the game and lets the controller be moved and resized.
     fileprivate func beginEditingLayout() {
         controllerVisible = true
+        showDespiteHardware = true
         if !session.isPaused {
             session.togglePause()
             resumeAfterEditing = true

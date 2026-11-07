@@ -33,6 +33,9 @@ final class EmulationSession: ObservableObject {
     /// Complete report of an exception in the emulated program, when there is one.
     @Published private(set) var errorReport: String?
 
+    /// Whether a physical game controller is connected while a game runs.
+    @Published private(set) var hardwareControllerConnected = false
+
     let controllers = GameControllerInput()
     let motion = MotionInput()
 
@@ -43,6 +46,9 @@ final class EmulationSession: ObservableObject {
     var isActive: Bool { currentGame != nil }
 
     init() {
+        controllers.onConnectionChange = { [weak self] connected in
+            self?.hardwareControllerConnected = connected
+        }
         AZEmulator.shared.onStopped = { [weak self] error in
             Task { @MainActor in
                 self?.handleStopped(error: error)

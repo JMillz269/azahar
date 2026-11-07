@@ -33,18 +33,35 @@ enum ConsoleStick: Int {
 final class GameControllerInput {
     private var observers: [NSObjectProtocol] = []
 
+    /// Called on the main thread with whether a physical controller is connected, when that
+    /// changes and when the input starts.
+    var onConnectionChange: ((Bool) -> Void)?
+
+    private func reportConnection() {
+        onConnectionChange?(GCController.controllers().contains { $0.extendedGamepad != nil })
+    }
+
     func start() {
         let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: .GCControllerDidDisconnect, object: nil, queue: .main
+        ) { [weak self] _ in
+            // The controller is still listed while the notification is delivered on some
+            // versions, so look again once it has been removed.
+            DispatchQueue.main.async { self?.reportConnection() }
+        })
         observers.append(center.addObserver(
             forName: .GCControllerDidConnect, object: nil, queue: .main
         ) { [weak self] note in
             if let controller = note.object as? GCController {
                 self?.attach(controller)
             }
+            self?.reportConnection()
         })
         for controller in GCController.controllers() {
             attach(controller)
         }
+        reportConnection()
     }
 
     func stop() {
@@ -55,6 +72,7 @@ final class GameControllerInput {
         for controller in GCController.controllers() {
             controller.extendedGamepad?.valueChangedHandler = nil
         }
+        onConnectionChange?(false)
     }
 
     private func attach(_ controller: GCController) {

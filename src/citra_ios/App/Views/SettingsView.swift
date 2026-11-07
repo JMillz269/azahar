@@ -382,6 +382,9 @@ struct ControlsSettingsView: View {
         Form {
             Section {
                 Toggle("Show Controller", isOn: $settings.showController)
+                Toggle("Hide When a Controller Is Connected",
+                       isOn: $settings.hideControllerWithHardware)
+                    .disabled(!settings.showController)
                 VStack(alignment: .leading) {
                     LabeledContent("Opacity", value: "\(Int(settings.controllerOpacity * 100))%")
                     Slider(value: $settings.controllerOpacity, in: 0.1...1)
