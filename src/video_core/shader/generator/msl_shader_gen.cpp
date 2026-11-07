@@ -925,6 +925,12 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
 
     std::string GetSource(TevStageConfig::Source source, u32 tev_index) {
         using Source = TevStageConfig::Source;
+        // With fast color math the texture units are sampled once before the combiners, into
+        // half precision values (see WriteMain).
+        if (metal.fast_color && source >= Source::Texture0 && source <= Source::Texture3) {
+            return fmt::format("tex_h{}",
+                               static_cast<u32>(source) - static_cast<u32>(Source::Texture0));
+        }
         std::string value = GetSourceValue(source, tev_index);
         // With fast color math the combiners run in half precision (see ToHalfPrecision), the
         // float inputs are converted explicitly (float4 becomes half4 there).
@@ -1799,6 +1805,32 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
 
         // Write shader source to emulate all enabled PICA lights
         WriteLighting();
+
+        // With fast color math every texture unit the combiners read is sampled once, straight
+        // into half precision, instead of at every use.
+        if (metal.fast_color) {
+            using Source = TevStageConfig::Source;
+            std::array<bool, 4> used{};
+            for (u32 index = 0; index < config.texture.tev_stages.size(); index++) {
+                const TevStageConfig stage = config.texture.tev_stages[index];
+                if (IsPassThroughTevStage(stage)) {
+                    continue;
+                }
+                for (const Source source :
+                     {stage.color_source1.Value(), stage.color_source2.Value(),
+                      stage.color_source3.Value(), stage.alpha_source1.Value(),
+                      stage.alpha_source2.Value(), stage.alpha_source3.Value()}) {
+                    if (source >= Source::Texture0 && source <= Source::Texture3) {
+                        used[static_cast<u32>(source) - static_cast<u32>(Source::Texture0)] = true;
+                    }
+                }
+            }
+            for (u32 unit = 0; unit < used.size(); unit++) {
+                if (used[unit]) {
+                    out += fmt::format("        half4 tex_h{0} = half4(sampleTexUnit{0}());\n", unit);
+                }
+            }
+        }
 
         // With fast color math the combiner code below is turned into half precision code in a
         // block of its own, which hands its result back as the float combiner_output.

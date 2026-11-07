@@ -466,10 +466,11 @@ bool TextureRuntime::Reinterpret(Surface& source, Surface& dest,
         if (!pipeline) {
             return false;
         }
+        id<MTLTexture> source_texture = source.ViewableTexture(Type::Current);
         id<MTLTexture> depth_view =
-            MakeLevelView(source.Texture(), source.traits.native, copy.src_level, 0);
+            MakeLevelView(source_texture, source.traits.native, copy.src_level, 0);
         id<MTLTexture> stencil_view =
-            MakeLevelView(source.Texture(), MTLPixelFormatX32_Stencil8, copy.src_level, 0);
+            MakeLevelView(source_texture, MTLPixelFormatX32_Stencil8, copy.src_level, 0);
 
         MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
         desc.colorAttachments[0].texture = dest.Texture();
@@ -701,14 +702,19 @@ id<MTLTexture> Surface::CreateTexture(u32 tex_width, u32 tex_height, MTLPixelFor
     MTLTextureUsage usage = MTLTextureUsageShaderRead;
     // Apple GPUs compress textures in memory (losslessly, or lossy when asked) unless they can be
     // written by shaders or viewed in another format. Color textures only need that for shadow
-    // mapping, which replaces the texture when it happens (StorageTexture). Depth textures keep
-    // it for their stencil views.
+    // mapping, depth textures for stencil views, and the texture is replaced by one that allows
+    // it the first time it is needed (StorageTexture, ViewableTexture).
     const TextureCompression compression = GetQualityOptions().texture_compression;
+    const bool is_depth_format = format == MTLPixelFormatDepth16Unorm ||
+                                 format == MTLPixelFormatDepth32Float ||
+                                 format == MTLPixelFormatDepth32Float_Stencil8;
     const bool compress = compression != TextureCompression::Off && !full_usage &&
-                          !is_compressed && format == MTLPixelFormatRGBA8Unorm;
+                          !is_compressed &&
+                          (format == MTLPixelFormatRGBA8Unorm || is_depth_format);
     if (compress) {
         usage |= MTLTextureUsageRenderTarget;
-        if (compression == TextureCompression::Lossy) {
+        // Lossy compression is for color, depth stays lossless.
+        if (compression == TextureCompression::Lossy && !is_depth_format) {
             if (@available(iOS 15.0, macOS 12.0, *)) {
                 if ([instance->GetDevice() supportsFamily:MTLGPUFamilyApple8]) {
                     desc.compressionType = MTLTextureCompressionTypeLossy;
@@ -755,16 +761,8 @@ id<MTLTexture> Surface::StorageTexture() {
         return nil;
     }
     if ((texture.usage & MTLTextureUsageShaderWrite) == 0) {
-        // Made compressible: replace it by one that allows the R32Uint view, with the same
-        // contents. Framebuffers follow through the handle.
-        id<MTLTexture> replacement = CreateTexture(static_cast<u32>(texture.width),
-                                                   static_cast<u32>(texture.height),
-                                                   texture.pixelFormat, "storage", true);
-        [scheduler->BlitEncoder() copyFromTexture:texture toTexture:replacement];
-        textures[current] = replacement;
-        textures[Type::Copy] = nil;
-        texture = replacement;
-        SyncHandle();
+        // Made compressible: replace it by one that allows the R32Uint view.
+        texture = ReplaceWithFullUsage(current);
     }
     if (!storage_view || storage_view.parentTexture != texture) {
         storage_view = [texture newTextureViewWithPixelFormat:MTLPixelFormatR32Uint];
@@ -772,8 +770,34 @@ id<MTLTexture> Surface::StorageTexture() {
     return storage_view;
 }
 
+id<MTLTexture> Surface::ReplaceWithFullUsage(Type type) {
+    // Same contents, framebuffers follow through the handle.
+    id<MTLTexture> texture = textures[type];
+    id<MTLTexture> replacement =
+        CreateTexture(static_cast<u32>(texture.width), static_cast<u32>(texture.height),
+                      texture.pixelFormat, "full usage", true);
+    [scheduler->BlitEncoder() copyFromTexture:texture toTexture:replacement];
+    textures[type] = replacement;
+    textures[Type::Copy] = nil;
+    storage_view = nil;
+    stencil_view = nil;
+    if (type == current) {
+        SyncHandle();
+    }
+    return replacement;
+}
+
+id<MTLTexture> Surface::ViewableTexture(Type type) {
+    const Type resolved = type == Type::Current ? current : type;
+    id<MTLTexture> texture = textures[resolved];
+    if (texture && (texture.usage & MTLTextureUsagePixelFormatView) == 0) {
+        texture = ReplaceWithFullUsage(resolved);
+    }
+    return texture;
+}
+
 id<MTLTexture> Surface::StencilTexture() {
-    id<MTLTexture> texture = Texture();
+    id<MTLTexture> texture = ViewableTexture(Type::Current);
     if (!traits.has_stencil || !texture) {
         return nil;
     }
@@ -1021,6 +1045,10 @@ void Surface::ScaleUp(u32 new_scale) {
 void Surface::BlitScale(const VideoCore::TextureBlit& blit, bool up_scale) {
     id<MTLTexture> src = up_scale ? textures[Type::Base] : textures[Type::Scaled];
     id<MTLTexture> dst = up_scale ? textures[Type::Scaled] : textures[Type::Base];
+    if (traits.has_stencil && src) {
+        // The stencil is read through a view of another format.
+        src = ViewableTexture(up_scale ? Type::Base : Type::Scaled);
+    }
     if (!src || !dst) {
         return;
     }

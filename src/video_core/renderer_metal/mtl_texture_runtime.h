@@ -205,6 +205,10 @@ public:
     /// Returns a stencil view of the current depth-stencil texture.
     id<MTLTexture> StencilTexture();
 
+    /// Returns the texture, replaced first by one that allows views of other formats when it was
+    /// made compressible without (see CreateTexture).
+    id<MTLTexture> ViewableTexture(Type type);
+
     /// Returns width of the surface
     u32 GetWidth() const noexcept {
         return width;
@@ -249,6 +253,8 @@ private:
     /// views).
     id<MTLTexture> CreateTexture(u32 width, u32 height, MTLPixelFormat format,
                                  std::string_view label, bool full_usage = false) const;
+
+    id<MTLTexture> ReplaceWithFullUsage(Type type);
 
     void SyncHandle() {
         if (!handle) {
