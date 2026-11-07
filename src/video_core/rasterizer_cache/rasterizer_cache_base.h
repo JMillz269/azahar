@@ -192,6 +192,10 @@ private:
     void DownloadFillSurface(Surface& surface, SurfaceInterval interval);
 
     /// Attempt to find a reinterpretable surface in the cache and use it to copy for validation
+    /// Validates a tiled surface from another tiled surface of the same format and scale that
+    /// covers the same memory with a different stride, by copying the 8x8 tiles on the GPU.
+    bool ValidateByTileCopy(SurfaceId surface_id, SurfaceInterval interval);
+
     bool ValidateByReinterpretation(Surface& surface, SurfaceParams params,
                                     const SurfaceInterval& interval);
 
