@@ -41,6 +41,27 @@ void SetFramePacing(bool enabled);
 
 GpuStats& Stats();
 
+/// What is asking for the data of a surface while it is read back from the GPU (every readback
+/// makes the emulation thread wait for the GPU), to tell where the waits come from.
+inline thread_local const char* g_readback_reason = nullptr;
+
+struct ReadbackReason {
+    explicit ReadbackReason(const char* reason) : previous{g_readback_reason} {
+        g_readback_reason = reason;
+    }
+    ~ReadbackReason() {
+        g_readback_reason = previous;
+    }
+    const char* previous;
+};
+
+/// Adds a readback (what was read, how long the thread waited, how many bytes) to the summary.
+void RecordReadback(const std::string& what, double wait_ms, u64 bytes);
+
+/// The readbacks since the last call, the ones that cost the most first, one line each. Empty
+/// when there were none.
+std::vector<std::string> TakeReadbackSummary(std::size_t max_lines);
+
 /// Describes the attachments of a render pass.
 struct RenderTarget {
     id<MTLTexture> color = nil;

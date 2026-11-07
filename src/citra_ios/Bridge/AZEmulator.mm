@@ -831,6 +831,9 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
             _speed = stats.emulation_speed * 100.0;
             _fps = stats.game_fps;
             const auto gpu = Metal::TakeFrameStats();
+            for (const std::string& line : Metal::TakeReadbackSummary(4)) {
+                LOG_INFO(Frontend, "Readback {}", line);
+            }
             if (gpu.frames > 0) {
                 _gpuMs = gpu.gpu_ms;
                 _stallMs = gpu.stall_ms;

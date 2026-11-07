@@ -5,6 +5,8 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <vector>
 #include "common/common_types.h"
 
 // Public entry point of the native Metal renderer. This header is plain C++ so it can be included
@@ -71,6 +73,9 @@ struct FrameStats {
     u32 frames = 0;
 };
 FrameStats TakeFrameStats();
+
+/// Where the GPU readbacks of the last interval came from, see mtl_scheduler.h.
+std::vector<std::string> TakeReadbackSummary(std::size_t max_lines);
 
 /// Whether MetalFX upscaling can be used on this device.
 bool IsUpscalingSupported();

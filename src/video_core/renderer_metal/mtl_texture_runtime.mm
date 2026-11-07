@@ -3,6 +3,7 @@
 // Refer to the LICENSE.txt file included.
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include "common/alignment.h"
 #include "common/assert.h"
@@ -888,6 +889,7 @@ void Surface::UploadCustom(const VideoCore::Material* custom_material, u32 level
 
 void Surface::Download(const VideoCore::BufferTextureCopy& download,
                        const VideoCore::StagingData& staging) {
+    const auto readback_start = std::chrono::steady_clock::now();
     if (res_scale != 1) {
         const VideoCore::TextureBlit blit = {
             .src_level = download.texture_level,
@@ -949,6 +951,15 @@ void Surface::Download(const VideoCore::BufferTextureCopy& download,
 
     // The rasterizer cache reads the staging memory right after this returns.
     scheduler->Finish();
+    RecordReadback(
+        fmt::format("{}: type {} format {} {}x{} scale {} at {:#x}",
+                    g_readback_reason != nullptr ? g_readback_reason : "cache (texture validation)",
+                    static_cast<int>(type), static_cast<int>(pixel_format), rect_width, rect_height,
+                    res_scale, addr),
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                  readback_start)
+            .count(),
+        static_cast<u64>(staging.size));
 
     if (traits.has_stencil) {
         // Interleave back into (D24 << 8 | S8) words, which the codec then rotates.

@@ -304,7 +304,10 @@ void RasterizerMetal::UploadHardwareVertices(HardwareDraw& draw) {
         const PAddr data_addr =
             base_address + loader.data_offset + vertex_min * static_cast<u32>(loader.byte_count);
         const u32 data_size = static_cast<u32>(loader.byte_count) * vertex_num;
-        res_cache.FlushRegion(data_addr, data_size);
+        {
+            const ReadbackReason reason{"vertex data"};
+            res_cache.FlushRegion(data_addr, data_size);
+        }
 
         const MemoryRef source = memory.GetPhysicalRef(data_addr);
         const u32 available = static_cast<u32>(std::min<std::size_t>(source.GetSize(), data_size));
@@ -828,18 +831,22 @@ void RasterizerMetal::SyncAndUploadLUTs() {
 }
 
 void RasterizerMetal::FlushAll() {
+    const ReadbackReason reason{"flush all"};
     res_cache.FlushAll();
 }
 
 void RasterizerMetal::FlushRegion(PAddr addr, u32 size) {
+    const ReadbackReason reason{size <= 8 ? "CPU access to GPU memory" : "memory transfer (GSP)"};
     res_cache.FlushRegion(addr, size);
 }
 
 void RasterizerMetal::InvalidateRegion(PAddr addr, u32 size) {
+    const ReadbackReason reason{"CPU write to GPU memory"};
     res_cache.InvalidateRegion(addr, size);
 }
 
 void RasterizerMetal::FlushAndInvalidateRegion(PAddr addr, u32 size) {
+    const ReadbackReason reason{"flush and invalidate"};
     res_cache.FlushRegion(addr, size);
     res_cache.InvalidateRegion(addr, size);
 }

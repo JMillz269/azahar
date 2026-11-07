@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <map>
+#include <mutex>
+#include <string>
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
@@ -28,6 +31,42 @@ std::atomic<double> g_last_presented{0.0};
 /// Duration of an emulated frame at full speed (a 3DS runs at about 59.83 frames per second).
 constexpr double kFramePeriod = 1.0 / 59.83;
 } // namespace
+
+namespace {
+struct ReadbackEntry {
+    u32 count = 0;
+    double wait_ms = 0.0;
+    u64 bytes = 0;
+};
+std::mutex g_readback_mutex;
+std::map<std::string, ReadbackEntry> g_readbacks;
+} // namespace
+
+void RecordReadback(const std::string& what, double wait_ms, u64 bytes) {
+    std::scoped_lock lock{g_readback_mutex};
+    ReadbackEntry& entry = g_readbacks[what];
+    entry.count++;
+    entry.wait_ms += wait_ms;
+    entry.bytes += bytes;
+}
+
+std::vector<std::string> TakeReadbackSummary(std::size_t max_lines) {
+    std::map<std::string, ReadbackEntry> taken;
+    {
+        std::scoped_lock lock{g_readback_mutex};
+        taken.swap(g_readbacks);
+    }
+    std::vector<std::pair<std::string, ReadbackEntry>> sorted(taken.begin(), taken.end());
+    std::sort(sorted.begin(), sorted.end(),
+              [](const auto& a, const auto& b) { return a.second.wait_ms > b.second.wait_ms; });
+    std::vector<std::string> lines;
+    for (std::size_t i = 0; i < sorted.size() && i < max_lines; i++) {
+        const auto& [what, entry] = sorted[i];
+        lines.push_back(fmt::format("{} x{}, waited {:.1f} ms, {} KiB", what, entry.count,
+                                    entry.wait_ms, entry.bytes / 1024));
+    }
+    return lines;
+}
 
 void SetFramePacing(bool enabled) {
     g_frame_pacing.store(enabled, std::memory_order_relaxed);
