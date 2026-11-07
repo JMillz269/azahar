@@ -172,9 +172,7 @@ public:
     }
 
     void SetEffect(Service::CAM::Effect effect) override {
-        if (effect != Service::CAM::Effect::NoEffect) {
-            LOG_ERROR(Service_CAM, "Unimplemented effect {}", static_cast<int>(effect));
-        }
+        this->effect = effect;
     }
 
     void SetFormat(Service::CAM::OutputFormat format) override {
@@ -261,11 +259,53 @@ private:
     u32 width = 640;
     u32 height = 480;
     bool output_rgb = false;
+    std::atomic<Service::CAM::Effect> effect{Service::CAM::Effect::NoEffect};
     bool flip_horizontal = false;
     bool flip_vertical = false;
     bool basic_flip_horizontal = false;
     bool basic_flip_vertical = false;
 };
+
+/// Applies the effect a game asked the camera for (Sepia, Negative...) to a pixel in [0, 255].
+/// The console's image processor is not documented, these are the usual looks of the effects.
+void ApplyEffect(Service::CAM::Effect effect, float rgb[3]) {
+    using Service::CAM::Effect;
+    if (effect == Effect::NoEffect) {
+        return;
+    }
+    const float luma = 0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2];
+    switch (effect) {
+    case Effect::Mono:
+        rgb[0] = rgb[1] = rgb[2] = luma;
+        break;
+    case Effect::Sepia:
+        rgb[0] = luma * 1.2f;
+        rgb[1] = luma * 0.95f;
+        rgb[2] = luma * 0.65f;
+        break;
+    case Effect::Sepia01:
+        rgb[0] = luma * 1.1f + 20.0f;
+        rgb[1] = luma + 10.0f;
+        rgb[2] = luma * 0.75f;
+        break;
+    case Effect::Negative:
+        for (int c = 0; c < 3; c++) {
+            rgb[c] = 255.0f - rgb[c];
+        }
+        break;
+    case Effect::Negafilm:
+        // A film negative: inverted with the orange cast of the film base.
+        rgb[0] = 255.0f - rgb[0];
+        rgb[1] = (255.0f - rgb[1]) * 0.92f;
+        rgb[2] = (255.0f - rgb[2]) * 0.75f;
+        break;
+    default:
+        break;
+    }
+    for (int c = 0; c < 3; c++) {
+        rgb[c] = std::clamp(rgb[c], 0.0f, 255.0f);
+    }
+}
 
 /// Samples a BGRA image with bilinear filtering.
 struct Sampler {
@@ -322,6 +362,7 @@ std::vector<u16> IOSCamera::ReceiveFrame() {
     const float origin_x = (static_cast<float>(sampler.width) - crop_width) / 2.0f;
     const float origin_y = (static_cast<float>(sampler.height) - crop_height) / 2.0f;
 
+    const Service::CAM::Effect current_effect = effect.load();
     const auto pixel = [&](u32 x, u32 y, float rgb[3]) {
         const u32 source_x = flip_horizontal ? width - 1 - x : x;
         const u32 source_y = flip_vertical ? height - 1 - y : y;
@@ -329,6 +370,7 @@ std::vector<u16> IOSCamera::ReceiveFrame() {
                        origin_y + (static_cast<float>(source_y) + 0.5f) * crop_height / height -
                            0.5f,
                        rgb);
+        ApplyEffect(current_effect, rgb);
     };
 
     if (output_rgb) {

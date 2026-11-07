@@ -2,6 +2,7 @@
 // Licensed under GPLv3 or any later version
 // Refer to the LICENSE.txt file included.
 
+import AVFoundation
 import AzaharCore
 import Foundation
 import UIKit
@@ -180,6 +181,7 @@ final class EmulationSession: ObservableObject {
         }
 
         UIApplication.shared.isIdleTimerDisabled = true
+        prepareAudioSession(recording: settings.useMicrophone)
         controllers.start()
         if settings.useMotion {
             motion.start()
@@ -228,7 +230,28 @@ final class EmulationSession: ObservableObject {
         }
     }
 
+    /// Playback only, or playback and recording when the game may use the microphone. Recording
+    /// asks for permission the first time.
+    private func prepareAudioSession(recording: Bool) {
+        let audio = AVAudioSession.sharedInstance()
+        guard recording else {
+            try? audio.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try? audio.setActive(true)
+            return
+        }
+        audio.requestRecordPermission { granted in
+            Task { @MainActor in
+                let category: AVAudioSession.Category = granted ? .playAndRecord : .playback
+                var options: AVAudioSession.CategoryOptions = [.mixWithOthers]
+                if granted { options.insert(.defaultToSpeaker) }
+                try? audio.setCategory(category, mode: .default, options: options)
+                try? audio.setActive(true)
+            }
+        }
+    }
+
     private func cleanUp() {
+        prepareAudioSession(recording: false)
         statsTimer?.invalidate()
         statsTimer = nil
         controllers.stop()

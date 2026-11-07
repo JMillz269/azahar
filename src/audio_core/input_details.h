@@ -27,6 +27,9 @@ enum class InputType : u32 {
 #ifdef HAVE_LIBRETRO
     LibRetro = 5,
 #endif
+#ifdef HAVE_CUSTOM_INPUT
+    Custom = 6, ///< Provided by the frontend, see SetCustomInputFactory
+#endif
 };
 
 struct InputDetails {
@@ -44,6 +47,10 @@ struct InputDetails {
     /// A method to call to list available devices.
     ListDevicesFn list_devices;
 };
+
+/// Sets what creates the input of type Custom, which the frontend implements (the device
+/// microphone on iOS). Without one, or without microphone permission, Custom is a silent input.
+void SetCustomInputFactory(InputDetails::FactoryFn factory);
 
 /// Lists all available input types.
 std::vector<InputDetails> ListInputs();

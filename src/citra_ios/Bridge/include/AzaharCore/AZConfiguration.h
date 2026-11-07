@@ -85,6 +85,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 
 // Audio
 @property(nonatomic) BOOL audioStretching;
+/// Feeds the device microphone to the emulated console's microphone.
+@property(nonatomic) BOOL useMicrophone;
 @property(nonatomic) float volume;
 
 // System

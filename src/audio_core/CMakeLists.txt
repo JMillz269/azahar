@@ -66,6 +66,11 @@ if(ENABLE_CUBEB)
     target_compile_definitions(audio_core PUBLIC HAVE_CUBEB)
 endif()
 
+if(IOS)
+    # The iOS frontend provides the microphone (AVAudioEngine) through SetCustomInputFactory.
+    target_compile_definitions(audio_core PUBLIC HAVE_CUSTOM_INPUT)
+endif()
+
 if(ENABLE_OPENAL)
     target_link_libraries(audio_core PRIVATE OpenAL)
     target_compile_definitions(audio_core PUBLIC HAVE_OPENAL)

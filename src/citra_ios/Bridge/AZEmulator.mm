@@ -22,7 +22,9 @@
 #include <pthread/qos.h>
 #include <unistd.h>
 
+#include "audio_core/input_details.h"
 #include "citra_ios/Bridge/camera_ios.h"
+#include "citra_ios/Bridge/mic_ios.h"
 #include "citra_ios/Bridge/emu_window_ios.h"
 #include "citra_ios/Bridge/input_ios.h"
 #include "common/apple_jit.h"
@@ -403,6 +405,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     // The cameras are off until the settings say otherwise (see applyConfiguration).
     Settings::values.camera_name.fill("blank");
     Camera::RegisterIOSCameraFactory();
+    AudioCore::RegisterIOSMicrophone();
 
     // The native Metal renderer is the only hardware renderer on iOS.
     Settings::values.graphics_api = Settings::GraphicsAPI::Metal;
@@ -450,6 +453,9 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     values.swap_eyes_3d = configuration.swapEyes3D;
     values.async_shader_compilation = configuration.asyncShaderCompilation;
     Metal::SetFramePacing(configuration.framePacing);
+    // The device microphone, or the static noise the console got before it was available.
+    values.input_type = configuration.useMicrophone ? AudioCore::InputType::Custom
+                                                    : AudioCore::InputType::Static;
     values.use_disk_shader_cache = configuration.diskShaderCache;
     Metal::SetUpscalerMode(configuration.upscaling == 1 ? Metal::UpscalerMode::Spatial
                                                         : Metal::UpscalerMode::Off);

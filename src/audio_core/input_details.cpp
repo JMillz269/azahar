@@ -3,6 +3,7 @@
 // Refer to the misc/licenses/gplv2.txt file included.
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,8 +24,24 @@
 
 namespace AudioCore {
 namespace {
+#ifdef HAVE_CUSTOM_INPUT
+std::atomic<InputDetails::FactoryFn> g_custom_input_factory{nullptr};
+#endif
+
 // input_details is ordered in terms of desirability, with the best choice at the top.
 constexpr std::array input_details = {
+#ifdef HAVE_CUSTOM_INPUT
+    InputDetails{InputType::Custom, "Device Microphone", true,
+                 [](Core::System& system, std::string_view device_id) -> std::unique_ptr<Input> {
+                     const auto factory = g_custom_input_factory.load();
+                     if (factory == nullptr || !system.HasMicPermission()) {
+                         LOG_WARNING(Audio, "No microphone available, falling back to null input.");
+                         return std::make_unique<NullInput>();
+                     }
+                     return factory(system, device_id);
+                 },
+                 [] { return std::vector<std::string>{"Default Microphone"}; }},
+#endif
 #ifdef HAVE_LIBRETRO
     InputDetails{InputType::LibRetro, "Real Device (LibRetro)", true,
                  [](Core::System& system, std::string_view device_id) -> std::unique_ptr<Input> {
@@ -73,6 +90,12 @@ constexpr std::array input_details = {
                  [] { return std::vector<std::string>{"None"}; }},
 };
 } // Anonymous namespace
+
+void SetCustomInputFactory([[maybe_unused]] InputDetails::FactoryFn factory) {
+#ifdef HAVE_CUSTOM_INPUT
+    g_custom_input_factory.store(factory);
+#endif
+}
 
 std::vector<InputDetails> ListInputs() {
     return {input_details.begin(), input_details.end()};

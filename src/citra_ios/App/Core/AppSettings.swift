@@ -248,6 +248,7 @@ final class AppSettings: ObservableObject {
     @Published var respectNotch: Bool { didSet { save(respectNotch, "respectNotch") } }
 
     // Audio
+    @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
 
@@ -308,6 +309,7 @@ final class AppSettings: ObservableObject {
         swapScreens = value("swapScreens", false)
         respectNotch = value("respectNotch", true)
 
+        useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)
 
@@ -369,6 +371,7 @@ final class AppSettings: ObservableObject {
         config.preloadTextures = preloadTextures
         config.dumpTextures = dumpTextures
         config.audioStretching = audioStretching
+        config.useMicrophone = useMicrophone
         config.volume = Float(volume)
         config.isNew3DS = isNew3DS
         config.region = region.rawValue

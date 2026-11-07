@@ -23,11 +23,13 @@ set(BRIDGE_OBJCXX_SOURCES
     Bridge/AZGameInfo.mm
     Bridge/AZMultiplayer.mm
     Bridge/camera_ios.mm
+    Bridge/mic_ios.mm
 )
 
 add_library(azahar_ios_bridge STATIC
     ${BRIDGE_OBJCXX_SOURCES}
     Bridge/camera_ios.h
+    Bridge/mic_ios.h
     Bridge/emu_window_ios.cpp
     Bridge/emu_window_ios.h
     Bridge/input_ios.cpp
