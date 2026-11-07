@@ -25,6 +25,9 @@ struct EmulationView: View {
     @State private var showingMultiplayer = false
     @State private var editingScreens = false
     @State private var resumeAfterEditing = false
+    /// The game was paused because the menu came up, and runs again once it is gone.
+    @State private var pausedForMenu = false
+    @State private var resumeTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -139,7 +142,14 @@ struct EmulationView: View {
         .defersSystemGestures(on: .all)
         .confirmationDialog(session.currentGame?.title ?? "Emulation",
                             isPresented: $showingMenu, titleVisibility: .visible) {
-            Button(session.isPaused ? "Resume" : "Pause") { session.togglePause() }
+            if pausedForMenu {
+                // The game is paused while the menu is up. Leaving it paused afterwards is a choice.
+                Button("Keep Paused") { pausedForMenu = false }
+            }
+            Button(session.isPaused ? "Resume" : "Pause") {
+                pausedForMenu = false
+                session.togglePause()
+            }
             Button(controllerShown ? "Hide Controller" : "Show Controller") {
                 if controllerShown {
                     controllerVisible = false
@@ -197,6 +207,9 @@ struct EmulationView: View {
         } message: {
             Text(session.notice?.message ?? "")
         }
+        .onChange(of: menuVisible) { visible in
+            menuVisibilityChanged(visible)
+        }
         .onChange(of: editingLayout) { editing in
             if !editing && resumeAfterEditing {
                 resumeAfterEditing = false
@@ -225,6 +238,38 @@ struct EmulationView: View {
 }
 
 extension EmulationView {
+    /// Whether the menu, or something it opened that the game should wait for, is on screen. The
+    /// multiplayer room is not part of it: the others in the room keep playing.
+    fileprivate var menuVisible: Bool {
+        showingMenu || showingSaveStates || showingLoadStates || showingCheats || showingAmiibo
+            || editingLayout
+    }
+
+    /// Pauses the game while the menu is up and runs it again when it is gone.
+    fileprivate func menuVisibilityChanged(_ visible: Bool) {
+        resumeTask?.cancel()
+        resumeTask = nil
+        if visible {
+            // A game that was paused already stays paused afterwards.
+            if !session.isPaused {
+                session.togglePause()
+                pausedForMenu = true
+            }
+            return
+        }
+        guard pausedForMenu else { return }
+        // The menu hands over to the screen of the choice (save states, cheats) in a moment where
+        // neither shows, wait a little so the game does not run in between.
+        resumeTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, !menuVisible, pausedForMenu else { return }
+            pausedForMenu = false
+            if session.isPaused {
+                session.togglePause()
+            }
+        }
+    }
+
     /// Whether the on-screen controller is drawn: it is hidden by the menu, and while a physical
     /// controller is connected (when the setting says so).
     fileprivate var controllerShown: Bool {
