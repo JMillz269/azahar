@@ -68,6 +68,117 @@ std::vector<std::string> TakeReadbackSummary(std::size_t max_lines) {
     return lines;
 }
 
+namespace {
+struct PassEntry {
+    u32 count = 0;
+    u32 draws = 0;
+    u32 empty = 0;
+};
+struct PassStats {
+    std::map<std::string, PassEntry> targets;
+    std::map<std::string, u32> end_reasons;
+    std::map<std::string, u32> reopened_after;
+    u32 total = 0;
+    u32 reopened = 0;
+    u64 bytes = 0;
+};
+std::mutex g_pass_mutex;
+PassStats g_pass_stats;
+} // namespace
+
+std::vector<std::string> TakeRenderPassSummary(std::size_t max_lines) {
+    PassStats stats;
+    {
+        std::scoped_lock lock{g_pass_mutex};
+        std::swap(stats, g_pass_stats);
+    }
+    std::vector<std::string> lines;
+    if (stats.total == 0) {
+        return lines;
+    }
+    const auto join = [](const std::map<std::string, u32>& counts) {
+        std::vector<std::pair<std::string, u32>> sorted(counts.begin(), counts.end());
+        std::sort(sorted.begin(), sorted.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+        std::string text;
+        for (const auto& [name, count] : sorted) {
+            text += fmt::format("{}{} {}", text.empty() ? "" : ", ", name, count);
+        }
+        return text.empty() ? std::string{"none"} : text;
+    };
+    u32 empty = 0;
+    for (const auto& [key, entry] : stats.targets) {
+        empty += entry.empty;
+    }
+    lines.push_back(fmt::format(
+        "{} passes, {} without draws, {} reopened the target of the pass before (after: {}), "
+        "about {} MiB of attachments loaded and stored",
+        stats.total, empty, stats.reopened, join(stats.reopened_after),
+        stats.bytes / (1024 * 1024)));
+    lines.push_back(fmt::format("ended by: {}", join(stats.end_reasons)));
+    std::vector<std::pair<std::string, PassEntry>> sorted(stats.targets.begin(),
+                                                          stats.targets.end());
+    std::sort(sorted.begin(), sorted.end(),
+              [](const auto& a, const auto& b) { return a.second.count > b.second.count; });
+    for (std::size_t i = 0; i < sorted.size() && lines.size() < max_lines; i++) {
+        const auto& [key, entry] = sorted[i];
+        lines.push_back(fmt::format("{}: x{}, {} draws, {} without draws", key, entry.count,
+                                    entry.draws, entry.empty));
+    }
+    return lines;
+}
+
+void Scheduler::BeginPassStats(u32 width, u32 height, bool color, bool depth, bool stencil,
+                               bool game, const RenderTarget* target) {
+    std::string attachments;
+    if (color) {
+        attachments = "color";
+    }
+    if (depth) {
+        attachments += attachments.empty() ? "depth" : "+depth";
+    }
+    if (stencil) {
+        attachments += "+stencil";
+    }
+    if (attachments.empty()) {
+        attachments = "no attachments";
+    }
+    pass_key = fmt::format("{} {}x{} {}", game ? "game" : "utility", width, height, attachments);
+    // Every attachment is loaded at the start and stored at the end (rough: 4 bytes a pixel).
+    pass_bytes = static_cast<u64>(width) * height * ((color ? 4 : 0) + (depth ? 4 : 0)) * 2;
+    pass_draws = 0;
+    pass_open = true;
+
+    std::scoped_lock lock{g_pass_mutex};
+    g_pass_stats.total++;
+    if (game && target != nullptr && last_pass_was_target && *target == last_pass_target) {
+        g_pass_stats.reopened++;
+        g_pass_stats.reopened_after[last_end_reason]++;
+    }
+}
+
+void Scheduler::EndPassStats() {
+    if (!pass_open) {
+        return;
+    }
+    pass_open = false;
+    const char* reason = end_reason != nullptr ? end_reason : "its caller";
+    end_reason = nullptr;
+    last_end_reason = reason;
+    last_pass_was_target = has_render_target;
+    last_pass_target = has_render_target ? current_target : RenderTarget{};
+
+    std::scoped_lock lock{g_pass_mutex};
+    PassEntry& entry = g_pass_stats.targets[pass_key];
+    entry.count++;
+    entry.draws += pass_draws;
+    if (pass_draws == 0) {
+        entry.empty++;
+    }
+    g_pass_stats.end_reasons[reason]++;
+    g_pass_stats.bytes += pass_bytes;
+}
+
 void SetFramePacing(bool enabled) {
     g_frame_pacing.store(enabled, std::memory_order_relaxed);
 }
@@ -112,7 +223,9 @@ id<MTLBlitCommandEncoder> Scheduler::BlitEncoder() {
     if (blit_encoder != nil) {
         return blit_encoder;
     }
+    end_reason = "a blit (copy or upload)";
     EndEncoding();
+    end_reason = nullptr;
     blit_encoder = [CommandBuffer() blitCommandEncoder];
     Stats().blit_passes.fetch_add(1, std::memory_order_relaxed);
     return blit_encoder;
@@ -122,7 +235,9 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
     if (IsRenderingTo(target)) {
         return render_encoder;
     }
+    end_reason = "another target";
     EndEncoding();
+    end_reason = nullptr;
 
     MTLRenderPassDescriptor* descriptor = [MTLRenderPassDescriptor renderPassDescriptor];
     if (target.color != nil) {
@@ -157,6 +272,8 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
 
     render_encoder = [CommandBuffer() renderCommandEncoderWithDescriptor:descriptor];
     Stats().render_passes.fetch_add(1, std::memory_order_relaxed);
+    BeginPassStats(target.width, target.height, target.color != nil, target.depth != nil,
+                   target.has_stencil, true, &target);
     current_target = target;
     has_render_target = true;
     encoder_generation++;
@@ -164,9 +281,19 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
 }
 
 id<MTLRenderCommandEncoder> Scheduler::BeginRendering(MTLRenderPassDescriptor* descriptor) {
+    end_reason = "a utility pass (clear, blit, present)";
     EndEncoding();
+    end_reason = nullptr;
     render_encoder = [CommandBuffer() renderCommandEncoderWithDescriptor:descriptor];
     Stats().render_passes.fetch_add(1, std::memory_order_relaxed);
+    {
+        id<MTLTexture> color = descriptor.colorAttachments[0].texture;
+        id<MTLTexture> depth = descriptor.depthAttachment.texture;
+        id<MTLTexture> sized = color != nil ? color : depth;
+        BeginPassStats(sized != nil ? static_cast<u32>(sized.width) : 0,
+                       sized != nil ? static_cast<u32>(sized.height) : 0, color != nil,
+                       depth != nil, descriptor.stencilAttachment.texture != nil, false, nullptr);
+    }
     has_render_target = false;
     encoder_generation++;
     return render_encoder;
@@ -174,6 +301,7 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(MTLRenderPassDescriptor* d
 
 void Scheduler::EndEncoding() {
     if (render_encoder != nil) {
+        EndPassStats();
         [render_encoder endEncoding];
         render_encoder = nil;
         has_render_target = false;
@@ -206,7 +334,9 @@ void Scheduler::Flush() {
     for (const auto& func : on_submit) {
         func();
     }
+    end_reason = "a submit (readback, frame end)";
     EndEncoding();
+    end_reason = nullptr;
     if (command_buffer == nil && pending_drawables.empty()) {
         return;
     }

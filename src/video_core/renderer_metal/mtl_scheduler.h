@@ -8,6 +8,7 @@
 #include <chrono>
 #include <deque>
 #include <functional>
+#include <string>
 #include <utility>
 #include <vector>
 #include "video_core/renderer_metal/mtl_common.h"
@@ -61,6 +62,10 @@ void RecordReadback(const std::string& what, double wait_ms, u64 bytes);
 /// The readbacks since the last call, the ones that cost the most first, one line each. Empty
 /// when there were none.
 std::vector<std::string> TakeReadbackSummary(std::size_t max_lines);
+
+/// What the render passes since the last call were (targets, why they ended, how many reopened
+/// the target the previous pass used), one line each. Empty when there were none.
+std::vector<std::string> TakeRenderPassSummary(std::size_t max_lines);
 
 /// Describes the attachments of a render pass.
 struct RenderTarget {
@@ -129,6 +134,11 @@ public:
     /// Ends the active encoder, if any.
     void EndEncoding();
 
+    /// Counts a draw in the active render pass, for the render pass statistics.
+    void NoteDraw() {
+        pass_draws++;
+    }
+
     /// Schedules a drawable to be presented when the current command buffer is committed. With
     /// frame pacing on, it is held on screen for the time of an emulated frame, which keeps the
     /// frames evenly spaced on displays that refresh faster than the game runs. `measure` adds the
@@ -175,6 +185,9 @@ public:
 
 private:
     void PruneInFlight();
+    void BeginPassStats(u32 width, u32 height, bool color, bool depth, bool stencil, bool game,
+                        const RenderTarget* target);
+    void EndPassStats();
 
 private:
     id<MTLCommandQueue> queue;
@@ -195,6 +208,16 @@ private:
     };
     std::vector<PendingDrawable> pending_drawables;
     u32 debug_group_depth{};
+
+    // Render pass statistics.
+    const char* end_reason = nullptr; ///< Why the active pass is about to end, null: its caller
+    const char* last_end_reason = "";
+    std::string pass_key;
+    u64 pass_bytes{};
+    u32 pass_draws{};
+    bool pass_open{};
+    bool last_pass_was_target{};
+    RenderTarget last_pass_target{};
 };
 
 } // namespace Metal

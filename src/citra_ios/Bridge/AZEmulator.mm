@@ -834,6 +834,9 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
             for (const std::string& line : Metal::TakeReadbackSummary(4)) {
                 LOG_INFO(Frontend, "Readback {}", line);
             }
+            for (const std::string& line : Metal::TakeRenderPassSummary(8)) {
+                LOG_INFO(Frontend, "Render passes (per second): {}", line);
+            }
             if (gpu.frames > 0) {
                 _gpuMs = gpu.gpu_ms;
                 _stallMs = gpu.stall_ms;

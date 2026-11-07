@@ -602,6 +602,7 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     }
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertex_count];
     Stats().draws.fetch_add(1, std::memory_order_relaxed);
+    scheduler.NoteDraw();
     return true;
 }
 

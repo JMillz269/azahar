@@ -77,6 +77,9 @@ FrameStats TakeFrameStats();
 /// Where the GPU readbacks of the last interval came from, see mtl_scheduler.h.
 std::vector<std::string> TakeReadbackSummary(std::size_t max_lines);
 
+/// What the render passes of the last interval were, see mtl_scheduler.h.
+std::vector<std::string> TakeRenderPassSummary(std::size_t max_lines);
+
 /// Whether MetalFX upscaling can be used on this device.
 bool IsUpscalingSupported();
 
