@@ -10,6 +10,7 @@ struct GamesListView: View {
     @EnvironmentObject private var library: GameLibrary
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var session: EmulationSession
+    @EnvironmentObject private var compressor: GameCompressor
 
     @State private var searchText = ""
     @State private var gamePendingDeletion: Game?
@@ -82,7 +83,23 @@ struct GamesListView: View {
                 }
             }
             .overlay {
-                if let name = library.installName {
+                if compressor.isRunning, let name = compressor.currentName {
+                    VStack(spacing: 10) {
+                        Text("Compressing")
+                            .font(.headline)
+                        Text(name)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        ProgressView(value: compressor.progress)
+                            .frame(width: 220)
+                        Text("\(Int((compressor.progress * 100).rounded()))%")
+                            .font(.caption.monospacedDigit())
+                    }
+                    .padding(24)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                } else if let name = library.installName {
                     VStack(spacing: 10) {
                         Text("Installing")
                             .font(.headline)
@@ -185,6 +202,16 @@ struct GamesListView: View {
             selectedGameInfo = game
         } label: {
             Label("Game Info", systemImage: "info.circle")
+        }
+        if let compressed = game.compressedExtension {
+            Button {
+                compressor.compress([game.url],
+                                    deleteSources: !settings.keepOriginalsWhenCompressing,
+                                    library: library)
+            } label: {
+                Label("Convert to .\(compressed)", systemImage: "arrow.down.right.and.arrow.up.left")
+            }
+            .disabled(compressor.isRunning)
         }
         Button(role: .destructive) {
             gamePendingDeletion = game

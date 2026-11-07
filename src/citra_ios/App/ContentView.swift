@@ -8,6 +8,7 @@ import UIKit
 /// Root view: the library and settings tabs, swapped for the emulation view while a game runs.
 struct ContentView: View {
     @EnvironmentObject private var session: EmulationSession
+    @EnvironmentObject private var compressor: GameCompressor
 
     var body: some View {
         Group {
@@ -20,6 +21,14 @@ struct ContentView: View {
                         .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
                     SettingsView()
                         .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                }
+                .alert("Compression", isPresented: Binding(
+                    get: { compressor.summary != nil },
+                    set: { if !$0 { compressor.summary = nil } })
+                ) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(compressor.summary ?? "")
                 }
                 .transition(.opacity)
             }

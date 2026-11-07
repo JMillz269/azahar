@@ -132,14 +132,6 @@ struct GeneralSettingsView: View {
             }
         }
         .navigationTitle("General")
-        .alert("Compression", isPresented: Binding(
-            get: { compressor.summary != nil },
-            set: { if !$0 { compressor.summary = nil } })
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(compressor.summary ?? "")
-        }
     }
 }
 

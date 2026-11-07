@@ -25,6 +25,18 @@ struct Game: Identifiable, Hashable {
     /// The path the emulator is started with.
     var startPath: String { launchPath ?? url.path }
 
+    /// The extension of the compressed form of the game, nil when it is compressed already or
+    /// cannot be compressed (installed titles, encrypted games, Artic).
+    var compressedExtension: String? {
+        guard !isInstalled, launchPath == nil, !isEncrypted else { return nil }
+        switch url.pathExtension.lowercased() {
+        case "cci", "3ds": return "zcci"
+        case "cxi": return "zcxi"
+        case "3dsx": return "z3dsx"
+        default: return nil
+        }
+    }
+
     var programIDString: String {
         String(format: "%016llX", programID)
     }
