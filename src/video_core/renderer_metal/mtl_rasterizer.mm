@@ -782,29 +782,44 @@ void RasterizerMetal::SyncAndUploadLUTsLF() {
         pica.fog.lut_dirty = true;
     }
 
+    // With fast lighting the entries are half2, half the bytes for every lookup (the 3DS tables
+    // are 12-bit values, half precision holds them almost exactly). See MetalFSConfig::half_luts.
+    struct HalfPair {
+        _Float16 value;
+        _Float16 diff;
+    };
+    const bool half = GetQualityOptions().fast_lighting;
+    const std::size_t entry_size = half ? sizeof(HalfPair) : sizeof(Common::Vec2f);
+    const auto write = [&](std::size_t index, float value, float diff) {
+        if (half) {
+            reinterpret_cast<HalfPair*>(buffer + bytes_used)[index] = {
+                static_cast<_Float16>(value), static_cast<_Float16>(diff)};
+        } else {
+            reinterpret_cast<Common::Vec2f*>(buffer + bytes_used)[index] = {value, diff};
+        }
+    };
+
     // Sync the lighting luts
     while (pica.lighting.lut_dirty) {
         u32 index = std::countr_zero(pica.lighting.lut_dirty);
         pica.lighting.lut_dirty &= ~(1 << index);
 
-        Common::Vec2f* new_data = reinterpret_cast<Common::Vec2f*>(buffer + bytes_used);
         const auto& source_lut = pica.lighting.luts[index];
         for (u32 i = 0; i < source_lut.size(); i++) {
-            new_data[i] = {source_lut[i].ToFloat(), source_lut[i].DiffToFloat()};
+            write(i, source_lut[i].ToFloat(), source_lut[i].DiffToFloat());
         }
         fs_data.lighting_lut_offset[index / 4][index % 4] =
-            static_cast<int>((offset + bytes_used) / sizeof(Common::Vec2f));
-        bytes_used += source_lut.size() * sizeof(Common::Vec2f);
+            static_cast<int>((offset + bytes_used) / entry_size);
+        bytes_used += source_lut.size() * entry_size;
     }
 
     // Sync the fog lut
     if (pica.fog.lut_dirty) {
-        Common::Vec2f* new_data = reinterpret_cast<Common::Vec2f*>(buffer + bytes_used);
         for (u32 i = 0; i < pica.fog.lut.size(); i++) {
-            new_data[i] = {pica.fog.lut[i].ToFloat(), pica.fog.lut[i].DiffToFloat()};
+            write(i, pica.fog.lut[i].ToFloat(), pica.fog.lut[i].DiffToFloat());
         }
-        fs_data.fog_lut_offset = static_cast<int>((offset + bytes_used) / sizeof(Common::Vec2f));
-        bytes_used += pica.fog.lut.size() * sizeof(Common::Vec2f);
+        fs_data.fog_lut_offset = static_cast<int>((offset + bytes_used) / entry_size);
+        bytes_used += pica.fog.lut.size() * entry_size;
         pica.fog.lut_dirty = false;
     }
 

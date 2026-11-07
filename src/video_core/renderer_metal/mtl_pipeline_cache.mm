@@ -211,6 +211,7 @@ PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInt
                                    static_cast<u64>(has_depth_attachment));
     metal_config.vertex_depth = UsesVertexDepth(regs, has_depth_attachment);
     metal_config.fast_color = GetQualityOptions().fast_color;
+    metal_config.half_luts = GetQualityOptions().fast_lighting;
     if (metal_config.fast_lighting) {
         hash = Common::HashCombine(hash, 0xFA57'1164'7000'0001ULL);
     }
@@ -219,6 +220,9 @@ PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInt
     }
     if (metal_config.fast_color) {
         hash = Common::HashCombine(hash, 0xFA57'C010'0000'0003ULL);
+    }
+    if (metal_config.half_luts) {
+        hash = Common::HashCombine(hash, 0x4A1F'0000'0000'0004ULL);
     }
     hash = hash == 0 ? 1 : hash;
     if (const auto it = fragment_shaders.find(hash); it != fragment_shaders.end()) {

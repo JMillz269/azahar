@@ -85,8 +85,12 @@ struct MetalFSConfig {
     /// The vertex shader already maps the depth to the PICA depth range (VSDepthData::enabled),
     /// so the fragment shader does not write [[depth]]. Not for W-buffering.
     bool vertex_depth = false;
-    /// The texture combiners compute in half precision, see QualityOptions::fast_color.
+    /// The texture combiners and the fog compute in half precision, see
+    /// QualityOptions::fast_color.
     bool fast_color = false;
+    /// The lighting and fog lookup tables (FS_BUFFER_LUT_LF) hold half2 instead of float2
+    /// entries. Set for every shader while fast lighting is on, the buffer is shared.
+    bool half_luts = false;
 };
 
 /// Depth mapping done in the vertex shader instead of the fragment shader. Writing [[depth]] in a

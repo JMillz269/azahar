@@ -280,6 +280,7 @@ int main(int argc, char** argv) {
         // Lighting is on for even i, use fast lighting for half of those.
         metal_config.fast_lighting = (i / 2) % 2 != 0;
         metal_config.fast_color = (i % 4) >= 2;
+        metal_config.half_luts = metal_config.fast_lighting;
         metal_config.vertex_depth = metal_config.has_depth_attachment && (i % 6) < 3;
 
         Write(out_dir, "fs_random_" + std::to_string(i) + ".metal",

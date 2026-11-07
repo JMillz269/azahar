@@ -344,7 +344,8 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
     void DefineEntryPoint() {
         out += fmt::format("\nfragment FSOutput {}(FSInput in [[stage_in]]", FS_ENTRY_POINT);
         out += fmt::format(",\n    constant FSUniforms& fs [[buffer({})]]", +FS_BUFFER_UNIFORMS);
-        out += fmt::format(",\n    const device float2* lut_lf [[buffer({})]]", +FS_BUFFER_LUT_LF);
+        out += fmt::format(",\n    const device {}* lut_lf [[buffer({})]]",
+                           metal.half_luts ? "half2" : "float2", +FS_BUFFER_LUT_LF);
         out += fmt::format(",\n    const device float2* lut_rg [[buffer({})]]", +FS_BUFFER_LUT_RG);
         out +=
             fmt::format(",\n    const device float4* lut_rgba [[buffer({})]]", +FS_BUFFER_LUT_RGBA);
@@ -460,7 +461,7 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
 
         out += R"(
     float LookupLightingLUT(int lut_index, int index, float delta) {
-        float2 entry = lut_lf[fs.lighting_lut_offset[lut_index >> 2][lut_index & 3] + index];
+        float2 entry = float2(lut_lf[fs.lighting_lut_offset[lut_index >> 2][lut_index & 3] + index]);
         return entry.x + entry.y * delta;
     }
 
@@ -1639,11 +1640,17 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         // Generate clamped fog factor from LUT for given fog index
         out += "        float fog_i = clamp(floor(fog_index), 0.0f, 127.0f);\n"
                "        float fog_f = fog_index - fog_i;\n"
-               "        float2 fog_lut_entry = lut_lf[int(fog_i) + fs.fog_lut_offset];\n"
+               "        float2 fog_lut_entry = float2(lut_lf[int(fog_i) + fs.fog_lut_offset]);\n"
                "        float fog_factor = fog_lut_entry.x + fog_lut_entry.y * fog_f;\n"
                "        fog_factor = clamp(fog_factor, 0.0f, 1.0f);\n";
 
-        // Blend the fog
+        // Blend the fog. With fast color math the blend is done in half precision (the fog
+        // position above stays in float, it comes from the depth).
+        if (metal.fast_color) {
+            out += "        combiner_output.rgb = float3(mix(half3(fs.fog_color.rgb), "
+                   "half3(combiner_output.rgb), half(fog_factor)));\n";
+            return;
+        }
         out += "        combiner_output.rgb = mix(fs.fog_color.rgb, combiner_output.rgb, "
                "fog_factor);\n";
     }
