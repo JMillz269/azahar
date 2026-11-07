@@ -1255,6 +1255,19 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
             "        float3 normal = quaternion_rotate(normalized_normquat, surface_normal);\n"
             "        float3 tangent = quaternion_rotate(normalized_normquat, surface_tangent);\n";
 
+        // Fast lighting: the unit vectors the lookup tables are indexed with are kept in half
+        // precision (Apple GPUs do half math at twice the rate) and normalized once per light
+        // with the fast functions. Positions and distances stay in float.
+        const bool fast = metal.fast_lighting;
+        if (fast) {
+            out += "        half3 normal_h = half3(normal);\n"
+                   "        half3 tangent_h = half3(tangent);\n"
+                   "        float3 view_dir = fast::normalize(view);\n"
+                   "        half3 view_h = half3(view_dir);\n"
+                   "        half3 light_h = half3(0.0h);\n"
+                   "        half3 half_h = half3(0.0h);\n";
+        }
+
         if (lighting.enable_shadow) {
             const std::string shadow_texture =
                 fmt::format("sampleTexUnit{}()", lighting.shadow_selector.Value());
@@ -1268,21 +1281,25 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
         }
 
         // Samples the specified lookup table for specular lighting
-        const auto get_lut_value = [&lighting](LightingRegs::LightingSampler sampler, u32 light_num,
-                                               LightingRegs::LightingLutInput input, bool abs) {
+        const auto get_lut_value = [&lighting, fast](LightingRegs::LightingSampler sampler,
+                                                     u32 light_num,
+                                                     LightingRegs::LightingLutInput input,
+                                                     bool abs) {
             std::string index;
             switch (input) {
             case LightingRegs::LightingLutInput::NH:
-                index = "dot(normal, normalize(half_vector))";
+                index = fast ? "float(dot(normal_h, half_h))"
+                             : "dot(normal, normalize(half_vector))";
                 break;
             case LightingRegs::LightingLutInput::VH:
-                index = "dot(normalize(view), normalize(half_vector))";
+                index = fast ? "float(dot(view_h, half_h))"
+                             : "dot(normalize(view), normalize(half_vector))";
                 break;
             case LightingRegs::LightingLutInput::NV:
-                index = "dot(normal, normalize(view))";
+                index = fast ? "float(dot(normal_h, view_h))" : "dot(normal, normalize(view))";
                 break;
             case LightingRegs::LightingLutInput::LN:
-                index = "dot(light_vector, normal)";
+                index = fast ? "float(dot(light_h, normal_h))" : "dot(light_vector, normal)";
                 break;
             case LightingRegs::LightingLutInput::SP:
                 index = "dot(light_vector, spot_dir)";
@@ -1297,7 +1314,9 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
                         "normalize(half_vector) - normal * dot(normal, normalize(half_vector))";
                     // Note: the half angle vector projection is confirmed not normalized before
                     // the dot product. The result is in fact not cos(phi) as the name suggested.
-                    index = fmt::format("dot({}, tangent)", half_angle_proj);
+                    index = fast ? std::string{"float(dot(half_h - normal_h * dot(normal_h, "
+                                               "half_h), tangent_h))"}
+                                 : fmt::format("dot({}, tangent)", half_angle_proj);
                 } else {
                     index = "0.0f";
                 }
@@ -1333,17 +1352,33 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
             } else {
                 out += fmt::format("        light_vector = {}.position + view;\n", light_src);
             }
-            out += "        light_distance = length(light_vector);\n";
-            out += "        light_vector = normalize(light_vector);\n";
+            if (fast) {
+                out += "        light_distance = fast::length(light_vector);\n"
+                       "        light_vector = light_vector / max(light_distance, 1e-20f);\n"
+                       "        light_h = half3(light_vector);\n";
+            } else {
+                out += "        light_distance = length(light_vector);\n";
+                out += "        light_vector = normalize(light_vector);\n";
+            }
 
             out += fmt::format("        spot_dir = float3({}.spot_direction);\n", light_src);
-            out += "        half_vector = normalize(view) + light_vector;\n";
+            if (fast) {
+                out += "        half_vector = view_dir + light_vector;\n"
+                       "        half_h = half3(fast::normalize(half_vector));\n";
+            } else {
+                out += "        half_vector = normalize(view) + light_vector;\n";
+            }
 
             // Compute dot product of light_vector and normal, adjust if lighting is one-sided or
             // two-sided
             out += "        dot_product = ";
-            out += light_config.two_sided_diffuse ? "abs(dot(light_vector, normal));\n"
-                                                  : "max(dot(light_vector, normal), 0.0f);\n";
+            if (fast) {
+                out += light_config.two_sided_diffuse ? "abs(float(dot(light_h, normal_h)));\n"
+                                                      : "max(float(dot(light_h, normal_h)), 0.0f);\n";
+            } else {
+                out += light_config.two_sided_diffuse ? "abs(dot(light_vector, normal));\n"
+                                                      : "max(dot(light_vector, normal), 0.0f);\n";
+            }
 
             // If enabled, clamp specular component if lighting result is zero
             if (lighting.clamp_highlights) {

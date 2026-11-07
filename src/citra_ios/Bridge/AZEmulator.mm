@@ -434,6 +434,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     values.use_skip_duplicate_frames = configuration.skipDuplicateFrames;
     Metal::QualityOptions quality;
     quality.fast_math = configuration.fastShaderMath;
+    quality.fast_lighting = configuration.fastLighting;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);
     // Camera slots: 0 outer right, 1 inner, 2 outer left.

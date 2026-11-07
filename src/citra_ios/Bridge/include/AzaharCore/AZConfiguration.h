@@ -42,6 +42,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) NSInteger upscaling;
 @property(nonatomic) BOOL skipDuplicateFrames;
 @property(nonatomic) BOOL asyncShaderCompilation;
+/// Fragment lighting in half precision with fast normalization (applies to the next game).
+@property(nonatomic) BOOL fastLighting;
 /// Holds each frame on screen for the time of a game frame so frames are evenly spaced.
 @property(nonatomic) BOOL framePacing;
 @property(nonatomic) BOOL fastShaderMath;

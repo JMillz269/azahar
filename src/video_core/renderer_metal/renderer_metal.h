@@ -49,6 +49,9 @@ struct QualityOptions {
     /// Compile fragment shaders with fast math (assumes no NaN/Inf, allows reassociation). Faster,
     /// but can change the result of a shader that relies on exact floating point behaviour.
     bool fast_math = false;
+    /// Fragment lighting in half precision with fast normalization. Faster on Apple GPUs, the
+    /// lighting can come out very slightly different (lookup table positions are less exact).
+    bool fast_lighting = false;
     /// Maximum anisotropic filtering level for linearly filtered textures, 1 disables it.
     int max_anisotropy = 4;
 };

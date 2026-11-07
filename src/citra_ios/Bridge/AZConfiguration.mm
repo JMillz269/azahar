@@ -21,6 +21,7 @@
     config.asyncShaderCompilation = YES;
     config.framePacing = YES;
     config.fastShaderMath = NO;
+    config.fastLighting = NO;
     config.stereoMode = 0;
     config.outerCamera = 0;
     config.innerCamera = 0;

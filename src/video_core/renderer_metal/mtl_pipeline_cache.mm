@@ -197,10 +197,14 @@ PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInt
     MSL::MetalFSConfig metal_config{};
     metal_config.has_color_attachment = has_color_attachment;
     metal_config.has_depth_attachment = has_depth_attachment;
+    metal_config.fast_lighting = GetQualityOptions().fast_lighting && fs_config.lighting.enable;
 
     u64 hash = Common::HashCombine(fs_config.Hash(), static_cast<u64>(user.raw),
                                    static_cast<u64>(has_color_attachment),
                                    static_cast<u64>(has_depth_attachment));
+    if (metal_config.fast_lighting) {
+        hash = Common::HashCombine(hash, 0xFA57'1164'7000'0001ULL);
+    }
     hash = hash == 0 ? 1 : hash;
     if (const auto it = fragment_shaders.find(hash); it != fragment_shaders.end()) {
         return it->second;

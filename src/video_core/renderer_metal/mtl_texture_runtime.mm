@@ -526,31 +526,16 @@ bool TextureRuntime::ClearTexture(Surface& surface, const VideoCore::TextureClea
         return true;
     }
 
-    MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
+    // A whole level is cleared by the next pass that draws to it (its load action), or on its
+    // own when something else comes first, see Scheduler::ClearColor.
     if (surface.IsDepth()) {
-        desc.depthAttachment.texture = texture;
-        desc.depthAttachment.level = clear.texture_level;
-        desc.depthAttachment.loadAction = MTLLoadActionClear;
-        desc.depthAttachment.storeAction = MTLStoreActionStore;
-        desc.depthAttachment.clearDepth = clear.value.depth;
-        if (surface.HasStencil()) {
-            desc.stencilAttachment.texture = texture;
-            desc.stencilAttachment.level = clear.texture_level;
-            desc.stencilAttachment.loadAction = MTLLoadActionClear;
-            desc.stencilAttachment.storeAction = MTLStoreActionStore;
-            desc.stencilAttachment.clearStencil = clear.value.stencil;
-        }
+        scheduler.ClearDepthStencil(texture, clear.texture_level, surface.HasStencil(),
+                                    clear.value.depth, clear.value.stencil);
     } else {
         const auto& color = clear.value.color;
-        desc.colorAttachments[0].texture = texture;
-        desc.colorAttachments[0].level = clear.texture_level;
-        desc.colorAttachments[0].slice = clear.texture_layer;
-        desc.colorAttachments[0].loadAction = MTLLoadActionClear;
-        desc.colorAttachments[0].storeAction = MTLStoreActionStore;
-        desc.colorAttachments[0].clearColor = MTLClearColorMake(color.x, color.y, color.z, color.w);
+        scheduler.ClearColor(texture, clear.texture_level, clear.texture_layer,
+                             MTLClearColorMake(color.x, color.y, color.z, color.w));
     }
-    scheduler.BeginRendering(desc);
-    scheduler.EndEncoding();
     return true;
 }
 

@@ -26,6 +26,7 @@ struct GameSettingsView: View {
                 OverridePicker("Anisotropic Filtering", value: $overrides.anisotropy,
                                options: [1, 2, 4, 8, 16]) { $0 == 1 ? "Off" : "\($0)x" }
                 OverrideToggle("Fast Shader Math", value: $overrides.fastShaderMath)
+                OverrideToggle("Fast Lighting Math", value: $overrides.fastLighting)
                 OverrideToggle("Hardware Shaders", value: $overrides.hardwareShaders)
                 OverridePicker("3D Mode", value: $overrides.stereoMode,
                                options: StereoModeOption.allCases.map(\.rawValue)) {

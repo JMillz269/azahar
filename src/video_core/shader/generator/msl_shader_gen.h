@@ -78,6 +78,9 @@ struct MetalFSConfig {
     /// a [[depth]] output when no depth attachment is present, so the output is only emitted when a
     /// depth buffer will be attached.
     bool has_depth_attachment = true;
+    /// Fragment lighting with half precision directions and fast normalization, see
+    /// QualityOptions::fast_lighting.
+    bool fast_lighting = false;
 };
 
 /**

@@ -216,6 +216,7 @@ final class AppSettings: ObservableObject {
     @Published var refreshRate: RefreshRateOption { didSet { save(refreshRate.rawValue, "refreshRate") } }
     @Published var framePacing: Bool { didSet { save(framePacing, "framePacing") } }
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
+    @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
     @Published var fastShaderMath: Bool { didSet { save(fastShaderMath, "fastShaderMath") } }
     @Published var anisotropy: Int { didSet { save(anisotropy, "anisotropy") } }
     @Published var diskShaderCache: Bool { didSet { save(diskShaderCache, "diskShaderCache") } }
@@ -289,6 +290,7 @@ final class AppSettings: ObservableObject {
         framePacing = value("framePacing", true)
         asyncShaders = value("asyncShaders", true)
         fastShaderMath = value("fastShaderMath", false)
+        fastLighting = value("fastLighting", false)
         anisotropy = value("anisotropy", 4)
         diskShaderCache = value("diskShaderCache", true)
         upscaling = UpscalingOption(rawValue: value("upscaling", 0)) ?? .off
@@ -353,6 +355,7 @@ final class AppSettings: ObservableObject {
         config.asyncShaderCompilation = asyncShaders
         config.framePacing = framePacing
         config.fastShaderMath = fastShaderMath
+        config.fastLighting = fastLighting
         config.anisotropy = anisotropy
         config.diskShaderCache = diskShaderCache
         config.upscaling = upscaling.rawValue

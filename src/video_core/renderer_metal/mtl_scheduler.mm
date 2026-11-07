@@ -3,6 +3,7 @@
 // Refer to the LICENSE.txt file included.
 
 #include <algorithm>
+#include <optional>
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -219,10 +220,86 @@ id<MTLCommandBuffer> Scheduler::CommandBuffer() {
     return command_buffer;
 }
 
+void Scheduler::AddPendingClear(const PendingClear& clear) {
+    // A newer clear of the same texture level replaces the older one.
+    std::erase_if(pending_clears, [&](const PendingClear& other) {
+        return other.texture == clear.texture && other.level == clear.level &&
+               other.slice == clear.slice && other.has_stencil == clear.has_stencil;
+    });
+    pending_clears.push_back(clear);
+}
+
+void Scheduler::ClearColor(id<MTLTexture> texture, u32 level, u32 slice, MTLClearColor color) {
+    // The texture may be in use by the active encoder (sampled), end it so the clear is ordered
+    // after what was recorded.
+    end_reason = "a clear";
+    EndEncoding();
+    end_reason = nullptr;
+    AddPendingClear({.texture = texture, .level = level, .slice = slice, .color = color});
+}
+
+void Scheduler::ClearDepthStencil(id<MTLTexture> texture, u32 level, bool stencil, double depth,
+                                  u32 stencil_value) {
+    end_reason = "a clear";
+    EndEncoding();
+    end_reason = nullptr;
+    AddPendingClear({.texture = texture,
+                     .level = level,
+                     .is_depth = true,
+                     .has_stencil = stencil,
+                     .depth = depth,
+                     .stencil = stencil_value});
+}
+
+void Scheduler::FlushPendingClears() {
+    if (pending_clears.empty()) {
+        return;
+    }
+    std::vector<PendingClear> clears;
+    clears.swap(pending_clears);
+    EndEncoding();
+    for (const PendingClear& clear : clears) {
+        MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
+        if (clear.is_depth) {
+            desc.depthAttachment.texture = clear.texture;
+            desc.depthAttachment.level = clear.level;
+            desc.depthAttachment.loadAction = MTLLoadActionClear;
+            desc.depthAttachment.storeAction = MTLStoreActionStore;
+            desc.depthAttachment.clearDepth = clear.depth;
+            if (clear.has_stencil) {
+                desc.stencilAttachment.texture = clear.texture;
+                desc.stencilAttachment.level = clear.level;
+                desc.stencilAttachment.loadAction = MTLLoadActionClear;
+                desc.stencilAttachment.storeAction = MTLStoreActionStore;
+                desc.stencilAttachment.clearStencil = clear.stencil;
+            }
+        } else {
+            desc.colorAttachments[0].texture = clear.texture;
+            desc.colorAttachments[0].level = clear.level;
+            desc.colorAttachments[0].slice = clear.slice;
+            desc.colorAttachments[0].loadAction = MTLLoadActionClear;
+            desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+            desc.colorAttachments[0].clearColor = clear.color;
+        }
+        render_encoder = [CommandBuffer() renderCommandEncoderWithDescriptor:desc];
+        Stats().render_passes.fetch_add(1, std::memory_order_relaxed);
+        id<MTLTexture> sized = clear.texture;
+        BeginPassStats(static_cast<u32>(std::max<NSUInteger>(sized.width >> clear.level, 1)),
+                       static_cast<u32>(std::max<NSUInteger>(sized.height >> clear.level, 1)),
+                       !clear.is_depth, clear.is_depth, clear.has_stencil, false, nullptr);
+        has_render_target = false;
+        encoder_generation++;
+        end_reason = "a clear that no pass could take over";
+        EndEncoding();
+        end_reason = nullptr;
+    }
+}
+
 id<MTLBlitCommandEncoder> Scheduler::BlitEncoder() {
     if (blit_encoder != nil) {
         return blit_encoder;
     }
+    FlushPendingClears();
     end_reason = "a blit (copy or upload)";
     EndEncoding();
     end_reason = nullptr;
@@ -232,12 +309,33 @@ id<MTLBlitCommandEncoder> Scheduler::BlitEncoder() {
 }
 
 id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target) {
-    if (IsRenderingTo(target)) {
+    if (IsRenderingTo(target) && pending_clears.empty()) {
         return render_encoder;
     }
     end_reason = "another target";
     EndEncoding();
     end_reason = nullptr;
+
+    // Clears of this pass's attachments become its load actions, the others happen first.
+    std::optional<PendingClear> color_clear;
+    std::optional<PendingClear> depth_clear;
+    if (!pending_clears.empty()) {
+        std::vector<PendingClear> others;
+        for (const PendingClear& clear : pending_clears) {
+            if (!clear.is_depth && target.color != nil && clear.texture == target.color &&
+                clear.level == target.color_level && clear.slice == target.color_slice) {
+                color_clear = clear;
+            } else if (clear.is_depth && target.depth != nil && clear.texture == target.depth &&
+                       clear.level == target.depth_level &&
+                       (!clear.has_stencil || target.has_stencil)) {
+                depth_clear = clear;
+            } else {
+                others.push_back(clear);
+            }
+        }
+        pending_clears.swap(others);
+        FlushPendingClears();
+    }
 
     MTLRenderPassDescriptor* descriptor = [MTLRenderPassDescriptor renderPassDescriptor];
     if (target.color != nil) {
@@ -247,6 +345,10 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
         color.slice = target.color_slice;
         color.loadAction = MTLLoadActionLoad;
         color.storeAction = MTLStoreActionStore;
+        if (color_clear) {
+            color.loadAction = MTLLoadActionClear;
+            color.clearColor = color_clear->color;
+        }
     }
     if (target.depth != nil) {
         MTLRenderPassDepthAttachmentDescriptor* depth = descriptor.depthAttachment;
@@ -254,12 +356,20 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
         depth.level = target.depth_level;
         depth.loadAction = MTLLoadActionLoad;
         depth.storeAction = MTLStoreActionStore;
+        if (depth_clear) {
+            depth.loadAction = MTLLoadActionClear;
+            depth.clearDepth = depth_clear->depth;
+        }
         if (target.has_stencil) {
             MTLRenderPassStencilAttachmentDescriptor* stencil = descriptor.stencilAttachment;
             stencil.texture = target.depth;
             stencil.level = target.depth_level;
             stencil.loadAction = MTLLoadActionLoad;
             stencil.storeAction = MTLStoreActionStore;
+            if (depth_clear && depth_clear->has_stencil) {
+                stencil.loadAction = MTLLoadActionClear;
+                stencil.clearStencil = depth_clear->stencil;
+            }
         }
     }
     // The render area is the intersection of the attachments, which may have different sizes.
@@ -284,6 +394,7 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(MTLRenderPassDescriptor* d
     end_reason = "a utility pass (clear, blit, present)";
     EndEncoding();
     end_reason = nullptr;
+    FlushPendingClears();
     render_encoder = [CommandBuffer() renderCommandEncoderWithDescriptor:descriptor];
     Stats().render_passes.fetch_add(1, std::memory_order_relaxed);
     {
@@ -337,6 +448,7 @@ void Scheduler::Flush() {
     end_reason = "a submit (readback, frame end)";
     EndEncoding();
     end_reason = nullptr;
+    FlushPendingClears();
     if (command_buffer == nil && pending_drawables.empty()) {
         return;
     }

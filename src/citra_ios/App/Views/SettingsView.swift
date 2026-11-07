@@ -134,6 +134,7 @@ struct GraphicsSettingsView: View {
                     ForEach([2, 4, 8, 16], id: \.self) { Text("\($0)x").tag($0) }
                 }
                 Toggle("Fast Shader Math", isOn: $settings.fastShaderMath)
+                Toggle("Fast Lighting Math", isOn: $settings.fastLighting)
             } header: {
                 Text("Enhancements")
             } footer: {
@@ -141,6 +142,8 @@ struct GraphicsSettingsView: View {
                      + "1x (xBRZ and MMPX suit pixel art, Bicubic and ScaleForce are gentler). "
                      + "Lower anisotropic filtering and Fast Shader Math make games run faster. "
                      + "Fast Shader Math can cause small graphical differences in some games. "
+                     + "Fast Lighting Math computes lighting in half precision, which helps games "
+                     + "with a lot of lighting (Luigi's Mansion) and can shift highlights slightly. "
                      + "All of these apply the next time a game starts.")
             }
 

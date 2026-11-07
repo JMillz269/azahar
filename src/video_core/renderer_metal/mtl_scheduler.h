@@ -139,6 +139,15 @@ public:
     /// Ends the active encoder, if any.
     void EndEncoding();
 
+    /**
+     * Clears a whole texture level, later: when the next render pass draws to it, the clear
+     * becomes the pass's load action instead of a pass of its own. Anything else that comes
+     * first (another pass, a blit, a submit) performs the clear before it.
+     */
+    void ClearColor(id<MTLTexture> texture, u32 level, u32 slice, MTLClearColor color);
+    void ClearDepthStencil(id<MTLTexture> texture, u32 level, bool stencil, double depth,
+                           u32 stencil_value);
+
     /// Counts a draw in the active render pass, for the render pass statistics.
     void NoteDraw() {
         pass_draws++;
@@ -190,6 +199,20 @@ public:
 
 private:
     void PruneInFlight();
+    struct PendingClear {
+        id<MTLTexture> texture = nil;
+        u32 level = 0;
+        u32 slice = 0;
+        bool is_depth = false;
+        bool has_stencil = false;
+        MTLClearColor color{};
+        double depth = 0.0;
+        u32 stencil = 0;
+    };
+    void AddPendingClear(const PendingClear& clear);
+    /// Performs the clears that are waiting, each as a pass of its own.
+    void FlushPendingClears();
+
     void BeginPassStats(u32 width, u32 height, bool color, bool depth, bool stencil, bool game,
                         const RenderTarget* target);
     void EndPassStats();
@@ -213,6 +236,8 @@ private:
     };
     std::vector<PendingDrawable> pending_drawables;
     u32 debug_group_depth{};
+
+    std::vector<PendingClear> pending_clears;
 
     // Render pass statistics.
     const char* end_reason = nullptr; ///< Why the active pass is about to end, null: its caller
