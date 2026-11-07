@@ -115,8 +115,15 @@ struct EmulationView: View {
                     .background(.ultraThinMaterial, in: Capsule())
             }
         }
-        .onAppear { controllerLayout.activate(gameID: session.currentGame?.programIDString) }
-        .onDisappear { controllerLayout.activate(gameID: nil) }
+        .onAppear {
+            controllerLayout.activate(gameID: session.currentGame?.programIDString)
+            RefreshRateController.shared.apply(settings.refreshRate)
+        }
+        .onDisappear {
+            controllerLayout.activate(gameID: nil)
+            RefreshRateController.shared.apply(.automatic)
+        }
+        .onChange(of: settings.refreshRate) { RefreshRateController.shared.apply($0) }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         // Without this iOS holds back touches near the screen edges until it knows they are not

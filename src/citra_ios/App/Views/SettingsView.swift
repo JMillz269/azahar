@@ -225,12 +225,18 @@ struct GraphicsSettingsView: View {
 
             Section {
                 Toggle("Frame Pacing", isOn: $settings.framePacing)
+                Picker("Display Refresh Rate", selection: $settings.refreshRate) {
+                    ForEach(RefreshRateOption.allCases) { Text($0.title).tag($0) }
+                }
             } header: {
                 Text("Smoothness")
             } footer: {
                 Text("Frame Pacing shows each frame for the same amount of time, which makes motion "
                      + "look smoother, most on displays that refresh faster than the game. It does "
-                     + "not apply while fast-forwarding. The performance overlay's Pace value is "
+                     + "not apply while fast-forwarding. Display Refresh Rate asks ProMotion displays to run at "
+                     + "60 Hz (saves power, one refresh per game frame) or up to 120 Hz; games run "
+                     + "at 60 frames per second either way. iOS may ignore the request, especially "
+                     + "when the app runs inside another app. The performance overlay's Pace value is "
                      + "how much the time between frames varies (lower is smoother). Applies "
                      + "when a game starts.")
             }

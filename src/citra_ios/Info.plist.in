@@ -28,6 +28,8 @@
     <true/>
     <key>UISupportsDocumentBrowser</key>
     <false/>
+    <key>CADisableMinimumFrameDurationOnPhone</key>
+    <true/>
     <key>UIApplicationSupportsIndirectInputEvents</key>
     <true/>
     <key>UIApplicationSceneManifest</key>

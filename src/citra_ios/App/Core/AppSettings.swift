@@ -14,6 +14,22 @@ enum LibraryStyle: String, CaseIterable, Identifiable {
     var title: String { self == .list ? "List" : "Grid" }
 }
 
+/// The refresh rate the display is asked to run at while a game is shown.
+enum RefreshRateOption: Int, CaseIterable, Identifiable {
+    case automatic = 0
+    case sixty = 60
+    case oneTwenty = 120
+
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .sixty: return "60 Hz"
+        case .oneTwenty: return "120 Hz"
+        }
+    }
+}
+
 enum ScreenLayout: Int, CaseIterable, Identifiable {
     case standard = 0
     case singleScreen = 1
@@ -196,6 +212,7 @@ final class AppSettings: ObservableObject {
     @Published var stereoMode: StereoModeOption { didSet { save(stereoMode.rawValue, "stereoMode") } }
     @Published var stereoDepth: Int { didSet { save(stereoDepth, "stereoDepth") } }
     @Published var swapEyes3D: Bool { didSet { save(swapEyes3D, "swapEyes3D") } }
+    @Published var refreshRate: RefreshRateOption { didSet { save(refreshRate.rawValue, "refreshRate") } }
     @Published var framePacing: Bool { didSet { save(framePacing, "framePacing") } }
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
     @Published var fastShaderMath: Bool { didSet { save(fastShaderMath, "fastShaderMath") } }
@@ -265,6 +282,7 @@ final class AppSettings: ObservableObject {
         stereoMode = StereoModeOption(rawValue: value("stereoMode", 0)) ?? .off
         stereoDepth = value("stereoDepth", 50)
         swapEyes3D = value("swapEyes3D", false)
+        refreshRate = RefreshRateOption(rawValue: value("refreshRate", RefreshRateOption.automatic.rawValue)) ?? .automatic
         framePacing = value("framePacing", true)
         asyncShaders = value("asyncShaders", true)
         fastShaderMath = value("fastShaderMath", false)

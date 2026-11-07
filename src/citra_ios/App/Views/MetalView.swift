@@ -107,3 +107,30 @@ struct MetalView: UIViewRepresentable {
         view.onReady = nil
     }
 }
+
+/// Asks the display for a refresh rate while a game is shown. iOS follows the highest rate any
+/// display link of the app asks for, so a display link that does nothing sets the rate. iOS may
+/// ignore it (Low Power Mode, a host app that does not allow rates above 60 Hz).
+@MainActor
+final class RefreshRateController: NSObject {
+    static let shared = RefreshRateController()
+
+    private var link: CADisplayLink?
+
+    @objc private func tick() {}
+
+    func apply(_ option: RefreshRateOption) {
+        link?.invalidate()
+        link = nil
+        guard option != .automatic else { return }
+
+        let link = CADisplayLink(target: self, selector: #selector(tick))
+        let rate = Float(option.rawValue)
+        // 120 Hz also allows the rates in between, which iOS picks when it has to save power.
+        link.preferredFrameRateRange = option == .oneTwenty
+            ? CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            : CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
+        link.add(to: .main, forMode: .common)
+        self.link = link
+    }
+}
