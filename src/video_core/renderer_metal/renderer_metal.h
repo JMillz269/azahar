@@ -65,6 +65,9 @@ struct QualityOptions {
     /// Texture combiners in half precision.
     bool fast_color = false;
     TextureCompression texture_compression = TextureCompression::Off;
+    /// Small depth areas the CPU reads every frame get the previous frame's values instead of
+    /// waiting for the GPU (Mario Kart 7's sun glare check).
+    bool async_depth_readback = false;
     /// Maximum anisotropic filtering level for linearly filtered textures, 1 disables it.
     int max_anisotropy = 4;
 };

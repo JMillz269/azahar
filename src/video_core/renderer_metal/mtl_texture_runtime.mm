@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstring>
 #include "common/alignment.h"
+#include "common/hash.h"
 #include "common/assert.h"
 #include "common/literals.h"
 #include "common/logging/log.h"
@@ -931,6 +932,23 @@ void Surface::UploadCustom(const VideoCore::Material* custom_material, u32 level
 void Surface::Download(const VideoCore::BufferTextureCopy& download,
                        const VideoCore::StagingData& staging) {
     const auto readback_start = std::chrono::steady_clock::now();
+
+    // A small depth area the emulated CPU reads (Mario Kart 7 checks the depth around the sun
+    // every frame for the glare): with Fast Depth Readback it gets the result of the previous
+    // read while this one is copied without waiting for the GPU, so the frame is not stalled.
+    const u32 async_pixels = download.texture_rect.GetWidth() * download.texture_rect.GetHeight();
+    const bool async_ok = GetQualityOptions().async_depth_readback && traits.is_depth &&
+                          async_pixels <= 16 * 16 && g_readback_reason != nullptr &&
+                          std::strcmp(g_readback_reason, "CPU access to GPU memory") == 0;
+    u64 async_key = 0;
+    if (async_ok) {
+        const auto& r = download.texture_rect;
+        async_key = Common::HashCombine(static_cast<u64>(addr), static_cast<u64>(r.left),
+                                        static_cast<u64>(r.bottom), static_cast<u64>(r.right),
+                                        static_cast<u64>(r.top),
+                                        static_cast<u64>(download.texture_level),
+                                        static_cast<u64>(pixel_format));
+    }
     if (res_scale != 1) {
         const VideoCore::TextureBlit blit = {
             .src_level = download.texture_level,
@@ -955,40 +973,96 @@ void Surface::Download(const VideoCore::BufferTextureCopy& download,
     const MTLSize size = MTLSizeMake(rect_width, rect_height, 1);
     id<MTLBuffer> buffer = runtime->download_buffer.Handle();
 
-    id<MTLBlitCommandEncoder> blit = scheduler->BlitEncoder();
-    if (traits.has_stencil) {
-        [blit copyFromTexture:texture
-                         sourceSlice:0
-                         sourceLevel:download.texture_level
-                        sourceOrigin:origin
-                          sourceSize:size
-                            toBuffer:buffer
-                   destinationOffset:download.buffer_offset
-              destinationBytesPerRow:rect_width * 4
-            destinationBytesPerImage:num_pixels * 4
-                             options:MTLBlitOptionDepthFromDepthStencil];
-        [blit copyFromTexture:texture
-                         sourceSlice:0
-                         sourceLevel:download.texture_level
-                        sourceOrigin:origin
-                          sourceSize:size
-                            toBuffer:buffer
-                   destinationOffset:download.buffer_offset + num_pixels * 4
-              destinationBytesPerRow:rect_width
-            destinationBytesPerImage:num_pixels
-                             options:MTLBlitOptionStencilFromDepthStencil];
-    } else {
-        const u32 bpp = GetInternalBytesPerPixel();
-        [blit copyFromTexture:texture
-                         sourceSlice:0
-                         sourceLevel:download.texture_level
-                        sourceOrigin:origin
-                          sourceSize:size
-                            toBuffer:buffer
-                   destinationOffset:download.buffer_offset
-              destinationBytesPerRow:rect_width * bpp
-            destinationBytesPerImage:num_pixels * bpp];
+    // Records the copy of the area into `target` at `offset`, in the staging layout.
+    const auto encode_copy = [&](id<MTLBuffer> target, NSUInteger offset) {
+        id<MTLBlitCommandEncoder> blit = scheduler->BlitEncoder();
+        if (traits.has_stencil) {
+            [blit copyFromTexture:texture
+                             sourceSlice:0
+                             sourceLevel:download.texture_level
+                            sourceOrigin:origin
+                              sourceSize:size
+                                toBuffer:target
+                       destinationOffset:offset
+                  destinationBytesPerRow:rect_width * 4
+                destinationBytesPerImage:num_pixels * 4
+                                 options:MTLBlitOptionDepthFromDepthStencil];
+            [blit copyFromTexture:texture
+                             sourceSlice:0
+                             sourceLevel:download.texture_level
+                            sourceOrigin:origin
+                              sourceSize:size
+                                toBuffer:target
+                       destinationOffset:offset + num_pixels * 4
+                  destinationBytesPerRow:rect_width
+                destinationBytesPerImage:num_pixels
+                                 options:MTLBlitOptionStencilFromDepthStencil];
+        } else {
+            const u32 bpp = GetInternalBytesPerPixel();
+            [blit copyFromTexture:texture
+                             sourceSlice:0
+                             sourceLevel:download.texture_level
+                            sourceOrigin:origin
+                              sourceSize:size
+                                toBuffer:target
+                       destinationOffset:offset
+                  destinationBytesPerRow:rect_width * bpp
+                destinationBytesPerImage:num_pixels * bpp];
+        }
+    };
+    // Interleaves depth-stencil back into (D24 << 8 | S8) words, which the codec then rotates.
+    const auto convert = [&](u8* data) {
+        if (!traits.has_stencil) {
+            return;
+        }
+        for (u32 i = 0; i < num_pixels; i++) {
+            f32 depth;
+            std::memcpy(&depth, data + i * 4, sizeof(depth));
+            const u32 d24 = static_cast<u32>(std::clamp(depth, 0.0f, 1.0f) * 16777215.0f);
+            const u32 value = (d24 << 8) | data[num_pixels * 4 + i];
+            std::memcpy(data + i * 4, &value, sizeof(value));
+        }
+    };
+
+    if (async_ok) {
+        auto& readbacks = runtime->async_readbacks;
+        if (readbacks.size() > 64 && !readbacks.contains(async_key)) {
+            readbacks.clear();
+        }
+        auto& entry = readbacks[async_key];
+        if (entry.pending && scheduler->IsFree(entry.tick)) {
+            entry.last.assign(static_cast<const u8*>(entry.buffer.contents),
+                              static_cast<const u8*>(entry.buffer.contents) + staging.size);
+            convert(entry.last.data());
+            entry.pending = false;
+        }
+        if (entry.last.size() == staging.size) {
+            std::memcpy(staging.mapped.data(), entry.last.data(), staging.size);
+            if (!entry.pending) {
+                if (entry.buffer == nil || entry.buffer.length < staging.size) {
+                    entry.buffer = [instance->GetDevice()
+                        newBufferWithLength:staging.size
+                                    options:MTLResourceStorageModeShared];
+                }
+                encode_copy(entry.buffer, 0);
+                entry.tick = scheduler->CurrentTick();
+                entry.pending = true;
+            }
+            RecordReadback(fmt::format("{} (one frame late): type {} format {} {}x{} scale {} at "
+                                       "{:#x}",
+                                       g_readback_reason, static_cast<int>(type),
+                                       static_cast<int>(pixel_format), rect_width, rect_height,
+                                       res_scale, addr),
+                           std::chrono::duration<double, std::milli>(
+                               std::chrono::steady_clock::now() - readback_start)
+                               .count(),
+                           static_cast<u64>(staging.size));
+            runtime->download_buffer.Commit(staging.size);
+            return;
+        }
     }
+
+    encode_copy(buffer, download.buffer_offset);
 
     // The rasterizer cache reads the staging memory right after this returns.
     scheduler->Finish();
@@ -1002,16 +1076,11 @@ void Surface::Download(const VideoCore::BufferTextureCopy& download,
             .count(),
         static_cast<u64>(staging.size));
 
-    if (traits.has_stencil) {
-        // Interleave back into (D24 << 8 | S8) words, which the codec then rotates.
-        u8* data = staging.mapped.data();
-        for (u32 i = 0; i < num_pixels; i++) {
-            f32 depth;
-            std::memcpy(&depth, data + i * 4, sizeof(depth));
-            const u32 d24 = static_cast<u32>(std::clamp(depth, 0.0f, 1.0f) * 16777215.0f);
-            const u32 value = (d24 << 8) | data[num_pixels * 4 + i];
-            std::memcpy(data + i * 4, &value, sizeof(value));
-        }
+    convert(staging.mapped.data());
+    if (async_ok) {
+        // The first read waited, keep its result for the next one.
+        runtime->async_readbacks[async_key].last.assign(
+            staging.mapped.data(), staging.mapped.data() + staging.size);
     }
 
     runtime->download_buffer.Commit(staging.size);

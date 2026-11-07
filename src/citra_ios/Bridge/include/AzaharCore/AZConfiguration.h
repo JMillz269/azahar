@@ -50,6 +50,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL hiddenSurfaceRemoval;
 /// GPU memory compression of textures: 0 off, 1 lossless, 2 lossy (next game).
 @property(nonatomic) NSInteger textureCompression;
+/// Small depth reads by the game get the previous frame's values instead of waiting (next game).
+@property(nonatomic) BOOL fastDepthReadback;
 /// Holds each frame on screen for the time of a game frame so frames are evenly spaced.
 @property(nonatomic) BOOL framePacing;
 @property(nonatomic) BOOL fastShaderMath;

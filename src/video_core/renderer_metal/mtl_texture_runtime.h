@@ -7,6 +7,7 @@
 #include <array>
 #include <span>
 #include <unordered_map>
+#include <vector>
 #include <fmt/format.h>
 #include "video_core/rasterizer_cache/framebuffer_base.h"
 #include "video_core/rasterizer_cache/rasterizer_cache_base.h"
@@ -160,6 +161,16 @@ private:
     BlitHelper blit_helper;
     StreamBuffer upload_buffer;
     StreamBuffer download_buffer;
+
+    /// Small depth readbacks the CPU asks for every frame, answered with the previous result
+    /// while the next one is copied in the background (see Surface::Download).
+    struct AsyncReadback {
+        id<MTLBuffer> buffer = nil;
+        u64 tick = 0;
+        bool pending = false;
+        std::vector<u8> last;
+    };
+    std::unordered_map<u64, AsyncReadback> async_readbacks;
 };
 
 /// The current texture of a surface, shared with the framebuffers that render to it so they

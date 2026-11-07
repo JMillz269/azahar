@@ -234,6 +234,7 @@ final class AppSettings: ObservableObject {
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
     @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
     @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
+    @Published var fastDepthReadback: Bool { didSet { save(fastDepthReadback, "fastDepthReadback") } }
     @Published var hiddenSurfaceRemoval: Bool {
         didSet { save(hiddenSurfaceRemoval, "hiddenSurfaceRemoval") }
     }
@@ -315,6 +316,7 @@ final class AppSettings: ObservableObject {
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
         fastColor = value("fastColor", false)
+        fastDepthReadback = value("fastDepthReadback", false)
         hiddenSurfaceRemoval = value("hiddenSurfaceRemoval", false)
         textureCompression = TextureCompressionOption(rawValue: value("textureCompression", 0)) ?? .off
         anisotropy = value("anisotropy", 4)
@@ -383,6 +385,7 @@ final class AppSettings: ObservableObject {
         config.fastShaderMath = fastShaderMath
         config.fastLighting = fastLighting
         config.fastColor = fastColor
+        config.fastDepthReadback = fastDepthReadback
         config.hiddenSurfaceRemoval = hiddenSurfaceRemoval
         config.textureCompression = textureCompression.rawValue
         config.anisotropy = anisotropy
