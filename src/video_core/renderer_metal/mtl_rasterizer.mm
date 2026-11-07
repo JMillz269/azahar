@@ -423,9 +423,35 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     SyncAndUploadLUTs();
     SyncAndUploadLUTsLF();
 
+    // Draws that only touch depth and stencil (stencil shadow volumes, depth pre-passes) get a
+    // framebuffer without the color buffer. Between color draws on the same depth buffer that
+    // would end the render pass and start a new one each time (Luigi's Mansion does it about 36
+    // times a frame), and every pass loads and stores its attachments. Keep drawing in the
+    // active pass instead, with color writes off. Not for textured draws: a texture could be
+    // the color buffer of the pass, which the feedback handling above did not see.
+    RenderTarget target = framebuffer->Target();
+    bool in_color_pass = false;
+    const auto& tex_config = regs.texturing.main_config;
+    const bool textured = tex_config.texture0_enable || tex_config.texture1_enable ||
+                          tex_config.texture2_enable;
+    if (const RenderTarget* active = scheduler.ActiveTarget();
+        active != nullptr && !shadow_rendering && !textured && target.color == nil &&
+        target.depth != nil &&
+        active->color != nil && active->depth == target.depth &&
+        active->depth_level == target.depth_level && active->has_stencil == target.has_stencil &&
+        active->width == target.width && active->height == target.height) {
+        target = *active;
+        in_color_pass = true;
+    }
+
     PipelineKey key;
     DepthStencilKey ds_key;
     SyncFixedState(*framebuffer, PipelineCache::HashOf(fragment), key, ds_key);
+    if (in_color_pass) {
+        key.color_format = static_cast<u32>(target.color.pixelFormat);
+        key.write_mask = static_cast<u8>(MTLColorWriteMaskNone);
+        key.blend_enable = 0;
+    }
     key.vs_hash = PipelineCache::HashOf(vertex);
     // With async shader compilation a draw whose pipeline is still being built is skipped, but
     // small draws (fullscreen passes, UI quads) wait: skipping them is much more visible.
@@ -460,7 +486,6 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     }
 
     // Clamp the scissor to the render area.
-    const RenderTarget& target = framebuffer->Target();
     const u32 scissor_x = std::min(draw_rect.left, target.width);
     const u32 scissor_y = std::min(draw_rect.bottom, target.height);
     const u32 scissor_w = std::min(draw_rect.GetWidth(), target.width - scissor_x);

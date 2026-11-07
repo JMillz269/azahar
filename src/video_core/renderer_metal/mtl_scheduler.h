@@ -121,6 +121,11 @@ public:
         return render_encoder;
     }
 
+    /// The target of the active render pass, or null when none is being rendered to.
+    const RenderTarget* ActiveTarget() const {
+        return render_encoder != nil && has_render_target ? &current_target : nullptr;
+    }
+
     /// Returns true if the provided target is the one being rendered to.
     bool IsRenderingTo(const RenderTarget& target) const {
         return render_encoder != nil && has_render_target && current_target == target;
