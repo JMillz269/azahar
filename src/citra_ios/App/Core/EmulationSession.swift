@@ -123,6 +123,8 @@ final class EmulationSession: ObservableObject {
             }
         case .screenshot:
             if pressed { takeScreenshot() }
+        case .nextLayout:
+            if pressed { NotificationCenter.default.post(name: .nextScreenLayout, object: nil) }
         }
     }
 
@@ -328,4 +330,6 @@ extension AZKeyboardRequest: Identifiable {
 extension Notification.Name {
     /// Asks the game view to show its menu (a controller shortcut).
     static let openEmulationMenu = Notification.Name("azahar.openEmulationMenu")
+    /// Asks the game view to switch to the next saved screen layout (a controller shortcut).
+    static let nextScreenLayout = Notification.Name("azahar.nextScreenLayout")
 }

@@ -24,6 +24,8 @@ struct EmulationView: View {
     @State private var showingAmiibo = false
     @State private var showingMultiplayer = false
     @State private var showingMovies = false
+    @State private var savingLayout = false
+    @State private var layoutName = ""
     @State private var editingScreens = false
     @State private var resumeAfterEditing = false
     /// The game was paused because the menu came up, and runs again once it is gone.
@@ -133,6 +135,19 @@ struct EmulationView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openEmulationMenu)) { _ in
             showingMenu = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .nextScreenLayout)) { _ in
+            cycleLayout()
+        }
+        .alert("Save Screen Layout", isPresented: $savingLayout) {
+            TextField("Name", text: $layoutName)
+            Button("Save") {
+                settings.saveLayoutPreset(named: layoutName)
+                session.showToast("Layout saved")
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves the screens as they are now. A layout with the same name is replaced.")
+        }
         .onChange(of: session.hardwareControllerConnected) { _ in showDespiteHardware = false }
         .onChange(of: settings.refreshRate) { RefreshRateController.shared.apply($0) }
         .statusBarHidden()
@@ -173,6 +188,11 @@ struct EmulationView: View {
             }
             Button("Take Screenshot") { session.takeScreenshot() }
             Button("Edit Screen Layout") { beginEditingScreens() }
+            Button("Next Screen Layout") { cycleLayout() }
+            Button("Save Screen Layout…") {
+                layoutName = ""
+                savingLayout = true
+            }
             Button("Swap Screens") {
                 settings.swapScreens.toggle()
                 session.apply(settings: settings)
@@ -245,6 +265,17 @@ struct EmulationView: View {
 }
 
 extension EmulationView {
+    /// Switches to the next saved screen layout.
+    fileprivate func cycleLayout() {
+        guard let preset = settings.cycleLayout() else {
+            session.showToast("No saved layouts: use Save Screen Layout")
+            return
+        }
+        session.apply(settings: settings)
+        AZEmulator.shared.refreshLayout()
+        session.showToast(preset.name)
+    }
+
     /// Whether the menu, or something it opened that the game should wait for, is on screen. The
     /// multiplayer room is not part of it: the others in the room keep playing.
     fileprivate var menuVisible: Bool {

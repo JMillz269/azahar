@@ -390,6 +390,8 @@ struct GraphicsSettingsView: View {
 
 struct LayoutSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @State private var savingPreset = false
+    @State private var presetName = ""
 
     var body: some View {
         Form {
@@ -465,6 +467,26 @@ struct LayoutSettingsView: View {
                      + "layouts that do not place the screens by hand.")
             }
             Section {
+                ForEach(settings.layoutPresets) { preset in
+                    Button {
+                        settings.applyLayoutPreset(preset)
+                    } label: {
+                        Text(preset.name).foregroundStyle(.primary)
+                    }
+                }
+                .onDelete { settings.layoutPresets.remove(atOffsets: $0) }
+                Button("Save Current Layout…") {
+                    presetName = ""
+                    savingPreset = true
+                }
+            } header: {
+                Text("Saved Layouts")
+            } footer: {
+                Text("Tap a saved layout to use it, swipe to delete one. In a game, Next Screen "
+                     + "Layout in the menu (or a controller shortcut) cycles through them, and "
+                     + "Save Screen Layout saves what you set up with Edit Screen Layout.")
+            }
+            Section {
                 Toggle("Respect Notch", isOn: $settings.respectNotch)
             } footer: {
                 Text("Keeps the screens clear of the notch, the Dynamic Island and the rounded "
@@ -472,6 +494,13 @@ struct LayoutSettingsView: View {
             }
         }
         .navigationTitle("Layout")
+        .alert("Save Layout", isPresented: $savingPreset) {
+            TextField("Name", text: $presetName)
+            Button("Save") { settings.saveLayoutPreset(named: presetName) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves the current screen layout. A layout with the same name is replaced.")
+        }
     }
 }
 

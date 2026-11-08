@@ -81,6 +81,7 @@ set(APP_SWIFT_SOURCES
     App/Core/GameCompressor.swift
     App/Core/GameSettings.swift
     App/Core/GameLibrary.swift
+    App/Core/LayoutPresets.swift
     App/Core/LogExporter.swift
     App/Core/MultiplayerSession.swift
     App/Views/AmiiboView.swift

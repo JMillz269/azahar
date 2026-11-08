@@ -313,6 +313,18 @@ final class AppSettings: ObservableObject {
     @Published var lleApplets: Bool { didSet { save(lleApplets, "lleApplets") } }
     @Published var textureSampling: Int { didSet { save(textureSampling, "textureSampling") } }
     @Published var monoEye: Int { didSet { save(monoEye, "monoEye") } }
+    /// The layouts the user saved, the ones the layout shortcut cycles through.
+    @Published var layoutPresets: [LayoutPreset] {
+        didSet {
+            if let data = try? JSONEncoder().encode(layoutPresets) {
+                defaults.set(data, forKey: "layoutPresets")
+            }
+        }
+    }
+    var lastLayoutPresetIndex: Int {
+        get { defaults.integer(forKey: "lastLayoutPresetIndex") }
+        set { defaults.set(newValue, forKey: "lastLayoutPresetIndex") }
+    }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -411,6 +423,12 @@ final class AppSettings: ObservableObject {
         lleApplets = value("lleApplets", false)
         textureSampling = value("textureSampling", 0)
         monoEye = value("monoEye", 0)
+        if let data = d.data(forKey: "layoutPresets"),
+           let presets = try? JSONDecoder().decode([LayoutPreset].self, from: data) {
+            layoutPresets = presets
+        } else {
+            layoutPresets = []
+        }
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)

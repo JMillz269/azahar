@@ -89,6 +89,7 @@ enum Hotkey: String, CaseIterable, Codable, Identifiable {
     case menu
     case fastForward
     case screenshot
+    case nextLayout
 
     var id: String { rawValue }
 
@@ -97,6 +98,7 @@ enum Hotkey: String, CaseIterable, Codable, Identifiable {
         case .menu: return "Open Menu"
         case .fastForward: return "Fast Forward"
         case .screenshot: return "Take Screenshot"
+        case .nextLayout: return "Next Screen Layout"
         }
     }
 }
