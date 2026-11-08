@@ -289,9 +289,34 @@ private struct EmptyLibraryView: View {
     }
 }
 
+extension GameInfoView {
+    fileprivate func backUp() {
+        do {
+            let url = try SaveManager.export(game)
+            backups = SaveManager.backups(of: game)
+            saveMessage = "Saved as \(url.lastPathComponent) in Files › Azahar › saves."
+        } catch {
+            saveMessage = error.localizedDescription
+        }
+    }
+
+    fileprivate func restore(from folder: URL) {
+        do {
+            try SaveManager.restore(game, from: folder)
+            backups = SaveManager.backups(of: game)
+            saveMessage = "The save data was restored."
+        } catch {
+            saveMessage = error.localizedDescription
+        }
+    }
+}
+
 struct GameInfoView: View {
     let game: Game
     @ObservedObject private var stats = GameStatsStore.shared
+    @State private var backups: [URL] = []
+    @State private var pendingRestore: URL?
+    @State private var saveMessage: String?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -333,6 +358,42 @@ struct GameInfoView: View {
                         stats.toggleFavorite(game)
                     }
                 }
+                if !game.isInstalled || SaveManager.hasSave(of: game) {
+                    Section {
+                        Button("Back Up Save Data") { backUp() }
+                            .disabled(!SaveManager.hasSave(of: game))
+                        Button("Restore Save Data from a Folder…") {
+                            FolderPicker.present { folder in
+                                if let folder { pendingRestore = folder }
+                            }
+                        }
+                        ForEach(backups, id: \.self) { backup in
+                            Button {
+                                pendingRestore = backup
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Restore").foregroundStyle(.primary)
+                                    Text(backup.lastPathComponent)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                        }
+                        Button("Show Saves Folder in Files") {
+                            try? FileManager.default.createDirectory(
+                                at: SaveManager.backupsDirectory, withIntermediateDirectories: true)
+                            FileLocations.showInFiles(SaveManager.backupsDirectory)
+                        }
+                    } header: {
+                        Text("Save Data")
+                    } footer: {
+                        Text("A backup is a copy of the game's save in Files › Azahar › saves. "
+                             + "Restoring replaces the save of the game with a backup (or any "
+                             + "folder with a save) and keeps the save it had as a backup first.")
+                    }
+                }
                 Section("Details") {
                     LabeledContent("Title ID", value: game.programIDString)
                     LabeledContent("Region", value: game.regions)
@@ -342,6 +403,27 @@ struct GameInfoView: View {
             }
             .navigationTitle("Game Info")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear { backups = SaveManager.backups(of: game) }
+            .confirmationDialog(
+                "Replace the save data?",
+                isPresented: Binding(get: { pendingRestore != nil },
+                                     set: { if !$0 { pendingRestore = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Restore", role: .destructive) {
+                    if let folder = pendingRestore { restore(from: folder) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The save data the game has now is kept as a backup first.")
+            }
+            .alert("Save Data", isPresented: Binding(
+                get: { saveMessage != nil }, set: { if !$0 { saveMessage = nil } })
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(saveMessage ?? "")
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
