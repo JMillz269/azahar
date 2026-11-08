@@ -308,6 +308,7 @@ final class AppSettings: ObservableObject {
     @Published var compressCIAInstalls: Bool {
         didSet { save(compressCIAInstalls, "compressCIAInstalls") }
     }
+    @Published var realtimeAudio: Bool { didSet { save(realtimeAudio, "realtimeAudio") } }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -401,6 +402,7 @@ final class AppSettings: ObservableObject {
         postShader = value("postShader", "")
         useVirtualSD = value("useVirtualSD", true)
         compressCIAInstalls = value("compressCIAInstalls", false)
+        realtimeAudio = value("realtimeAudio", false)
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)
@@ -495,6 +497,7 @@ final class AppSettings: ObservableObject {
         config.useVirtualSD = useVirtualSD
         config.compressCIAInstalls = compressCIAInstalls
         config.customStoragePath = CustomStorage.activate()
+        config.realtimeAudio = realtimeAudio
         config.useMicrophone = useMicrophone
         config.volume = Float(volume)
         config.isNew3DS = isNew3DS

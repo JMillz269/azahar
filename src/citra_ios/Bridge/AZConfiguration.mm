@@ -48,6 +48,7 @@
     config.swapScreens = NO;
     config.uprightScreens = NO;
     config.audioStretching = YES;
+    config.realtimeAudio = NO;
     config.volume = 1.0f;
     config.postEffect = 0;
     config.anaglyphMode = 0;

@@ -95,6 +95,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 
 // Audio
 @property(nonatomic) BOOL audioStretching;
+/// Plays the audio at full speed while the emulation runs slower (can desync the audio).
+@property(nonatomic) BOOL realtimeAudio;
 /// Feeds the device microphone to the emulated console's microphone.
 @property(nonatomic) BOOL useMicrophone;
 @property(nonatomic) float volume;

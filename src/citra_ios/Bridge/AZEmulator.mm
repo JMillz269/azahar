@@ -551,6 +551,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     values.dump_textures = configuration.dumpTextures;
 
     values.enable_audio_stretching = configuration.audioStretching;
+    values.enable_realtime_audio = configuration.realtimeAudio;
     values.volume = configuration.volume;
 
     values.is_new_3ds = configuration.isNew3DS;

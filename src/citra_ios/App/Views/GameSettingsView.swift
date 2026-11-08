@@ -28,6 +28,7 @@ struct GameSettingsView: View {
                 OverrideToggle("Fast Shader Math", value: $overrides.fastShaderMath)
                 OverrideToggle("Fast Lighting Math", value: $overrides.fastLighting)
                 OverrideToggle("Fast Color Math", value: $overrides.fastColor)
+                OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
                 OverrideToggle("Hidden Surface Removal", value: $overrides.hiddenSurfaceRemoval)
                 OverridePicker("Texture Compression", value: $overrides.textureCompression,

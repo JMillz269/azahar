@@ -14,6 +14,7 @@ struct GameOverrides: Codable, Equatable {
     var fastShaderMath: Bool?
     var fastLighting: Bool?
     var fastColor: Bool?
+    var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
     var hiddenSurfaceRemoval: Bool?
     var textureCompression: Int?
@@ -36,6 +37,7 @@ struct GameOverrides: Codable, Equatable {
         if let fastShaderMath { config.fastShaderMath = fastShaderMath }
         if let fastLighting { config.fastLighting = fastLighting }
         if let fastColor { config.fastColor = fastColor }
+        if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }
         if let hiddenSurfaceRemoval { config.hiddenSurfaceRemoval = hiddenSurfaceRemoval }
         if let textureCompression { config.textureCompression = textureCompression }

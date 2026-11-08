@@ -475,10 +475,14 @@ struct AudioSettingsView: View {
                     Slider(value: $settings.volume, in: 0...1)
                 }
                 Toggle("Audio Stretching", isOn: $settings.audioStretching)
+                Toggle("Realtime Audio", isOn: $settings.realtimeAudio)
                 Toggle("Use Microphone", isOn: $settings.useMicrophone)
             } footer: {
                 Text("Audio stretching reduces stuttering when the emulation runs below full speed. "
-                     + "Use Microphone lets games listen to the microphone of this device (it asks "
+                     + "Realtime Audio keeps the sound at its normal speed while a game runs "
+                     + "slower than full speed, where it would slow down with the game; it can "
+                     + "drift out of step with the picture in games that sync to it. Use "
+                     + "Microphone lets games listen to the microphone of this device (it asks "
                      + "for permission when a game starts). Without it games hear static noise. "
                      + "Applies when a game starts.")
             }
