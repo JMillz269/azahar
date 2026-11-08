@@ -87,7 +87,7 @@ enum FileLocations {
 
     /// The virtual SD card of the console: in the storage folder when one is chosen.
     static var sdmcDirectory: URL {
-        if let custom = MainActor.assumeIsolated({ CustomStorage.currentURL }),
+        if let custom = CustomStorage.currentURL,
            FileManager.default.isWritableFile(atPath: custom.path) {
             return custom.appendingPathComponent("sdmc", isDirectory: true)
         }

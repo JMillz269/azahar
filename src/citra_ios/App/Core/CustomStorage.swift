@@ -8,20 +8,21 @@ import UniformTypeIdentifiers
 /// A folder chosen to hold the console's data (the nand and the virtual SD card) instead of the
 /// Azahar folder of the app. The folder is remembered as a security scoped bookmark and its
 /// access stays open while the app runs.
-@MainActor
 final class CustomStorage: NSObject, UIDocumentPickerDelegate {
     private static let key = "customStorageBookmark"
-    private static var active: CustomStorage?
-    private static var accessed: URL?
+    @MainActor private static var active: CustomStorage?
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var accessed: URL?
 
     private let completion: @MainActor (URL?) -> Void
 
+    @MainActor
     private init(completion: @escaping @MainActor (URL?) -> Void) {
         self.completion = completion
     }
 
     /// The folder in use, if one was chosen and it can still be reached.
-    static var currentURL: URL? {
+    nonisolated static var currentURL: URL? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
         var stale = false
         guard let url = try? URL(resolvingBookmarkData: data, options: [],
@@ -35,8 +36,10 @@ final class CustomStorage: NSObject, UIDocumentPickerDelegate {
 
     /// Opens the access to the folder and returns its path for the emulator, or nil to use the
     /// default folder.
-    static func activate() -> String? {
+    nonisolated static func activate() -> String? {
         guard let url = currentURL else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
         if accessed != url {
             accessed?.stopAccessingSecurityScopedResource()
             _ = url.startAccessingSecurityScopedResource()
@@ -46,13 +49,16 @@ final class CustomStorage: NSObject, UIDocumentPickerDelegate {
         return url.path
     }
 
-    static func reset() {
+    nonisolated static func reset() {
         UserDefaults.standard.removeObject(forKey: key)
+        lock.lock()
+        defer { lock.unlock() }
         accessed?.stopAccessingSecurityScopedResource()
         accessed = nil
     }
 
     /// Shows the folder picker. `completion` gets the chosen folder.
+    @MainActor
     @discardableResult
     static func choose(completion: @escaping @MainActor (URL?) -> Void) -> Bool {
         guard active == nil, let presenter = topViewController() else { return false }
@@ -65,6 +71,7 @@ final class CustomStorage: NSObject, UIDocumentPickerDelegate {
         return true
     }
 
+    @MainActor
     private static func topViewController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
