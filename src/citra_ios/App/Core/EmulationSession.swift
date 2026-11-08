@@ -50,6 +50,9 @@ final class EmulationSession: ObservableObject {
         controllers.onConnectionChange = { [weak self] connected in
             self?.hardwareControllerConnected = connected
         }
+        AZEmulator.shared.onMovieFinished = { [weak self] in
+            self?.showToast("Movie finished")
+        }
         controllers.onHotkey = { [weak self] hotkey, pressed in
             Task { @MainActor in
                 self?.perform(hotkey, pressed: pressed)
@@ -231,6 +234,17 @@ final class EmulationSession: ObservableObject {
             AZEmulator.shared.pause()
         }
         isPaused.toggle()
+    }
+
+    /// Starts the current game over (a movie that was set starts with it).
+    func restartCurrentGame(settings: AppSettings) {
+        guard let game = currentGame else { return }
+        stop()
+        Task { @MainActor in
+            // The game view has to go away and come back for the new run to get its surface.
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            launch(game, settings: settings)
+        }
     }
 
     func stop() {

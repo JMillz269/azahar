@@ -24,6 +24,8 @@
 
 #include "audio_core/input_details.h"
 #include "citra_ios/Bridge/camera_ios.h"
+#include "citra_ios/Bridge/movie_state.h"
+#include "core/movie.h"
 #include "citra_ios/Bridge/mic_ios.h"
 #include "citra_ios/Bridge/emu_window_ios.h"
 #include "citra_ios/Bridge/input_ios.h"
@@ -781,9 +783,41 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     [self registerApplets];
     IOSInput::BindInputProfile();
 
+    // A movie set before the start records or plays along with this run (the clock is set up
+    // before the game loads, the movie itself starts once it has).
+    int movie_mode = 0;
+    std::string movie_path;
+    std::string movie_author;
+    {
+        auto& pending = GetPendingMovie();
+        std::scoped_lock lock{pending.mutex};
+        movie_mode = pending.mode;
+        movie_path = pending.path;
+        movie_author = pending.author;
+        pending.mode = 0;
+    }
+    auto& movie = system.Movie();
+    movie.SetPlaybackCompletionCallback([self] {
+        dispatch_async(dispatch_get_main_queue(), ^{
+          if (self.onMovieFinished) {
+              self.onMovieFinished();
+          }
+        });
+    });
+    if (movie_mode == 1) {
+        movie.PrepareForRecording();
+    } else if (movie_mode == 2) {
+        movie.PrepareForPlayback(movie_path);
+    }
+
     const Core::System::ResultStatus load_result = system.Load(*_window, filepath, _secondaryWindow.get());
     if (load_result != Core::System::ResultStatus::Success) {
         return MakeResultError(load_result, system.GetStatusDetails());
+    }
+    if (movie_mode == 1) {
+        movie.StartRecording(movie_path, movie_author);
+    } else if (movie_mode == 2) {
+        movie.StartPlayback(movie_path);
     }
 
     system.GPU().ApplyPerProgramSettings(program_id);
@@ -890,6 +924,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     Settings::ResetTemporaryFrameLimit();
     // A room needs the emulated console, leave it before that goes away.
     [[AZMultiplayer shared] leave];
+    // Saves a recording that is still going.
+    Core::System::GetInstance().Movie().Shutdown();
     Core::System::GetInstance().Shutdown();
     _speed = 0.0;
     _fps = 0.0;

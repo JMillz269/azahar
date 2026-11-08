@@ -23,6 +23,7 @@ struct EmulationView: View {
     @State private var showingCheats = false
     @State private var showingAmiibo = false
     @State private var showingMultiplayer = false
+    @State private var showingMovies = false
     @State private var editingScreens = false
     @State private var resumeAfterEditing = false
     /// The game was paused because the menu came up, and runs again once it is gone.
@@ -166,6 +167,7 @@ struct EmulationView: View {
             Button("Cheats…") { showingCheats = true }
             Button("Amiibo…") { showingAmiibo = true }
             Button("Multiplayer…") { showingMultiplayer = true }
+            Button("Movies…") { showingMovies = true }
             Button(session.isFastForwarding ? "Normal Speed" : "Fast Forward") {
                 session.toggleFastForward()
             }
@@ -192,6 +194,11 @@ struct EmulationView: View {
         }
         .sheet(isPresented: $showingMultiplayer) {
             MultiplayerView()
+        }
+        .sheet(isPresented: $showingMovies) {
+            if let game = session.currentGame {
+                MoviesView(game: game)
+            }
         }
         .sheet(item: $session.miiRequest) { request in
             MiiSelectorView(request: request) { session.miiRequest = nil }
@@ -242,7 +249,7 @@ extension EmulationView {
     /// multiplayer room is not part of it: the others in the room keep playing.
     fileprivate var menuVisible: Bool {
         showingMenu || showingSaveStates || showingLoadStates || showingCheats || showingAmiibo
-            || editingLayout
+            || showingMovies || editingLayout
     }
 
     /// Pauses the game while the menu is up and runs it again when it is gone.

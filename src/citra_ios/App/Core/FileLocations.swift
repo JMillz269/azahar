@@ -35,6 +35,11 @@ enum FileLocations {
         userDirectory.appendingPathComponent("sdmc/luma/plugins", isDirectory: true)
     }
 
+    /// Recorded movies (.ctm).
+    static var moviesDirectory: URL {
+        userDirectory.appendingPathComponent("movies", isDirectory: true)
+    }
+
     /// Imported games.
     static var romsDirectory: URL {
         documents.appendingPathComponent("ROMs", isDirectory: true)

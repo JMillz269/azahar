@@ -93,6 +93,7 @@ set(APP_SWIFT_SOURCES
     App/Views/KeyboardPromptView.swift
     App/Views/MetalView.swift
     App/Views/MiiSelectorView.swift
+    App/Views/MoviesView.swift
     App/Views/MultiplayerView.swift
     App/Views/SaveStatesView.swift
     App/Views/ScreenLayoutEditor.swift

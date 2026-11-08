@@ -17,6 +17,8 @@
 #include <vector>
 
 #include "citra_ios/Bridge/camera_ios.h"
+#include "citra_ios/Bridge/movie_state.h"
+#include "core/movie.h"
 #include "common/logging/log.h"
 #include "core/cheats/cheat_base.h"
 #include "core/cheats/cheats.h"
@@ -297,6 +299,10 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
 }
 
 } // Anonymous namespace
+
+@interface AZMovieInfo ()
+- (instancetype)initWithPath:(NSString*)path;
+@end
 
 @implementation AZEmulator (Features)
 
@@ -653,6 +659,68 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
     Settings::temporary_frame_limit = enabled ? Settings::values.turbo_limit.GetValue() : 0.0;
 }
 
+// MARK: Movies
+
+static void (^g_movie_finished)(void) = nil;
+
+- (void)setOnMovieFinished:(void (^)(void))block {
+    g_movie_finished = [block copy];
+}
+
+- (void (^)(void))onMovieFinished {
+    return g_movie_finished;
+}
+
+- (void)recordMovieToPath:(NSString*)path author:(NSString*)author {
+    auto& pending = GetPendingMovie();
+    std::scoped_lock lock{pending.mutex};
+    pending.path = path.UTF8String;
+    pending.author = author.UTF8String;
+    pending.mode = 1;
+}
+
+- (void)playMovieFromPath:(NSString*)path {
+    auto& pending = GetPendingMovie();
+    std::scoped_lock lock{pending.mutex};
+    pending.path = path.UTF8String;
+    pending.author.clear();
+    pending.mode = 2;
+}
+
+- (void)clearPendingMovie {
+    auto& pending = GetPendingMovie();
+    std::scoped_lock lock{pending.mutex};
+    pending.mode = 0;
+}
+
+- (AZMovieMode)movieMode {
+    switch (Core::System::GetInstance().Movie().GetPlayMode()) {
+    case Core::Movie::PlayMode::Recording:
+        return AZMovieModeRecording;
+    case Core::Movie::PlayMode::Playing:
+        return AZMovieModePlaying;
+    case Core::Movie::PlayMode::MovieFinished:
+        return AZMovieModeFinished;
+    default:
+        return AZMovieModeNone;
+    }
+}
+
+- (void)stopMovie {
+    Core::System::GetInstance().Movie().Shutdown();
+}
+
+- (void)saveMovie {
+    auto& movie = Core::System::GetInstance().Movie();
+    if (movie.GetPlayMode() == Core::Movie::PlayMode::Recording) {
+        movie.SaveMovie();
+    }
+}
+
++ (AZMovieInfo*)infoOfMovieAtPath:(NSString*)path {
+    return [[AZMovieInfo alloc] initWithPath:path];
+}
+
 // MARK: Artic
 
 + (BOOL)areOld3DSSystemFilesInstalled {
@@ -760,4 +828,23 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
     });
 }
 
+@end
+
+@implementation AZMovieInfo
+- (instancetype)initWithPath:(NSString*)path {
+    if ((self = [super init])) {
+        _author = @"";
+        const auto& movie = Core::System::GetInstance().Movie();
+        const std::string file{path.UTF8String};
+        if (movie.ValidateMovie(file) != Core::Movie::ValidationResult::Invalid) {
+            const auto metadata = movie.GetMovieMetadata(file);
+            _isValid = YES;
+            _programID = metadata.program_id;
+            _author = [NSString stringWithUTF8String:metadata.author.c_str()] ?: @"";
+            _rerecordCount = metadata.rerecord_count;
+            _inputCount = metadata.input_count;
+        }
+    }
+    return self;
+}
 @end

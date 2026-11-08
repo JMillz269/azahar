@@ -114,6 +114,22 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
     AZInstallStatusUnknown,
 };
 
+typedef NS_ENUM(NSInteger, AZMovieMode) {
+    AZMovieModeNone = 0,
+    AZMovieModeRecording,
+    AZMovieModePlaying,
+    AZMovieModeFinished,
+};
+
+/// What the header of a movie file says.
+@interface AZMovieInfo : NSObject
+@property(nonatomic, readonly) BOOL isValid;
+@property(nonatomic, readonly) uint64_t programID;
+@property(nonatomic, readonly, copy) NSString* author;
+@property(nonatomic, readonly) uint32_t rerecordCount;
+@property(nonatomic, readonly) uint64_t inputCount;
+@end
+
 typedef NS_ENUM(NSInteger, AZCompressStatus) {
     AZCompressStatusSuccess = 0,
     /// The format cannot be compressed (encrypted, bundled, not a 3DS file).
@@ -280,6 +296,24 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 + (BOOL)areNew3DSSystemFilesInstalled;
 /// Removes the installed system files of one setup before it is done again.
 + (void)uninstallSystemFilesForOld3DS:(BOOL)old3DS;
+
+// Movies: recordings of the controller input of a run, played back later. A recording or a
+// playback starts together with the game, so the game has to be (re)started after one is set.
+
+/// The next game that starts records its input into the file.
+- (void)recordMovieToPath:(NSString*)path author:(NSString*)author NS_SWIFT_NAME(recordMovie(toPath:author:));
+/// The next game that starts plays the movie back.
+- (void)playMovieFromPath:(NSString*)path NS_SWIFT_NAME(playMovie(fromPath:));
+/// Forgets a recording or playback that was set and did not start yet.
+- (void)clearPendingMovie;
+@property(nonatomic, readonly) AZMovieMode movieMode;
+/// Stops the recording (and saves it) or the playback. Call while the game is paused.
+- (void)stopMovie;
+/// Writes the recording so far to its file. Call while the game is paused.
+- (void)saveMovie;
+/// Called on the main thread when a playback reaches its end.
+@property(nonatomic, copy, nullable) void (^onMovieFinished)(void);
++ (AZMovieInfo*)infoOfMovieAtPath:(NSString*)path NS_SWIFT_NAME(movieInfo(atPath:));
 
 // Compression of games to the .zcci, .zcxi, .z3dsx and .zcia formats.
 
