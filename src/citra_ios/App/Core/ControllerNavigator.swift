@@ -47,6 +47,8 @@ final class ControllerNavigator {
     private var repeatTimer: Timer?
     private var heldDirection: Direction?
     private var stickDirection: Direction?
+    private var dpadDirection: Direction?
+    private var rightStickDirection: Direction?
 
     /// Starts following the settings and the emulation: navigation works when the option is on and
     /// no game is running (or it is paused).
@@ -75,11 +77,14 @@ final class ControllerNavigator {
     private func attach(_ controller: GCController) {
         guard let pad = controller.extendedGamepad else { return }
         pad.dpad.valueChangedHandler = { [weak self] _, x, y in
-            Task { @MainActor in self?.directionChanged(Self.direction(x: x, y: y), fromStick: false) }
+            Task { @MainActor in
+                self?.directionChanged(Self.direction(x: x, y: y, threshold: 0.5), fromStick: false)
+            }
         }
         pad.leftThumbstick.valueChangedHandler = { [weak self] _, x, y in
             Task { @MainActor in
-                self?.directionChanged(Self.direction(x: x, y: y, threshold: 0.6), fromStick: true)
+                guard let self else { return }
+                self.directionChanged(self.stickValue(x: x, y: y), fromStick: true)
             }
         }
         pad.buttonA.pressedChangedHandler = { [weak self] _, _, pressed in
@@ -88,11 +93,18 @@ final class ControllerNavigator {
         pad.buttonB.pressedChangedHandler = { [weak self] _, _, pressed in
             if pressed { Task { @MainActor in self?.goBack() } }
         }
-        pad.leftShoulder.pressedChangedHandler = { [weak self] _, _, pressed in
-            if pressed { Task { @MainActor in self?.scrollPage(.up) } }
+        for button in [pad.leftShoulder, pad.leftTrigger] {
+            button.pressedChangedHandler = { [weak self] _, _, pressed in
+                if pressed { Task { @MainActor in self?.switchTab(by: -1) } }
+            }
         }
-        pad.rightShoulder.pressedChangedHandler = { [weak self] _, _, pressed in
-            if pressed { Task { @MainActor in self?.scrollPage(.down) } }
+        for button in [pad.rightShoulder, pad.rightTrigger] {
+            button.pressedChangedHandler = { [weak self] _, _, pressed in
+                if pressed { Task { @MainActor in self?.switchTab(by: 1) } }
+            }
+        }
+        pad.rightThumbstick.valueChangedHandler = { [weak self] _, x, y in
+            Task { @MainActor in self?.scrollStickChanged(y: y) }
         }
     }
 
@@ -102,30 +114,57 @@ final class ControllerNavigator {
         return y > 0 ? .up : .down
     }
 
-    private func directionChanged(_ direction: Direction?, fromStick: Bool) {
-        if fromStick {
-            stickDirection = direction
+    /// The stick reports a new value for every tiny change. A push counts once, when it crosses
+    /// the far threshold, and ends when the stick comes back under the near one, so a held stick
+    /// repeats at the same rate as a held D-pad and does not skip through the list.
+    private func stickValue(x: Float, y: Float) -> Direction? {
+        let strength = max(abs(x), abs(y))
+        if stickDirection != nil, strength >= 0.35 {
+            return Self.direction(x: x, y: y, threshold: 0.35) ?? stickDirection
         }
-        // The D-pad and the stick share one repeat; the one that is held last wins.
+        return Self.direction(x: x, y: y, threshold: 0.65)
+    }
+
+    private func directionChanged(_ direction: Direction?, fromStick: Bool) {
+        let previous = fromStick ? stickDirection : dpadDirection
+        guard direction != previous else { return }
+        if fromStick { stickDirection = direction } else { dpadDirection = direction }
+
         guard enabled, !NavigationSuspension.suspended else {
             stopRepeat()
             return
         }
         guard let direction else {
-            if fromStick || heldDirection != nil { stopRepeat() }
+            // The other control may still be held.
+            if let other = fromStick ? dpadDirection : stickDirection {
+                begin(other)
+            } else {
+                stopRepeat()
+            }
             return
         }
+        begin(direction)
+    }
+
+    private func begin(_ direction: Direction) {
         heldDirection = direction
         move(direction)
         repeatTimer?.invalidate()
-        repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.42, repeats: false) { [weak self] _ in
+        repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
             Task { @MainActor in self?.startRepeating() }
         }
     }
 
+    private func scrollStickChanged(y: Float) {
+        let direction: Direction? = y > 0.7 ? .up : (y < -0.7 ? .down : nil)
+        guard direction != rightStickDirection else { return }
+        rightStickDirection = direction
+        if let direction { scrollPage(direction) }
+    }
+
     private func startRepeating() {
         repeatTimer?.invalidate()
-        repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.13, repeats: true) { [weak self] _ in
+        repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.16, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let direction = self.heldDirection else { return }
                 self.move(direction)
@@ -246,8 +285,9 @@ final class ControllerNavigator {
             scrollIntoView(next, window: window)
         } else if direction == .up || direction == .down {
             // Nothing in that direction on the screen, the list may continue off screen.
-            if scroll(direction, window: window, near: current.center, fraction: 0.7) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            if scroll(direction, window: window, near: current.center, fraction: 0.5,
+                      animated: false) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                     self?.selectAfterScroll(direction)
                 }
             }
@@ -255,10 +295,12 @@ final class ControllerNavigator {
     }
 
     private func selectAfterScroll(_ direction: Direction) {
-        guard enabled, let (window, items) = items() else { return }
-        if let current = currentItem(in: items),
-           let next = nextItem(from: current, direction: direction, in: items) {
+        guard enabled, let (window, items) = items(), let frame = currentFrame else { return }
+        // The selected control may have scrolled out of the list: choose from where it was.
+        let probe = Item(object: NSObject(), frame: frame, label: "", traits: [])
+        if let next = nextItem(from: probe, direction: direction, in: items) {
             select(next, window: window)
+            scrollIntoView(next, window: window)
         }
     }
 
@@ -325,12 +367,40 @@ final class ControllerNavigator {
             }
             return
         }
-        if !current.object.accessibilityActivate() {
+        if !pressAlertAction(titled: current.label, in: window),
+           !current.object.accessibilityActivate() {
             tap(current, in: window)
         }
         // The screen usually changes (a page opens, a menu appears): look again shortly.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.refreshAfterAction()
+        }
+    }
+
+    /// The topmost view controller that is presented.
+    private func topController(of window: UIWindow) -> UIViewController? {
+        var top = window.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        return top
+    }
+
+    /// The buttons of a dialog (the game menu) are not controls that take a press from outside:
+    /// run the action of the one with this title and close the dialog the way a tap does.
+    private func pressAlertAction(titled title: String, in window: UIWindow) -> Bool {
+        guard let alert = topController(of: window) as? UIAlertController,
+              let action = alert.actions.first(where: { $0.title == title && $0.isEnabled })
+        else { return false }
+        runAlertAction(action, of: alert)
+        return true
+    }
+
+    private func runAlertAction(_ action: UIAlertAction, of alert: UIAlertController) {
+        typealias Handler = @convention(block) (UIAlertAction) -> Void
+        let handler = action.value(forKey: "handler") as AnyObject?
+        alert.dismiss(animated: true) {
+            if let handler {
+                unsafeBitCast(handler, to: Handler.self)(action)
+            }
         }
     }
 
@@ -367,8 +437,17 @@ final class ControllerNavigator {
         guard let window = windows().first else { return }
 
         // The escape gesture of VoiceOver: a navigation controller pops, a sheet closes.
-        var top = window.rootViewController
-        while let presented = top?.presentedViewController { top = presented }
+        let top = topController(of: window)
+        if let alert = top as? UIAlertController {
+            // A dialog closes with its cancel button, or by itself when it has none.
+            if let cancel = alert.actions.first(where: { $0.style == .cancel }) {
+                runAlertAction(cancel, of: alert)
+            } else {
+                alert.dismiss(animated: true)
+            }
+            scheduleRefresh()
+            return
+        }
         if let top, escape(in: top) {
             scheduleRefresh()
             return
@@ -388,9 +467,15 @@ final class ControllerNavigator {
     /// itself, which can close a sheet.
     private func escape(in controller: UIViewController) -> Bool {
         for child in controller.children.reversed() where escape(in: child) { return true }
-        if controller is UINavigationController || controller.presentingViewController != nil {
+        if controller is UINavigationController {
             return controller.accessibilityPerformEscape()
                 || (controller.view?.accessibilityPerformEscape() ?? false)
+        }
+        if controller.presentingViewController != nil {
+            if controller.accessibilityPerformEscape()
+                || (controller.view?.accessibilityPerformEscape() ?? false) { return true }
+            controller.dismiss(animated: true)
+            return true
         }
         return false
     }
@@ -402,13 +487,37 @@ final class ControllerNavigator {
         }
     }
 
+    // MARK: Tabs
+
+    /// Switches between the tabs (Games, Settings) with the shoulder buttons and triggers.
+    private func switchTab(by step: Int) {
+        guard enabled, !NavigationSuspension.suspended, let window = windows().first,
+              let tabs = tabController(from: window.rootViewController),
+              tabs.presentedViewController == nil
+        else { return }
+        let count = tabs.viewControllers?.count ?? 0
+        let target = min(max(tabs.selectedIndex + step, 0), count - 1)
+        guard count > 1, target != tabs.selectedIndex else { return }
+        tabs.selectedIndex = target
+        scheduleRefresh()
+    }
+
+    private func tabController(from controller: UIViewController?) -> UITabBarController? {
+        guard let controller else { return nil }
+        if let tabs = controller as? UITabBarController { return tabs }
+        for child in controller.children {
+            if let found = tabController(from: child) { return found }
+        }
+        return nil
+    }
+
     // MARK: Scrolling
 
     private func scrollPage(_ direction: Direction) {
         guard enabled, !NavigationSuspension.suspended, let window = windows().first else { return }
         let origin = currentFrame.map { CGPoint(x: $0.midX, y: $0.midY) }
-        if scroll(direction, window: window, near: origin, fraction: 0.85) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        if scroll(direction, window: window, near: origin, fraction: 0.85, animated: false) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
                 self?.currentFrame = nil
                 self?.refreshAfterAction()
             }
@@ -419,7 +528,7 @@ final class ControllerNavigator {
     /// when it is at its end.
     @discardableResult
     private func scroll(_ direction: Direction, window: UIWindow, near point: CGPoint?,
-                        fraction: CGFloat) -> Bool {
+                        fraction: CGFloat, animated: Bool = true) -> Bool {
         guard let scrollView = scrollView(in: window, near: point) else { return false }
         let page = scrollView.bounds.height * fraction
         let inset = scrollView.adjustedContentInset
@@ -430,7 +539,8 @@ final class ControllerNavigator {
         let target = direction == .down ? offset.y + page : offset.y - page
         offset.y = min(max(target, minOffset), maxOffset)
         guard abs(offset.y - scrollView.contentOffset.y) > 1 else { return false }
-        scrollView.setContentOffset(offset, animated: true)
+        scrollView.setContentOffset(offset, animated: animated)
+        if !animated { scrollView.layoutIfNeeded() }
         return true
     }
 
@@ -456,13 +566,34 @@ final class ControllerNavigator {
         return found.max { $0.bounds.height < $1.bounds.height }
     }
 
-    /// Scrolls so the whole control is visible.
+    /// Scrolls just enough that the whole control is visible, at once, and moves the selection
+    /// frame by the same amount so it does not lag behind the list.
     private func scrollIntoView(_ item: Item, window: UIWindow) {
         guard let scroll = scrollView(in: window, near: item.center) else { return }
         let inWindow = window.convert(item.frame, from: window.screen.coordinateSpace)
         let rect = scroll.convert(inWindow, from: window)
-        scroll.scrollRectToVisible(rect.insetBy(dx: 0, dy: -28), animated: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+        let inset = scroll.adjustedContentInset
+        let visible = CGRect(x: scroll.contentOffset.x + inset.left,
+                             y: scroll.contentOffset.y + inset.top,
+                             width: scroll.bounds.width - inset.left - inset.right,
+                             height: scroll.bounds.height - inset.top - inset.bottom)
+        let margin: CGFloat = 16
+        var delta: CGFloat = 0
+        if rect.minY < visible.minY + margin {
+            delta = rect.minY - visible.minY - margin
+        } else if rect.maxY > visible.maxY - margin {
+            delta = rect.maxY - visible.maxY + margin
+        }
+        guard abs(delta) > 0.5 else { return }
+        let minOffset = -inset.top
+        let maxOffset = max(minOffset, scroll.contentSize.height - scroll.bounds.height + inset.bottom)
+        let target = min(max(scroll.contentOffset.y + delta, minOffset), maxOffset)
+        let moved = target - scroll.contentOffset.y
+        guard abs(moved) > 0.5 else { return }
+        scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: target), animated: false)
+        showSelection(item.frame.offsetBy(dx: 0, dy: -moved), in: window)
+        currentFrame = item.frame.offsetBy(dx: 0, dy: -moved)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
             guard let self, self.enabled, let (window, items) = self.items(),
                   let current = self.currentItem(in: items) else { return }
             self.select(current, window: window)

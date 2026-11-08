@@ -103,7 +103,8 @@ struct ControllerMappingView: View {
                 Toggle("Control the App With the Controller", isOn: $settings.controllerNavigation)
             } footer: {
                 Text("The D-pad or left stick moves through the menus, A presses, B goes back "
-                     + "and L/R scroll a page. Left and right change a slider. Works outside "
+                     + "and L/R (or the triggers) switch between Games and Settings. The right stick "
+                     + "scrolls a page. Left and right change a slider. Works outside "
                      + "games and in the pause menu.")
             }
 
