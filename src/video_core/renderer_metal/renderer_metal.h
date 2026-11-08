@@ -76,9 +76,6 @@ struct QualityOptions {
     /// Small depth areas the CPU reads every frame get the previous frame's values instead of
     /// waiting for the GPU (Mario Kart 7's sun glare check).
     bool async_depth_readback = false;
-    /// A frame is not presented while the GPU is still busy with the previous one (at most two
-    /// in a row), so the emulation keeps its speed when the display cannot keep up.
-    bool skip_busy_presents = false;
     /// Maximum anisotropic filtering level for linearly filtered textures, 1 disables it.
     int max_anisotropy = 4;
 };

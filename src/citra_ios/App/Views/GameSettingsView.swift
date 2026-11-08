@@ -31,7 +31,7 @@ struct GameSettingsView: View {
                 OverrideToggle("Fast Color Math", value: $overrides.fastColor)
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
-                OverrideToggle("Frame Presentation Skip", value: $overrides.frameSkip)
+                OverrideToggle("Frame Presentation Skip", value: $overrides.skipDuplicateFrames)
                 OverrideToggle("Custom Textures", value: $overrides.customTextures)
                 OverrideToggle("Preload Custom Textures", value: $overrides.preloadTextures)
                 OverrideToggle("Hidden Surface Removal", value: $overrides.hiddenSurfaceRemoval)

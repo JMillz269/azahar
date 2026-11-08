@@ -445,7 +445,6 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     quality.texture_compression = static_cast<Metal::TextureCompression>(
         std::clamp<NSInteger>(configuration.textureCompression, 0, 2));
     quality.async_depth_readback = configuration.fastDepthReadback;
-    quality.skip_busy_presents = configuration.frameSkip;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);
     // Camera slots: 0 outer right, 1 inner, 2 outer left.

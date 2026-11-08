@@ -193,7 +193,6 @@ struct GraphicsSettingsView: View {
                 Toggle("Fast Lighting Math", isOn: $settings.fastLighting)
                 Toggle("Fast Color Math", isOn: $settings.fastColor)
                 Toggle("Fast Depth Readback", isOn: $settings.fastDepthReadback)
-                Toggle("Frame Presentation Skip", isOn: $settings.frameSkip)
                 Toggle("Hidden Surface Removal", isOn: $settings.hiddenSurfaceRemoval)
                 Picker("Texture Compression", selection: $settings.textureCompression) {
                     ForEach(TextureCompressionOption.allCases) { Text($0.title).tag($0) }
@@ -212,9 +211,6 @@ struct GraphicsSettingsView: View {
                      + "pixels hidden behind others (not for games using W-buffering). Texture "
                      + "Compression saves GPU memory bandwidth: Lossless looks identical, Lossy "
                      + "(A15 and later) saves more with a tiny loss of quality. "
-                     + "Frame Presentation Skip drops a frame from the display (up to two in a "
-                     + "row) while the GPU is still busy with the previous one, so the game keeps "
-                     + "its speed when the screen cannot keep up. "
                      + "Fast Depth Readback answers the small depth checks some games do every "
                      + "frame (Mario Kart 7's sun glare) with the previous frame's values instead "
                      + "of waiting for the GPU. "
@@ -383,9 +379,16 @@ struct GraphicsSettingsView: View {
                 Button("OK", role: .cancel) {}
             }
 
-            Section("Performance") {
-                Toggle("Skip Duplicate Frames", isOn: $settings.skipDuplicateFrames)
+            Section {
+                Toggle("Frame Presentation Skip", isOn: $settings.skipDuplicateFrames)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)
+            } header: {
+                Text("Performance")
+            } footer: {
+                Text("Does not present a frame the game did not draw again, so a 30 FPS game "
+                     + "shows 30 frames per second instead of every frame twice at 60. The "
+                     + "emulation speed and the audio stay the same. Meant for frame generation "
+                     + "and interpolation tools that need the real frame rate.")
             }
         }
         .navigationTitle("Graphics")
