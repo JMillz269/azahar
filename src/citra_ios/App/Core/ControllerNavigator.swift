@@ -18,6 +18,30 @@ private final class SelectionWindow: UIWindow {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
 }
 
+/// Sees every touch on a window without taking part: it never recognizes anything, so the touch
+/// goes on to the app as usual.
+private final class TouchWatcher: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    var onTouch: (() -> Void)?
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouch?()
+        state = .failed
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+}
+
 private enum Direction {
     case up, down, left, right
 }
@@ -608,8 +632,21 @@ final class ControllerNavigator {
         showSelection(item.frame, in: window)
     }
 
+    /// The selection goes away when the screen is touched, so it does not stay behind when a
+    /// finger scrolls or opens something.
+    private func watchTouches() {
+        for window in windows() where !(window.gestureRecognizers ?? []).contains(where: { $0 is TouchWatcher }) {
+            let watcher = TouchWatcher(target: nil, action: nil)
+            watcher.onTouch = { [weak self] in
+                Task { @MainActor in self?.hideSelection() }
+            }
+            window.addGestureRecognizer(watcher)
+        }
+    }
+
     private func showSelection(_ frame: CGRect, in window: UIWindow) {
         guard let scene = window.windowScene else { return }
+        watchTouches()
         if selectionWindow == nil || selectionWindow?.windowScene !== scene {
             let overlay = SelectionWindow(windowScene: scene)
             overlay.windowLevel = .alert + 1000
