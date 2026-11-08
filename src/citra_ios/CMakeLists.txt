@@ -72,6 +72,7 @@ set(APP_SWIFT_SOURCES
     App/Core/AppSettings.swift
     App/Core/ConsoleInput.swift
     App/Core/ControllerLayout.swift
+    App/Core/CustomStorage.swift
     App/Core/DocumentImporter.swift
     App/Core/ExternalDisplay.swift
     App/Core/EmulationSession.swift

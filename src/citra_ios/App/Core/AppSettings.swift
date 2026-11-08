@@ -301,6 +301,10 @@ final class AppSettings: ObservableObject {
     @Published var cardboardYShift: Int { didSet { save(cardboardYShift, "cardboardYShift") } }
     @Published var fastForwardSpeed: Int { didSet { save(fastForwardSpeed, "fastForwardSpeed") } }
     @Published var fastForwardHold: Bool { didSet { save(fastForwardHold, "fastForwardHold") } }
+    @Published var useVirtualSD: Bool { didSet { save(useVirtualSD, "useVirtualSD") } }
+    @Published var compressCIAInstalls: Bool {
+        didSet { save(compressCIAInstalls, "compressCIAInstalls") }
+    }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -389,6 +393,8 @@ final class AppSettings: ObservableObject {
         cardboardYShift = value("cardboardYShift", 0)
         fastForwardSpeed = value("fastForwardSpeed", 300)
         fastForwardHold = value("fastForwardHold", false)
+        useVirtualSD = value("useVirtualSD", true)
+        compressCIAInstalls = value("compressCIAInstalls", false)
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)
@@ -477,6 +483,9 @@ final class AppSettings: ObservableObject {
         config.cardboardYShift = cardboardYShift
         config.fastForwardSpeed = fastForwardSpeed
         config.fastForwardHold = fastForwardHold
+        config.useVirtualSD = useVirtualSD
+        config.compressCIAInstalls = compressCIAInstalls
+        config.customStoragePath = CustomStorage.activate()
         config.useMicrophone = useMicrophone
         config.volume = Float(volume)
         config.isNew3DS = isNew3DS

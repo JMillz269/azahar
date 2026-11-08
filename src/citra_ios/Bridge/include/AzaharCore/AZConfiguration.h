@@ -99,6 +99,15 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL useMicrophone;
 @property(nonatomic) float volume;
 
+// Storage
+/// Keep the console's SD card on the device (on by default).
+@property(nonatomic) BOOL useVirtualSD;
+/// Store installed CIAs compressed.
+@property(nonatomic) BOOL compressCIAInstalls;
+/// A folder for the nand and the virtual SD card (as the subfolders nand and sdmc) instead of the
+/// Azahar folder, or nil.
+@property(nonatomic, copy, nullable) NSString* customStoragePath;
+
 // Extras
 @property(nonatomic) BOOL fixedClock;
 @property(nonatomic) NSInteger fixedTime;

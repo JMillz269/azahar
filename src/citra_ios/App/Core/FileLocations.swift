@@ -32,7 +32,7 @@ enum FileLocations {
 
     /// 3GX plugins of the plugin loader (the virtual SD card of the console).
     static var pluginsDirectory: URL {
-        userDirectory.appendingPathComponent("sdmc/luma/plugins", isDirectory: true)
+        sdmcDirectory.appendingPathComponent("luma/plugins", isDirectory: true)
     }
 
     /// Recorded movies (.ctm).
@@ -77,7 +77,16 @@ enum FileLocations {
 
     /// Where the installed titles live.
     static var installedTitlesDirectory: URL {
-        userDirectory.appendingPathComponent("sdmc/Nintendo 3DS", isDirectory: true)
+        sdmcDirectory.appendingPathComponent("Nintendo 3DS", isDirectory: true)
+    }
+
+    /// The virtual SD card of the console: in the storage folder when one is chosen.
+    static var sdmcDirectory: URL {
+        if let custom = MainActor.assumeIsolated({ CustomStorage.currentURL }),
+           FileManager.default.isWritableFile(atPath: custom.path) {
+            return custom.appendingPathComponent("sdmc", isDirectory: true)
+        }
+        return userDirectory.appendingPathComponent("sdmc", isDirectory: true)
     }
 
     static func createDirectories() {

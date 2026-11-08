@@ -456,6 +456,7 @@ struct AudioSettingsView: View {
 
 struct SystemSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @State private var storageName = CustomStorage.currentURL?.lastPathComponent
 
     var body: some View {
         Form {
@@ -523,6 +524,31 @@ struct SystemSettingsView: View {
                      + "friends) instead of the built-in ones, which online games need. It needs "
                      + "the system files of a real console and a replacement for Nintendo's "
                      + "servers. See the guide. Applies when a game starts.")
+            }
+
+            Section {
+                Toggle("Virtual SD Card", isOn: $settings.useVirtualSD)
+                Toggle("Compress Installed CIAs", isOn: $settings.compressCIAInstalls)
+                LabeledContent("Storage Folder", value: storageName ?? "Azahar folder")
+                Button("Choose Storage Folder…") {
+                    CustomStorage.choose { url in
+                        if let url { storageName = url.lastPathComponent }
+                    }
+                }
+                if storageName != nil {
+                    Button("Use the Azahar Folder", role: .destructive) {
+                        CustomStorage.reset()
+                        storageName = nil
+                    }
+                }
+            } header: {
+                Text("Storage")
+            } footer: {
+                Text("A chosen folder holds the console's nand and SD card (as the folders nand "
+                     + "and sdmc inside it) instead of Files › Azahar. Existing data is not moved. "
+                     + "Apps that run inside another app (LiveContainer) may not be allowed to "
+                     + "use a folder outside their own; the Azahar folder is used then. Applies "
+                     + "when a game starts.")
             }
 
             Section {

@@ -479,6 +479,27 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     values.battery_charging = configuration.batteryCharging;
     values.steps_per_hour = static_cast<u16>(std::clamp<NSInteger>(configuration.stepsPerHour, 0, 65535));
     values.apply_region_free_patch = configuration.regionFreePatch;
+    values.use_virtual_sd = configuration.useVirtualSD;
+    values.compress_cia_installs = configuration.compressCIAInstalls;
+    {
+        // The data folders: a folder the user chose (as nand/ and sdmc/ in it), or the defaults
+        // inside the Azahar folder. Only changed while no game runs.
+        if (_state.load() == AZEmulationStateStopped) {
+            std::string nand = std::string{_userDirectory.UTF8String} + "nand/";
+            std::string sdmc = std::string{_userDirectory.UTF8String} + "sdmc/";
+            values.use_custom_storage = false;
+            if (configuration.customStoragePath.length > 0) {
+                const std::string base = std::string{configuration.customStoragePath.UTF8String} + "/";
+                nand = base + "nand/";
+                sdmc = base + "sdmc/";
+                values.use_custom_storage = true;
+            }
+            FileUtil::CreateFullPath(nand);
+            FileUtil::CreateFullPath(sdmc);
+            FileUtil::UpdateUserPath(FileUtil::UserPath::NANDDir, nand);
+            FileUtil::UpdateUserPath(FileUtil::UserPath::SDMCDir, sdmc);
+        }
+    }
     values.plugin_loader_enabled = configuration.pluginLoader;
     values.enable_required_online_lle_modules = configuration.onlineModules;
     values.async_shader_compilation = configuration.asyncShaderCompilation;

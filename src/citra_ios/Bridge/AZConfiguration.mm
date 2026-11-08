@@ -49,6 +49,9 @@
     config.uprightScreens = NO;
     config.audioStretching = YES;
     config.volume = 1.0f;
+    config.useVirtualSD = YES;
+    config.compressCIAInstalls = NO;
+    config.customStoragePath = nil;
     config.fixedClock = NO;
     config.fixedTime = 946681277;
     config.fixedBattery = NO;
