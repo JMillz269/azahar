@@ -24,6 +24,7 @@
 
 #include "audio_core/input_details.h"
 #include "citra_ios/Bridge/camera_ios.h"
+#include "common/hacks/hack_manager.h"
 #include "citra_ios/Bridge/movie_state.h"
 #include "core/movie.h"
 #include "citra_ios/Bridge/mic_ios.h"
@@ -284,6 +285,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     std::atomic<bool> _surfaceDirty;
 
     NSString* _userDirectory;
+    BOOL _gameHacksEnabled;
+    NSDictionary<NSString*, NSNumber*>* _gameHackOverrides;
 }
 
 + (AZEmulator*)shared {
@@ -486,6 +489,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
             ? std::string{_userDirectory.UTF8String} + "shaders/post/" +
                   std::string{configuration.postShader.UTF8String} + ".metal"
             : std::string{});
+    _gameHacksEnabled = configuration.gameHacksEnabled;
+    _gameHackOverrides = [configuration.gameHackOverrides copy] ?: @{};
     values.audio_emulation = static_cast<Settings::AudioEmulation>(
         std::clamp<NSInteger>(configuration.audioEmulation, 0, 2));
     values.lle_applets = configuration.lleApplets;
@@ -795,6 +800,62 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     [self finishWithError:error];
 }
 
+/// Sets up the per game workarounds of the core for the title that starts: the built-in list (or
+/// none of its game workarounds) and what the user decided for this game.
+- (void)applyGameHacksForProgram:(u64)program_id {
+    using namespace Common::Hacks;
+    static std::multimap<HackType, HackEntry> defaults;
+    static bool captured = false;
+    if (!captured) {
+        defaults = hack_manager.entries;
+        captured = true;
+    }
+    hack_manager.entries = defaults;
+
+    // Only the workarounds for games go; the ones for the system titles (applets, the eShop) stay.
+    if (!_gameHacksEnabled) {
+        for (const auto type : {HackType::RIGHT_EYE_DISABLE, HackType::ACCURATE_MULTIPLICATION,
+                                HackType::REQUIRES_SHADER_FIXUP,
+                                HackType::DELAY_TEXTURE_COPY_COMPLETION,
+                                HackType::SPOOF_FRIEND_CODE_SEED}) {
+            hack_manager.entries.erase(type);
+        }
+    }
+
+    static NSDictionary<NSString*, NSNumber*>* const keys = @{
+        @"rightEye" : @(static_cast<int>(HackType::RIGHT_EYE_DISABLE)),
+        @"accurateMul" : @(static_cast<int>(HackType::ACCURATE_MULTIPLICATION)),
+        @"shaderFixup" : @(static_cast<int>(HackType::REQUIRES_SHADER_FIXUP)),
+        @"delayTextureCopy" : @(static_cast<int>(HackType::DELAY_TEXTURE_COPY_COMPLETION)),
+        @"regionFromSecure" : @(static_cast<int>(HackType::REGION_FROM_SECURE)),
+        @"spoofFriendCode" : @(static_cast<int>(HackType::SPOOF_FRIEND_CODE_SEED)),
+        @"onlineLLE" : @(static_cast<int>(HackType::ONLINE_LLE_REQUIRED)),
+    };
+    for (NSString* key in _gameHackOverrides) {
+        NSNumber* type_value = keys[key];
+        const int choice = _gameHackOverrides[key].intValue;
+        if (type_value == nil || (choice != 1 && choice != 2)) {
+            continue;
+        }
+        const auto type = static_cast<HackType>(type_value.intValue);
+        // Take the game out of the entries that name it, then give it one of its own.
+        auto range = hack_manager.entries.equal_range(type);
+        for (auto it = range.first; it != range.second; ++it) {
+            auto& ids = it->second.affected_title_ids;
+            ids.erase(std::remove(ids.begin(), ids.end(), program_id), ids.end());
+        }
+        HackAllowMode mode = HackAllowMode::DISALLOW;
+        if (choice == 2) {
+            // On: the right eye hack is an optimization that is allowed, the others are forced.
+            mode = type == HackType::RIGHT_EYE_DISABLE ? HackAllowMode::ALLOW : HackAllowMode::FORCE;
+        }
+        HackEntry entry;
+        entry.mode = mode;
+        entry.affected_title_ids = {program_id};
+        hack_manager.entries.emplace(type, std::move(entry));
+    }
+}
+
 /// Boots the title and runs the emulation loop. Returns the error that stopped emulation, if any.
 - (NSError*)runEmulation:(const std::string&)filepath {
     Core::System& system = Core::System::GetInstance();
@@ -818,6 +879,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     Frontend::RegisterDefaultApplets(system);
     [self registerApplets];
     IOSInput::BindInputProfile();
+
+    [self applyGameHacksForProgram:program_id];
 
     // A movie set before the start records or plays along with this run (the clock is set up
     // before the game loads, the movie itself starts once it has).

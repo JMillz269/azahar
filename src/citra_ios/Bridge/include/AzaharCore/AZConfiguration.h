@@ -101,6 +101,14 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL useMicrophone;
 @property(nonatomic) float volume;
 
+// Game hacks
+/// Use the built-in list of games that need a workaround (on by default).
+@property(nonatomic) BOOL gameHacksEnabled;
+/// What the game does about each hack, by key (rightEye, accurateMul, shaderFixup,
+/// delayTextureCopy, regionFromSecure, spoofFriendCode, onlineLLE): 1 off, 2 on. A hack that is
+/// not in the dictionary follows the built-in list.
+@property(nonatomic, copy) NSDictionary<NSString*, NSNumber*>* gameHackOverrides;
+
 // Audio and system modules
 /// 0 HLE (built in), 1 LLE (the console's real DSP), 2 LLE on its own thread.
 @property(nonatomic) NSInteger audioEmulation;

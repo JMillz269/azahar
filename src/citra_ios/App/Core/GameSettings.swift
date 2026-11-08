@@ -33,6 +33,9 @@ struct GameOverrides: Codable, Equatable {
     var regionFreePatch: Bool?
     var postEffect: Int?
     var fastForwardSpeed: Int?
+    /// What the game does about each workaround of the core (key of GameHack): 1 off, 2 on. A
+    /// workaround that is not here follows the built-in list.
+    var hacks: [String: Int]?
     /// 0 runs without a speed limit, other values limit the speed to that percentage.
     var speedLimit: Int?
 
@@ -66,6 +69,7 @@ struct GameOverrides: Codable, Equatable {
         if let regionFreePatch { config.regionFreePatch = regionFreePatch }
         if let postEffect { config.postEffect = postEffect }
         if let fastForwardSpeed { config.fastForwardSpeed = fastForwardSpeed }
+        if let hacks { config.gameHackOverrides = hacks.mapValues { NSNumber(value: $0) } }
         if let speedLimit {
             config.useFrameLimit = speedLimit != 0
             if speedLimit != 0 { config.frameLimit = speedLimit }
@@ -109,5 +113,56 @@ final class GameOverridesStore: ObservableObject {
 
     func hasOverrides(_ game: Game) -> Bool {
         all[game.programIDString] != nil
+    }
+}
+
+/// The workarounds for single games that the core has built in.
+enum GameHack: String, CaseIterable, Identifiable {
+    case rightEye
+    case accurateMul
+    case shaderFixup
+    case delayTextureCopy
+    case regionFromSecure
+    case spoofFriendCode
+    case onlineLLE
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .rightEye: return "Skip Right Eye With 3D Off"
+        case .accurateMul: return "Accurate Shader Multiplication"
+        case .shaderFixup: return "Shader Fix-Up"
+        case .delayTextureCopy: return "Delay Texture Copy Completion"
+        case .regionFromSecure: return "Region From Secure Info"
+        case .spoofFriendCode: return "Spoof Friend Code Seed"
+        case .onlineLLE: return "Online System Modules"
+        }
+    }
+
+    var details: String {
+        switch self {
+        case .rightEye:
+            return "While 3D is off the right eye is not drawn, which is faster. A few games "
+                + "(Luigi's Mansion games, Rayman Origins, Minecraft) draw wrongly that way and "
+                + "have it off in the built-in list."
+        case .accurateMul:
+            return "Multiplies the way the console does for zero and infinite values. Slower, "
+                + "needed by games with broken geometry (Ocarina of Time 3D, the Mario & Luigi "
+                + "games)."
+        case .shaderFixup:
+            return "Corrects the shader programs of games that need it."
+        case .delayTextureCopy:
+            return "Reports a finished texture copy a little later, which fixes timing "
+                + "problems in a few games."
+        case .regionFromSecure:
+            return "Reports the region of the console's secure info instead of the set one. For "
+                + "system applets."
+        case .spoofFriendCode:
+            return "Uses the wireless address as the friend code seed, so local play works "
+                + "without a set-up console."
+        case .onlineLLE:
+            return "Runs the console's own online system modules for this game."
+        }
     }
 }

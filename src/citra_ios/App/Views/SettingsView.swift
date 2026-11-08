@@ -585,6 +585,18 @@ struct SystemSettingsView: View {
             }
 
             Section {
+                Toggle("Built-in Game Hacks", isOn: $settings.gameHacksEnabled)
+            } header: {
+                Text("Game Hacks")
+            } footer: {
+                Text("The core knows games that need a workaround (accurate shader math for Ocarina "
+                     + "of Time 3D, no right-eye skipping for the Luigi's Mansion games) and "
+                     + "applies it by itself. Turn this off to run every game without them. A "
+                     + "single game can decide each workaround for itself in its Game Settings "
+                     + "under Game Hacks.")
+            }
+
+            Section {
                 Toggle("LLE Applets", isOn: $settings.lleApplets)
                 Toggle("Plugin Loader (3GX)", isOn: $settings.pluginLoader)
                 Button("Show Plugins Folder in Files") {

@@ -50,6 +50,8 @@
     config.audioStretching = YES;
     config.realtimeAudio = NO;
     config.volume = 1.0f;
+    config.gameHacksEnabled = YES;
+    config.gameHackOverrides = @{};
     config.audioEmulation = 0;
     config.lleApplets = NO;
     config.textureSampling = 0;

@@ -95,6 +95,31 @@ struct GameSettingsView: View {
             }
 
             Section {
+                ForEach(GameHack.allCases) { hack in
+                    Picker(hack.title, selection: Binding(
+                        get: { overrides.hacks?[hack.rawValue] ?? 0 },
+                        set: { choice in
+                            var hacks = overrides.hacks ?? [:]
+                            if choice == 0 {
+                                hacks[hack.rawValue] = nil
+                            } else {
+                                hacks[hack.rawValue] = choice
+                            }
+                            overrides.hacks = hacks.isEmpty ? nil : hacks
+                        })) {
+                        Text("Built-in List").tag(0)
+                        Text("Off").tag(1)
+                        Text("On").tag(2)
+                    }
+                }
+            } header: {
+                Text("Game Hacks")
+            } footer: {
+                Text(GameHack.allCases.map { "\($0.title): \($0.details)" }
+                        .joined(separator: "\n\n"))
+            }
+
+            Section {
                 Button("Reset to Global Settings", role: .destructive) {
                     overrides = GameOverrides()
                 }

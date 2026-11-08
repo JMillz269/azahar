@@ -331,6 +331,7 @@ final class AppSettings: ObservableObject {
     /// The stick that moves a cursor over the touch screen: 0 none, 1 left, 2 right.
     @Published var touchStick: Int { didSet { save(touchStick, "touchStick") } }
     @Published var touchStickSpeed: Double { didSet { save(touchStickSpeed, "touchStickSpeed") } }
+    @Published var gameHacksEnabled: Bool { didSet { save(gameHacksEnabled, "gameHacksEnabled") } }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -439,6 +440,7 @@ final class AppSettings: ObservableObject {
         favoritesFirst = value("favoritesFirst", true)
         touchStick = value("touchStick", 0)
         touchStickSpeed = value("touchStickSpeed", 1.0)
+        gameHacksEnabled = value("gameHacksEnabled", true)
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)
@@ -538,6 +540,7 @@ final class AppSettings: ObservableObject {
         config.lleApplets = lleApplets
         config.textureSampling = textureSampling
         config.monoEye = monoEye
+        config.gameHacksEnabled = gameHacksEnabled
         config.useMicrophone = useMicrophone
         config.volume = Float(volume)
         config.isNew3DS = isNew3DS
