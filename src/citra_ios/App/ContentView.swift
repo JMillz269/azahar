@@ -9,6 +9,7 @@ import UIKit
 struct ContentView: View {
     @EnvironmentObject private var session: EmulationSession
     @EnvironmentObject private var compressor: GameCompressor
+    @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         Group {
@@ -34,6 +35,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: session.isActive)
+        .onAppear { ControllerNavigator.shared.start(session: session, settings: settings) }
         .alert("Emulation Error", isPresented: $session.showingError) {
             if let report = session.errorReport {
                 Button("Copy Details") { UIPasteboard.general.string = report }

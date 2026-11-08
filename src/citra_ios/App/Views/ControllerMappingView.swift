@@ -32,6 +32,7 @@ private final class ButtonCapture: ObservableObject {
         cancel()
         self.target = target
         self.onCapture = onCapture
+        NavigationSuspension.suspended = true
         for controller in GCController.controllers() {
             controller.extendedGamepad?.valueChangedHandler = { [weak self] pad, _ in
                 guard let input = PhysicalInput.allCases.first(where: { $0.isPressed(on: pad) })
@@ -47,6 +48,7 @@ private final class ButtonCapture: ObservableObject {
         }
         target = nil
         onCapture = nil
+        NavigationSuspension.suspended = false
     }
 
     private func finish(_ input: PhysicalInput) {
@@ -95,6 +97,14 @@ struct ControllerMappingView: View {
                 Text("Keep several mappings, for example one per controller. Changes below are "
                      + "saved into the chosen profile. A game can use its own profile in its Game "
                      + "Settings.")
+            }
+
+            Section {
+                Toggle("Control the App With the Controller", isOn: $settings.controllerNavigation)
+            } footer: {
+                Text("The D-pad or left stick moves through the menus, A presses, B goes back "
+                     + "and L/R scroll a page. Left and right change a slider. Works outside "
+                     + "games and in the pause menu.")
             }
 
             Section {

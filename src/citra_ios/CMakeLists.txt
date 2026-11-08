@@ -71,6 +71,7 @@ set(APP_SWIFT_SOURCES
     App/ContentView.swift
     App/Core/AppSettings.swift
     App/Core/ConsoleInput.swift
+    App/Core/ControllerNavigator.swift
     App/Core/CountryNames.swift
     App/Core/ControllerLayout.swift
     App/Core/CustomStorage.swift
