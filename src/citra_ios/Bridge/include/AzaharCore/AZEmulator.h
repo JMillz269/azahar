@@ -318,7 +318,7 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 
 + (AZConsoleProfile*)readConsoleProfile;
 /// Returns NO while a game runs.
-+ (BOOL)writeConsoleProfile:(AZConsoleProfile*)profile;
++ (BOOL)writeConsoleProfile:(AZConsoleProfile*)profile NS_SWIFT_NAME(writeConsoleProfile(_:));
 
 // Movies: recordings of the controller input of a run, played back later. A recording or a
 // playback starts together with the game, so the game has to be (re)started after one is set.
