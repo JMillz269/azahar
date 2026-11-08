@@ -328,6 +328,9 @@ final class AppSettings: ObservableObject {
     /// 0 title, 1 recently played, 2 most played, 3 compatibility.
     @Published var librarySort: Int { didSet { save(librarySort, "librarySort") } }
     @Published var favoritesFirst: Bool { didSet { save(favoritesFirst, "favoritesFirst") } }
+    /// The stick that moves a cursor over the touch screen: 0 none, 1 left, 2 right.
+    @Published var touchStick: Int { didSet { save(touchStick, "touchStick") } }
+    @Published var touchStickSpeed: Double { didSet { save(touchStickSpeed, "touchStickSpeed") } }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -434,6 +437,8 @@ final class AppSettings: ObservableObject {
         }
         librarySort = value("librarySort", 0)
         favoritesFirst = value("favoritesFirst", true)
+        touchStick = value("touchStick", 0)
+        touchStickSpeed = value("touchStickSpeed", 1.0)
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)

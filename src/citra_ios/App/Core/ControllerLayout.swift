@@ -17,6 +17,8 @@ enum ControlID: String, CaseIterable, Identifiable {
     /// The button opening the emulation menu. It is placed like a control but drawn and handled
     /// by EmulationView, so it stays available while the controller is hidden.
     case menuButton
+    /// Fast forwards while held.
+    case turboButton
 
     var id: String { rawValue }
 
@@ -33,6 +35,7 @@ enum ControlID: String, CaseIterable, Identifiable {
         case .cStick: return "C-Stick"
         case .systemButtons: return "Select / Home / Start"
         case .menuButton: return "Menu Button"
+        case .turboButton: return "Turbo Button"
         }
     }
 }

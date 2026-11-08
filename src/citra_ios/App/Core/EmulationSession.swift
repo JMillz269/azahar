@@ -36,6 +36,8 @@ final class EmulationSession: ObservableObject {
 
     /// Whether a physical game controller is connected while a game runs.
     @Published private(set) var hardwareControllerConnected = false
+    /// The cursor of the touch stick, nil when there is none.
+    @Published private(set) var touchCursor: TouchCursorState?
 
     let controllers = GameControllerInput()
     let motion = MotionInput()
@@ -52,6 +54,21 @@ final class EmulationSession: ObservableObject {
     init() {
         controllers.onConnectionChange = { [weak self] connected in
             self?.hardwareControllerConnected = connected
+        }
+        ControllerTouchHandler.shared.onTurbo = { [weak self] held in
+            Task { @MainActor in
+                self?.setFastForward(held)
+            }
+        }
+        controllers.onTouchCursor = { [weak self] position, frame in
+            Task { @MainActor in
+                if let position {
+                    let state = TouchCursorState(position: position, frame: frame)
+                    if self?.touchCursor != state { self?.touchCursor = state }
+                } else {
+                    self?.touchCursor = nil
+                }
+            }
         }
         AZEmulator.shared.onMovieFinished = { [weak self] in
             self?.showToast("Movie finished")
@@ -105,6 +122,13 @@ final class EmulationSession: ObservableObject {
 
     @Published private(set) var isFastForwarding = false
 
+    /// Fast forwards while held (the turbo button): on or off, without the toast.
+    func setFastForward(_ on: Bool) {
+        guard on != isFastForwarding else { return }
+        isFastForwarding = on
+        AZEmulator.shared.setFastForward(on)
+    }
+
     func toggleFastForward() {
         isFastForwarding.toggle()
         AZEmulator.shared.setFastForward(isFastForwarding)
@@ -128,6 +152,8 @@ final class EmulationSession: ObservableObject {
             if pressed { takeScreenshot() }
         case .nextLayout:
             if pressed { NotificationCenter.default.post(name: .nextScreenLayout, object: nil) }
+        case .touchTap:
+            controllers.setTouchTap(pressed)
         }
     }
 
@@ -353,4 +379,11 @@ extension Notification.Name {
     static let openEmulationMenu = Notification.Name("azahar.openEmulationMenu")
     /// Asks the game view to switch to the next saved screen layout (a controller shortcut).
     static let nextScreenLayout = Notification.Name("azahar.nextScreenLayout")
+}
+
+/// Where the cursor of the touch stick is: inside the bottom screen (0 to 1 in both directions) and
+/// the frame of that screen in drawable pixels.
+struct TouchCursorState: Equatable {
+    var position: CGPoint
+    var frame: CGRect
 }

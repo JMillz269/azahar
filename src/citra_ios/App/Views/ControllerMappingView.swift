@@ -60,6 +60,7 @@ private final class ButtonCapture: ObservableObject {
 /// extra actions.
 struct ControllerMappingView: View {
     @EnvironmentObject private var store: ControllerMappingStore
+    @EnvironmentObject private var settings: AppSettings
     @StateObject private var capture = ButtonCapture()
     @State private var noController = false
 
@@ -86,6 +87,26 @@ struct ControllerMappingView: View {
                 Picker("C-Stick", selection: $store.mapping.cStick) {
                     ForEach(StickSource.allCases) { Text($0.title).tag($0) }
                 }
+            }
+
+            Section {
+                Picker("Touch Screen Cursor", selection: $settings.touchStick) {
+                    Text("Off").tag(0)
+                    Text("Left Stick").tag(1)
+                    Text("Right Stick").tag(2)
+                }
+                if settings.touchStick != 0 {
+                    VStack(alignment: .leading) {
+                        Text(String(format: "Cursor Speed: %.1fx", settings.touchStickSpeed))
+                        Slider(value: $settings.touchStickSpeed, in: 0.4...2.5, step: 0.1)
+                    }
+                }
+            } header: {
+                Text("Touch Screen")
+            } footer: {
+                Text("A stick of the controller moves a cursor over the bottom screen. Give a "
+                     + "controller button to Touch Screen Tap in the shortcuts below to tap with "
+                     + "it. The stick no longer drives the circle pad or the C-stick.")
             }
 
             Section {

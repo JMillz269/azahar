@@ -23,6 +23,7 @@ struct ControllerMetrics {
         case .cStick: return CGSize(width: unit * 1.2, height: unit * 1.2)
         case .systemButtons: return CGSize(width: 152, height: 26)
         case .menuButton: return CGSize(width: 44, height: 44)
+        case .turboButton: return CGSize(width: 64, height: 32)
         }
     }
 
@@ -44,6 +45,10 @@ struct ControllerMetrics {
         case .menuButton:
             // Top right, where the menu button always was.
             return CGPoint(x: size.width - 8 - 22, y: 22)
+        case .turboButton:
+            // Below the right shoulder buttons.
+            let shoulderTop: CGFloat = portrait ? size.height * 0.52 : 56
+            return CGPoint(x: size.width - edge - 32, y: shoulderTop + 36 + 112)
         }
     }
 
@@ -170,6 +175,8 @@ struct ControllerOverlay: View {
             }
         case .menuButton:
             MenuButtonIcon(scale: scale)
+        case .turboButton:
+            PillButton(label: "Turbo", scale: scale, pressed: touchState.turbo)
         }
     }
 
@@ -306,6 +313,8 @@ final class ControllerTouchState: ObservableObject {
     @Published fileprivate(set) var pressed: Set<ConsoleButton> = []
     /// Knob position of each stick, x and y in [-1, 1] with +y down (screen coordinates).
     @Published fileprivate(set) var sticks: [ConsoleStick: CGPoint] = [:]
+    /// The turbo button is held.
+    @Published fileprivate(set) var turbo = false
 }
 
 /// One control as seen by the touch view.
@@ -334,7 +343,12 @@ final class ControllerTouchHandler {
     private enum Binding {
         case buttons(Set<ConsoleButton>)
         case stick(ConsoleStick, ControlID)
+        case turbo
     }
+
+    /// Called when the turbo button goes down or up.
+    var onTurbo: ((Bool) -> Void)?
+    private var turboHeld = false
 
     private var bindings: [ObjectIdentifier: Binding] = [:]
     private var pressed: Set<ConsoleButton> = []
@@ -360,6 +374,9 @@ final class ControllerTouchHandler {
             case .cStick:
                 bindings[ObjectIdentifier(touch)] = .stick(.cStick, region.id)
                 updateStick(for: touch)
+            case .turboButton:
+                bindings[ObjectIdentifier(touch)] = .turbo
+                if haptics { impact.impactOccurred() }
             default:
                 bindings[ObjectIdentifier(touch)] = .buttons(buttons(at: point))
             }
@@ -378,6 +395,8 @@ final class ControllerTouchHandler {
                 changed = true
             case .stick:
                 updateStick(for: touch)
+            case .turbo:
+                break
             }
         }
         if changed {
@@ -416,6 +435,12 @@ final class ControllerTouchHandler {
 
     /// Sends the buttons that changed to the emulator.
     private func commit() {
+        let turbo = bindings.values.contains { if case .turbo = $0 { return true } else { return false } }
+        if turbo != turboHeld {
+            turboHeld = turbo
+            state?.turbo = turbo
+            onTurbo?(turbo)
+        }
         var now: Set<ConsoleButton> = []
         for case let .buttons(buttons) in bindings.values {
             now.formUnion(buttons)
@@ -479,7 +504,7 @@ final class ControllerTouchHandler {
             return result
         case .faceButtons:
             return faceButtons(at: local, size: frame.width)
-        case .circlePad, .cStick, .menuButton:
+        case .circlePad, .cStick, .menuButton, .turboButton:
             return []
         }
     }

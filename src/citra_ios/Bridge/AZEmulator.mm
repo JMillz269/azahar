@@ -1024,6 +1024,18 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     IOSInput::SetAnalog(static_cast<int>(analog), x, y);
 }
 
+- (CGRect)bottomScreenFrame {
+    if (!_window) {
+        return CGRectZero;
+    }
+    const auto layout = _window->GetFramebufferLayout();
+    const auto& screen = layout.bottom_screen;
+    if (screen.GetWidth() == 0 || screen.GetHeight() == 0) {
+        return CGRectZero;
+    }
+    return CGRectMake(screen.left, screen.top, screen.GetWidth(), screen.GetHeight());
+}
+
 - (void)touchBeganAtPoint:(CGPoint)point {
     if (_window) {
         _window->OnTouchPressed(static_cast<unsigned>(std::max(point.x, 0.0)),

@@ -87,6 +87,22 @@ struct EmulationView: View {
                 }
             }
 
+            // The cursor of the touch stick, over the bottom screen.
+            if let cursor = session.touchCursor, !cursor.frame.isEmpty {
+                GeometryReader { _ in
+                    let scale = UIScreen.main.scale
+                    Image(systemName: "circle.circle")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black, radius: 2)
+                        .position(
+                            x: (cursor.frame.minX + cursor.position.x * cursor.frame.width) / scale,
+                            y: (cursor.frame.minY + cursor.position.y * cursor.frame.height) / scale)
+                }
+                .ignoresSafeArea(settings.respectNotch ? [] : .all)
+                .allowsHitTesting(false)
+            }
+
             if let progress = session.shaderBuildProgress {
                 VStack(spacing: 8) {
                     Text("Building Shaders")

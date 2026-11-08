@@ -90,6 +90,8 @@ enum Hotkey: String, CaseIterable, Codable, Identifiable {
     case fastForward
     case screenshot
     case nextLayout
+    /// Taps the touch screen at the cursor moved with the touch stick.
+    case touchTap
 
     var id: String { rawValue }
 
@@ -99,6 +101,7 @@ enum Hotkey: String, CaseIterable, Codable, Identifiable {
         case .fastForward: return "Fast Forward"
         case .screenshot: return "Take Screenshot"
         case .nextLayout: return "Next Screen Layout"
+        case .touchTap: return "Touch Screen Tap"
         }
     }
 }
@@ -254,6 +257,76 @@ final class GameControllerInput {
     /// Called on the main thread with whether a physical controller is connected, when that
     /// changes and when the input starts.
     var onConnectionChange: ((Bool) -> Void)?
+    /// The cursor of the touch stick (position inside the bottom screen, 0 to 1, and the screen's
+    /// frame in pixels), or nil when it goes away.
+    var onTouchCursor: ((CGPoint?, CGRect) -> Void)?
+    private var touchTimer: Timer?
+    private var touchStickValue = CGPoint.zero
+    private var touchPosition = CGPoint(x: 0.5, y: 0.5)
+    private var tapHeld = false
+
+    /// The stick that moves the touch cursor.
+    private static var touchSource: StickSource {
+        switch UserDefaults.standard.integer(forKey: "touchStick") {
+        case 1: return .left
+        case 2: return .right
+        default: return .none
+        }
+    }
+
+    /// Presses or lets go of the touch screen at the cursor.
+    func setTouchTap(_ pressed: Bool) {
+        guard Self.touchSource != .none else { return }
+        let frame = AZEmulator.shared.bottomScreenFrame
+        guard !frame.isEmpty else { return }
+        let point = CGPoint(x: frame.minX + touchPosition.x * frame.width,
+                            y: frame.minY + touchPosition.y * frame.height)
+        if pressed && !tapHeld {
+            AZEmulator.shared.touchBegan(at: point)
+        } else if !pressed && tapHeld {
+            AZEmulator.shared.touchEnded()
+        }
+        tapHeld = pressed
+    }
+
+    private func startTouchCursor() {
+        guard Self.touchSource != .none else { return }
+        touchPosition = CGPoint(x: 0.5, y: 0.5)
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.moveTouchCursor()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        touchTimer = timer
+        onTouchCursor?(touchPosition, AZEmulator.shared.bottomScreenFrame)
+    }
+
+    private func stopTouchCursor() {
+        touchTimer?.invalidate()
+        touchTimer = nil
+        if tapHeld {
+            AZEmulator.shared.touchEnded()
+            tapHeld = false
+        }
+        onTouchCursor?(nil, .zero)
+    }
+
+    private func moveTouchCursor() {
+        let deadzone = 0.15
+        let value = touchStickValue
+        guard hypot(value.x, value.y) > deadzone else { return }
+        let speed = max(UserDefaults.standard.double(forKey: "touchStickSpeed"), 0.2)
+        let step = speed / 60.0
+        touchPosition.x = min(max(touchPosition.x + value.x * step, 0), 1)
+        touchPosition.y = min(max(touchPosition.y - value.y * step, 0), 1)
+        let frame = AZEmulator.shared.bottomScreenFrame
+        onTouchCursor?(touchPosition, frame)
+        if tapHeld, !frame.isEmpty {
+            AZEmulator.shared.touchMoved(to: CGPoint(
+                x: frame.minX + touchPosition.x * frame.width,
+                y: frame.minY + touchPosition.y * frame.height))
+        }
+    }
+
     /// Called when a button with a hotkey goes down or up (second argument true when down).
     var onHotkey: ((Hotkey, Bool) -> Void)?
 
@@ -282,6 +355,7 @@ final class GameControllerInput {
             attach(controller)
         }
         reportConnection()
+        startTouchCursor()
     }
 
     func stop() {
@@ -292,6 +366,7 @@ final class GameControllerInput {
         for controller in GCController.controllers() {
             controller.extendedGamepad?.valueChangedHandler = nil
         }
+        stopTouchCursor()
         onConnectionChange?(false)
     }
 
@@ -320,10 +395,16 @@ final class GameControllerInput {
                 case .none: return (0, 0)
                 }
             }
-            let circle = stick(mapping.circlePad)
+            // The stick of the touch cursor does not drive the 3DS sticks as well.
+            let touchSource = Self.touchSource
+            let circle = stick(mapping.circlePad == touchSource ? .none : mapping.circlePad)
             ConsoleStick.circlePad.set(x: circle.0, y: circle.1)
-            let c = stick(mapping.cStick)
+            let c = stick(mapping.cStick == touchSource ? .none : mapping.cStick)
             ConsoleStick.cStick.set(x: c.0, y: c.1)
+            if touchSource != .none {
+                let touch = stick(touchSource)
+                self?.touchStickValue = CGPoint(x: Double(touch.0), y: Double(touch.1))
+            }
         }
     }
 }

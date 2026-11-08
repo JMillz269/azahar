@@ -244,6 +244,9 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 - (void)touchBeganAtPoint:(CGPoint)point NS_SWIFT_NAME(touchBegan(at:));
 - (void)touchMovedToPoint:(CGPoint)point NS_SWIFT_NAME(touchMoved(to:));
 - (void)touchEnded;
+/// The bottom screen in drawable pixels (the area touch positions land on), or an empty
+/// rectangle while there is none.
+@property(nonatomic, readonly) CGRect bottomScreenFrame;
 /// Accelerometer in g and gyroscope in degrees per second, in 3DS axes.
 - (void)setMotionAccelerationX:(float)ax
                              y:(float)ay
