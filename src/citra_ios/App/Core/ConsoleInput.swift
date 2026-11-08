@@ -252,8 +252,8 @@ final class GameControllerInput {
     /// Called on the main thread with whether a physical controller is connected, when that
     /// changes and when the input starts.
     var onConnectionChange: ((Bool) -> Void)?
-    /// Called when a button with a hotkey goes down.
-    var onHotkey: ((Hotkey) -> Void)?
+    /// Called when a button with a hotkey goes down or up (second argument true when down).
+    var onHotkey: ((Hotkey, Bool) -> Void)?
 
     private func reportConnection() {
         onConnectionChange?(GCController.controllers().contains { $0.extendedGamepad != nil })
@@ -304,8 +304,8 @@ final class GameControllerInput {
             for (name, input) in mapping.hotkeys {
                 guard let hotkey = Hotkey(rawValue: name) else { continue }
                 let pressed = input.isPressed(on: gamepad)
-                if pressed && self?.hotkeyState[hotkey] != true {
-                    self?.onHotkey?(hotkey)
+                if pressed != (self?.hotkeyState[hotkey] ?? false) {
+                    self?.onHotkey?(hotkey, pressed)
                 }
                 self?.hotkeyState[hotkey] = pressed
             }

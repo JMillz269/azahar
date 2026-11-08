@@ -30,6 +30,11 @@ enum FileLocations {
         }
     }
 
+    /// 3GX plugins of the plugin loader (the virtual SD card of the console).
+    static var pluginsDirectory: URL {
+        userDirectory.appendingPathComponent("sdmc/luma/plugins", isDirectory: true)
+    }
+
     /// Imported games.
     static var romsDirectory: URL {
         documents.appendingPathComponent("ROMs", isDirectory: true)

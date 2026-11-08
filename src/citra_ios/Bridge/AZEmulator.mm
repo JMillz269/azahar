@@ -457,6 +457,28 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
                                          : Settings::StereoWhichDisplay::PrimaryOnly;
     values.factor_3d = static_cast<u32>(std::clamp<NSInteger>(configuration.stereoDepth, 0, 100));
     values.swap_eyes_3d = configuration.swapEyes3D;
+    values.cardboard_screen_size = static_cast<u32>(std::clamp<NSInteger>(configuration.cardboardSize, 30, 100));
+    values.cardboard_x_shift = static_cast<s32>(std::clamp<NSInteger>(configuration.cardboardXShift, -100, 100));
+    values.cardboard_y_shift = static_cast<s32>(std::clamp<NSInteger>(configuration.cardboardYShift, -100, 100));
+    values.aspect_ratio = static_cast<Settings::AspectRatio>(std::clamp<NSInteger>(configuration.aspectRatio, 0, 5));
+    values.screen_top_stretch = configuration.topStretch;
+    values.screen_bottom_stretch = configuration.bottomStretch;
+    values.screen_top_leftright_padding = static_cast<u16>(std::clamp<NSInteger>(configuration.topPaddingH, 0, 2000));
+    values.screen_top_topbottom_padding = static_cast<u16>(std::clamp<NSInteger>(configuration.topPaddingV, 0, 2000));
+    values.screen_bottom_leftright_padding = static_cast<u16>(std::clamp<NSInteger>(configuration.bottomPaddingH, 0, 2000));
+    values.screen_bottom_topbottom_padding = static_cast<u16>(std::clamp<NSInteger>(configuration.bottomPaddingV, 0, 2000));
+    values.turbo_limit = static_cast<double>(std::max<NSInteger>(configuration.fastForwardSpeed, 0));
+    values.init_clock = configuration.fixedClock ? Settings::InitClock::FixedTime
+                                                 : Settings::InitClock::SystemTime;
+    values.init_time = static_cast<u64>(std::max<NSInteger>(configuration.fixedTime, 0));
+    values.battery_state_source = configuration.fixedBattery ? Settings::BatteryLevelSource::Fixed
+                                                             : Settings::BatteryLevelSource::System;
+    values.battery_level = static_cast<u8>(std::clamp<NSInteger>(configuration.batteryLevel, 0, 4));
+    values.battery_charging = configuration.batteryCharging;
+    values.steps_per_hour = static_cast<u16>(std::clamp<NSInteger>(configuration.stepsPerHour, 0, 65535));
+    values.apply_region_free_patch = configuration.regionFreePatch;
+    values.plugin_loader_enabled = configuration.pluginLoader;
+    values.enable_required_online_lle_modules = configuration.onlineModules;
     values.async_shader_compilation = configuration.asyncShaderCompilation;
     Metal::SetFramePacing(configuration.framePacing);
     // The device microphone, or the static noise the console got before it was available.

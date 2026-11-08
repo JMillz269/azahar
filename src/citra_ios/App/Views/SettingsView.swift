@@ -79,13 +79,24 @@ struct GeneralSettingsView: View {
                      + "interpreter is used.")
             }
 
-            Section("Speed") {
+            Section {
                 Toggle("Limit Speed", isOn: $settings.useFrameLimit)
                 if settings.useFrameLimit {
                     Stepper(value: $settings.frameLimit, in: 25...400, step: 25) {
                         LabeledContent("Speed Limit", value: "\(settings.frameLimit)%")
                     }
                 }
+                Picker("Fast Forward Speed", selection: $settings.fastForwardSpeed) {
+                    ForEach([150, 200, 300, 400, 500, 800], id: \.self) { Text("\($0)%").tag($0) }
+                    Text("Unlimited").tag(0)
+                }
+                Toggle("Hold to Fast Forward (Controller)", isOn: $settings.fastForwardHold)
+            } header: {
+                Text("Speed")
+            } footer: {
+                Text("Fast Forward is in the game menu, and on a controller button in Controls › "
+                     + "Controller Mapping. With Hold on, the controller button only fast-forwards "
+                     + "while it is held.")
             }
 
             Section("Library") {
@@ -254,11 +265,20 @@ struct GraphicsSettingsView: View {
                     }
                     Toggle("Swap Eyes", isOn: $settings.swapEyes3D)
                 }
+                if settings.stereoMode == .cardboard {
+                    Stepper("Cardboard Screen Size: \(settings.cardboardSize)%",
+                            value: $settings.cardboardSize, in: 30...100, step: 5)
+                    Stepper("Cardboard Horizontal Shift: \(settings.cardboardXShift)",
+                            value: $settings.cardboardXShift, in: -100...100, step: 5)
+                    Stepper("Cardboard Vertical Shift: \(settings.cardboardYShift)",
+                            value: $settings.cardboardYShift, in: -100...100, step: 5)
+                }
             } header: {
                 Text("3D")
             } footer: {
                 Text("Anaglyph needs red/cyan glasses. Interlaced shows the eyes on alternate rows "
-                     + "of the screen. These modes don't use MetalFX.")
+                     + "of the screen. Side by Side and Cardboard VR show one picture per eye, for "
+                     + "a headset or glasses holder (landscape). These modes don't use MetalFX.")
             }
 
             Section {
@@ -371,6 +391,36 @@ struct LayoutSettingsView: View {
                      + "layout.")
             }
             Section {
+                Picker("Aspect Ratio", selection: $settings.aspectRatio) {
+                    Text("Default").tag(0)
+                    Text("16:9").tag(1)
+                    Text("4:3").tag(2)
+                    Text("21:9").tag(3)
+                    Text("16:10").tag(4)
+                    Text("Stretch to Fit").tag(5)
+                }
+                Toggle("Stretch Top Screen", isOn: $settings.topStretch)
+                Toggle("Stretch Bottom Screen", isOn: $settings.bottomStretch)
+                if settings.topStretch {
+                    Stepper("Top Screen Side Padding: \(settings.topPaddingH)",
+                            value: $settings.topPaddingH, in: 0...400, step: 10)
+                    Stepper("Top Screen Top/Bottom Padding: \(settings.topPaddingV)",
+                            value: $settings.topPaddingV, in: 0...400, step: 10)
+                }
+                if settings.bottomStretch {
+                    Stepper("Bottom Screen Side Padding: \(settings.bottomPaddingH)",
+                            value: $settings.bottomPaddingH, in: 0...400, step: 10)
+                    Stepper("Bottom Screen Top/Bottom Padding: \(settings.bottomPaddingV)",
+                            value: $settings.bottomPaddingV, in: 0...400, step: 10)
+                }
+            } header: {
+                Text("Shape")
+            } footer: {
+                Text("Aspect Ratio changes the shape the screens are drawn in. Stretching fills the "
+                     + "window with a screen apart from the padding, in pixels. Applies to the "
+                     + "layouts that do not place the screens by hand.")
+            }
+            Section {
                 Toggle("Respect Notch", isOn: $settings.respectNotch)
             } footer: {
                 Text("Keeps the screens clear of the notch, the Dynamic Island and the rounded "
@@ -419,6 +469,60 @@ struct SystemSettingsView: View {
                      + "Auto-select unless a game needs a specific one: a region that does not "
                      + "match the game (for example USA with a European copy) can stop it from "
                      + "booting.")
+            }
+
+            Section {
+                Toggle("Fixed Clock", isOn: $settings.fixedClock)
+                if settings.fixedClock {
+                    DatePicker("Console Time", selection: Binding(
+                        get: { Date(timeIntervalSince1970: settings.fixedTime) },
+                        set: { settings.fixedTime = $0.timeIntervalSince1970.rounded() }))
+                }
+                Toggle("Fixed Battery", isOn: $settings.fixedBattery)
+                if settings.fixedBattery {
+                    Stepper("Battery Level: \(settings.batteryLevel) of 4",
+                            value: $settings.batteryLevel, in: 0...4)
+                    Toggle("Charging", isOn: $settings.batteryCharging)
+                }
+                Stepper("Steps per Hour: \(settings.stepsPerHour)",
+                        value: $settings.stepsPerHour, in: 0...20000, step: 100)
+                Toggle("Region-Free Patch", isOn: $settings.regionFreePatch)
+            } header: {
+                Text("Console")
+            } footer: {
+                Text("A fixed clock starts every game at the time above (useful for games that "
+                     + "depend on the date). Without a fixed battery the console reports this "
+                     + "device's battery. Steps per Hour feeds games that count steps (the "
+                     + "Play Coins). The region-free patch lets a game run on a console of "
+                     + "another region.")
+            }
+
+            Section {
+                Toggle("Plugin Loader (3GX)", isOn: $settings.pluginLoader)
+                Button("Show Plugins Folder in Files") {
+                    try? FileManager.default.createDirectory(
+                        at: FileLocations.pluginsDirectory, withIntermediateDirectories: true)
+                    FileLocations.showInFiles(FileLocations.pluginsDirectory)
+                }
+            } header: {
+                Text("Plugins")
+            } footer: {
+                Text("Loads Luma-style 3GX plugins for games. Put a plugin in the folder of the "
+                     + "game's title ID (Files › Azahar › sdmc › luma › plugins › 0004000000XXXXXX "
+                     + "› plugin.3gx) or name it default.3gx in plugins. Applies when a game "
+                     + "starts.")
+            }
+
+            Section {
+                Toggle("Nintendo Network Support", isOn: $settings.onlineModules)
+                NavigationLink("Online Play Guide") { OnlinePlayGuideView() }
+            } header: {
+                Text("Online Play")
+            } footer: {
+                Text("Runs the console's own online system modules (network, certificates, "
+                     + "friends) instead of the built-in ones, which online games need. It needs "
+                     + "the system files of a real console and a replacement for Nintendo's "
+                     + "servers. See the guide. Applies when a game starts.")
             }
 
             Section {
@@ -542,5 +646,31 @@ struct AboutView: View {
         } message: {
             Text("Nothing has been logged yet.")
         }
+    }
+}
+
+/// What online play needs and how to set it up.
+struct OnlinePlayGuideView: View {
+    var body: some View {
+        List {
+            Section("What you need") {
+                Text("1. The system files of your own 3DS, installed with the Artic Setup Tool "
+                     + "(Games › the antenna button › Setup Tool). They include the certificates "
+                     + "and the online system modules.")
+                Text("2. Nintendo's servers are gone. Games connect to a replacement, such as "
+                     + "Pretendo Network, which needs its own patch for the game and for the "
+                     + "console's account. Follow the instructions of the service you use.")
+                Text("3. Turn on Nintendo Network Support in Settings › System, and the plugin "
+                     + "loader if the service's patch is a 3GX plugin.")
+            }
+            Section("Good to know") {
+                Text("This runs the real online modules, so it only works with a complete setup "
+                     + "from your console. It is slower to start a game, and it has not been "
+                     + "tested with every service.")
+                Text("Local wireless play with others on the same network is separate: use "
+                     + "Multiplayer in the game menu.")
+            }
+        }
+        .navigationTitle("Online Play")
     }
 }

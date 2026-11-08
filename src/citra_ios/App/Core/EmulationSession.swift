@@ -50,9 +50,9 @@ final class EmulationSession: ObservableObject {
         controllers.onConnectionChange = { [weak self] connected in
             self?.hardwareControllerConnected = connected
         }
-        controllers.onHotkey = { [weak self] hotkey in
+        controllers.onHotkey = { [weak self] hotkey, pressed in
             Task { @MainActor in
-                self?.perform(hotkey)
+                self?.perform(hotkey, pressed: pressed)
             }
         }
         AZEmulator.shared.onStopped = { [weak self] error in
@@ -106,12 +106,20 @@ final class EmulationSession: ObservableObject {
     }
 
     /// What a controller shortcut does.
-    private func perform(_ hotkey: Hotkey) {
+    private func perform(_ hotkey: Hotkey, pressed: Bool) {
         guard isActive else { return }
         switch hotkey {
-        case .menu: NotificationCenter.default.post(name: .openEmulationMenu, object: nil)
-        case .fastForward: toggleFastForward()
-        case .screenshot: takeScreenshot()
+        case .menu:
+            if pressed { NotificationCenter.default.post(name: .openEmulationMenu, object: nil) }
+        case .fastForward:
+            if UserDefaults.standard.bool(forKey: "fastForwardHold") {
+                // Fast forward only while the button is held.
+                if pressed != isFastForwarding { toggleFastForward() }
+            } else if pressed {
+                toggleFastForward()
+            }
+        case .screenshot:
+            if pressed { takeScreenshot() }
         }
     }
 

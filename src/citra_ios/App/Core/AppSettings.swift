@@ -161,18 +161,22 @@ enum CameraSource: Int, CaseIterable, Identifiable {
 enum StereoModeOption: Int, CaseIterable, Identifiable {
     case off = 0
     case sideBySide = 1
+    case sideBySideFull = 2
     case anaglyph = 3
     case interlaced = 4
     case reverseInterlaced = 5
+    case cardboard = 6
 
     var id: Int { rawValue }
     var title: String {
         switch self {
         case .off: return "Off"
         case .sideBySide: return "Side by Side"
+        case .sideBySideFull: return "Side by Side (Full Width)"
         case .anaglyph: return "Anaglyph (Red/Cyan)"
         case .interlaced: return "Interlaced"
         case .reverseInterlaced: return "Reverse Interlaced"
+        case .cardboard: return "Cardboard VR"
         }
     }
 }
@@ -276,6 +280,27 @@ final class AppSettings: ObservableObject {
     @Published var keepOriginalsWhenCompressing: Bool {
         didSet { save(keepOriginalsWhenCompressing, "keepOriginalsWhenCompressing") }
     }
+    @Published var fixedClock: Bool { didSet { save(fixedClock, "fixedClock") } }
+    @Published var fixedTime: Double { didSet { save(fixedTime, "fixedTime") } }
+    @Published var fixedBattery: Bool { didSet { save(fixedBattery, "fixedBattery") } }
+    @Published var batteryLevel: Int { didSet { save(batteryLevel, "batteryLevel") } }
+    @Published var batteryCharging: Bool { didSet { save(batteryCharging, "batteryCharging") } }
+    @Published var stepsPerHour: Int { didSet { save(stepsPerHour, "stepsPerHour") } }
+    @Published var regionFreePatch: Bool { didSet { save(regionFreePatch, "regionFreePatch") } }
+    @Published var pluginLoader: Bool { didSet { save(pluginLoader, "pluginLoader") } }
+    @Published var onlineModules: Bool { didSet { save(onlineModules, "onlineModules") } }
+    @Published var aspectRatio: Int { didSet { save(aspectRatio, "aspectRatio") } }
+    @Published var topStretch: Bool { didSet { save(topStretch, "topStretch") } }
+    @Published var bottomStretch: Bool { didSet { save(bottomStretch, "bottomStretch") } }
+    @Published var topPaddingH: Int { didSet { save(topPaddingH, "topPaddingH") } }
+    @Published var topPaddingV: Int { didSet { save(topPaddingV, "topPaddingV") } }
+    @Published var bottomPaddingH: Int { didSet { save(bottomPaddingH, "bottomPaddingH") } }
+    @Published var bottomPaddingV: Int { didSet { save(bottomPaddingV, "bottomPaddingV") } }
+    @Published var cardboardSize: Int { didSet { save(cardboardSize, "cardboardSize") } }
+    @Published var cardboardXShift: Int { didSet { save(cardboardXShift, "cardboardXShift") } }
+    @Published var cardboardYShift: Int { didSet { save(cardboardYShift, "cardboardYShift") } }
+    @Published var fastForwardSpeed: Int { didSet { save(fastForwardSpeed, "fastForwardSpeed") } }
+    @Published var fastForwardHold: Bool { didSet { save(fastForwardHold, "fastForwardHold") } }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -343,6 +368,27 @@ final class AppSettings: ObservableObject {
         respectNotch = value("respectNotch", true)
 
         keepOriginalsWhenCompressing = value("keepOriginalsWhenCompressing", true)
+        fixedClock = value("fixedClock", false)
+        fixedTime = value("fixedTime", 946681277)
+        fixedBattery = value("fixedBattery", false)
+        batteryLevel = value("batteryLevel", 4)
+        batteryCharging = value("batteryCharging", true)
+        stepsPerHour = value("stepsPerHour", 0)
+        regionFreePatch = value("regionFreePatch", true)
+        pluginLoader = value("pluginLoader", false)
+        onlineModules = value("onlineModules", false)
+        aspectRatio = value("aspectRatio", 0)
+        topStretch = value("topStretch", false)
+        bottomStretch = value("bottomStretch", false)
+        topPaddingH = value("topPaddingH", 0)
+        topPaddingV = value("topPaddingV", 0)
+        bottomPaddingH = value("bottomPaddingH", 0)
+        bottomPaddingV = value("bottomPaddingV", 0)
+        cardboardSize = value("cardboardSize", 85)
+        cardboardXShift = value("cardboardXShift", 0)
+        cardboardYShift = value("cardboardYShift", 0)
+        fastForwardSpeed = value("fastForwardSpeed", 300)
+        fastForwardHold = value("fastForwardHold", false)
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)
@@ -410,6 +456,27 @@ final class AppSettings: ObservableObject {
         config.preloadTextures = preloadTextures
         config.dumpTextures = dumpTextures
         config.audioStretching = audioStretching
+        config.fixedClock = fixedClock
+        config.fixedTime = Int(fixedTime)
+        config.fixedBattery = fixedBattery
+        config.batteryLevel = batteryLevel
+        config.batteryCharging = batteryCharging
+        config.stepsPerHour = stepsPerHour
+        config.regionFreePatch = regionFreePatch
+        config.pluginLoader = pluginLoader
+        config.onlineModules = onlineModules
+        config.aspectRatio = aspectRatio
+        config.topStretch = topStretch
+        config.bottomStretch = bottomStretch
+        config.topPaddingH = topPaddingH
+        config.topPaddingV = topPaddingV
+        config.bottomPaddingH = bottomPaddingH
+        config.bottomPaddingV = bottomPaddingV
+        config.cardboardSize = cardboardSize
+        config.cardboardXShift = cardboardXShift
+        config.cardboardYShift = cardboardYShift
+        config.fastForwardSpeed = fastForwardSpeed
+        config.fastForwardHold = fastForwardHold
         config.useMicrophone = useMicrophone
         config.volume = Float(volume)
         config.isNew3DS = isNew3DS

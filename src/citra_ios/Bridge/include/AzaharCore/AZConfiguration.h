@@ -99,6 +99,29 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL useMicrophone;
 @property(nonatomic) float volume;
 
+// Extras
+@property(nonatomic) BOOL fixedClock;
+@property(nonatomic) NSInteger fixedTime;
+@property(nonatomic) BOOL fixedBattery;
+@property(nonatomic) NSInteger batteryLevel;
+@property(nonatomic) BOOL batteryCharging;
+@property(nonatomic) NSInteger stepsPerHour;
+@property(nonatomic) BOOL regionFreePatch;
+@property(nonatomic) BOOL pluginLoader;
+@property(nonatomic) BOOL onlineModules;
+@property(nonatomic) NSInteger aspectRatio;
+@property(nonatomic) BOOL topStretch;
+@property(nonatomic) BOOL bottomStretch;
+@property(nonatomic) NSInteger topPaddingH;
+@property(nonatomic) NSInteger topPaddingV;
+@property(nonatomic) NSInteger bottomPaddingH;
+@property(nonatomic) NSInteger bottomPaddingV;
+@property(nonatomic) NSInteger cardboardSize;
+@property(nonatomic) NSInteger cardboardXShift;
+@property(nonatomic) NSInteger cardboardYShift;
+@property(nonatomic) NSInteger fastForwardSpeed;
+@property(nonatomic) BOOL fastForwardHold;
+
 // System
 @property(nonatomic) BOOL isNew3DS;
 /// -1 = auto select, 0 = Japan, 1 = USA, 2 = Europe, 3 = Australia, 4 = China, 5 = Korea,

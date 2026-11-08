@@ -650,7 +650,7 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
 
 - (void)setFastForward:(BOOL)enabled {
     Settings::is_temporary_frame_limit = enabled;
-    Settings::temporary_frame_limit = enabled ? 300.0 : 0.0;
+    Settings::temporary_frame_limit = enabled ? Settings::values.turbo_limit.GetValue() : 0.0;
 }
 
 // MARK: Artic
