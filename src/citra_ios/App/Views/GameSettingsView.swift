@@ -31,6 +31,10 @@ struct GameSettingsView: View {
                 OverrideToggle("Fast Color Math", value: $overrides.fastColor)
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
+                OverrideToggle("Disable Right Eye Render", value: $overrides.disableRightEyeRender)
+                OverrideToggle("Integer Scaling", value: $overrides.integerScaling)
+                OverridePicker("External Display", value: $overrides.secondaryDisplayLayout,
+                               options: Array(0...7)) { SecondaryLayoutOption.title(for: $0) }
                 OverrideToggle("Frame Presentation Skip", value: $overrides.skipDuplicateFrames)
                 OverrideToggle("Custom Textures", value: $overrides.customTextures)
                 OverrideToggle("Preload Custom Textures", value: $overrides.preloadTextures)

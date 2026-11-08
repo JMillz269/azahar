@@ -270,6 +270,12 @@ final class AppSettings: ObservableObject {
         didSet { save(customLayoutPortrait, "customLayoutPortrait") }
     }
     @Published var useExternalDisplay: Bool { didSet { save(useExternalDisplay, "useExternalDisplay") } }
+    @Published var secondaryDisplayLayout: Int { didSet { save(secondaryDisplayLayout, "secondaryDisplayLayout") } }
+    @Published var disableRightEyeRender: Bool { didSet { save(disableRightEyeRender, "disableRightEyeRender") } }
+    @Published var integerScaling: Bool { didSet { save(integerScaling, "integerScaling") } }
+    @Published var asyncCustomTextures: Bool { didSet { save(asyncCustomTextures, "asyncCustomTextures") } }
+    @Published var deterministicAsync: Bool { didSet { save(deterministicAsync, "deterministicAsync") } }
+    @Published var simulateHeadphones: Bool { didSet { save(simulateHeadphones, "simulateHeadphones") } }
     @Published var customTextures: Bool { didSet { save(customTextures, "customTextures") } }
     @Published var preloadTextures: Bool { didSet { save(preloadTextures, "preloadTextures") } }
     @Published var dumpTextures: Bool { didSet { save(dumpTextures, "dumpTextures") } }
@@ -392,6 +398,12 @@ final class AppSettings: ObservableObject {
         customLayoutLandscape = value("customLayoutLandscape", [Double]())
         customLayoutPortrait = value("customLayoutPortrait", [Double]())
         useExternalDisplay = value("useExternalDisplay", true)
+        secondaryDisplayLayout = value("secondaryDisplayLayout", 0)
+        disableRightEyeRender = value("disableRightEyeRender", false)
+        integerScaling = value("integerScaling", false)
+        asyncCustomTextures = value("asyncCustomTextures", true)
+        deterministicAsync = value("deterministicAsync", false)
+        simulateHeadphones = value("simulateHeadphones", false)
         customTextures = value("customTextures", false)
         preloadTextures = value("preloadTextures", false)
         dumpTextures = value("dumpTextures", false)
@@ -504,6 +516,12 @@ final class AppSettings: ObservableObject {
         config.customLayoutLandscape = customLayoutLandscape.map { NSNumber(value: $0) }
         config.customLayoutPortrait = customLayoutPortrait.map { NSNumber(value: $0) }
         config.useExternalDisplay = useExternalDisplay
+        config.secondaryDisplayLayout = secondaryDisplayLayout
+        config.disableRightEyeRender = disableRightEyeRender
+        config.integerScaling = integerScaling
+        config.asyncCustomTextures = asyncCustomTextures
+        config.deterministicAsync = deterministicAsync
+        config.simulateHeadphones = simulateHeadphones
         config.customTextures = customTextures
         config.preloadTextures = preloadTextures
         config.dumpTextures = dumpTextures

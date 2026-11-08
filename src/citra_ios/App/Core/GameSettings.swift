@@ -16,6 +16,9 @@ struct GameOverrides: Codable, Equatable {
     var fastColor: Bool?
     var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
+    var disableRightEyeRender: Bool?
+    var integerScaling: Bool?
+    var secondaryDisplayLayout: Int?
     var skipDuplicateFrames: Bool?
     /// Id of the controller profile this game uses, nil for the mapping being edited.
     var controllerProfile: String?
@@ -57,6 +60,9 @@ struct GameOverrides: Codable, Equatable {
         if let fastColor { config.fastColor = fastColor }
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }
+        if let disableRightEyeRender { config.disableRightEyeRender = disableRightEyeRender }
+        if let integerScaling { config.integerScaling = integerScaling }
+        if let secondaryDisplayLayout { config.secondaryDisplayLayout = secondaryDisplayLayout }
         if let skipDuplicateFrames { config.skipDuplicateFrames = skipDuplicateFrames }
         if let customTextures { config.customTextures = customTextures }
         if let preloadTextures { config.preloadTextures = preloadTextures }
@@ -171,6 +177,23 @@ enum GameHack: String, CaseIterable, Identifiable {
                 + "without a set-up console."
         case .onlineLLE:
             return "Runs the console's own online system modules for this game."
+        }
+    }
+}
+
+/// What the external display shows (see AZConfiguration.secondaryDisplayLayout).
+enum SecondaryLayoutOption {
+    static func title(for value: Int) -> String {
+        switch value {
+        case 0: return "Top Screen (Bottom Stays on Device)"
+        case 1: return "Top Screen Only"
+        case 2: return "Bottom Screen Only"
+        case 3: return "Side by Side"
+        case 4: return "Opposite Screen Only"
+        case 5: return "Original"
+        case 6: return "Hybrid"
+        case 7: return "Large Screen"
+        default: return "\(value)"
         }
     }
 }

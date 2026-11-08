@@ -272,6 +272,13 @@ void EmuWindow::UpdateCurrentFramebufferLayout(u32 width, u32 height, bool is_po
     if (is_secondary) {
         layout = Layout::AndroidSecondaryLayout(width, height);
     }
+#else
+    // A secondary display that is not one of the separate windows of the desktop (iOS external
+    // display) is laid out by the secondary display layout setting.
+    if (is_secondary && layout_option != Settings::LayoutOption::SeparateWindows &&
+        !is_portrait_mode) {
+        layout = Layout::AndroidSecondaryLayout(width, height);
+    }
 #endif
 
     if (render_full_stereo) {

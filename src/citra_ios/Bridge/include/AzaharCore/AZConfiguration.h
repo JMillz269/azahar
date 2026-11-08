@@ -87,6 +87,21 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 
 /// Show the top screen on an external display (AirPlay, HDMI) and the touch screen on the device.
 @property(nonatomic) BOOL useExternalDisplay;
+/// What the external display shows: 0 the top screen with this device keeping the bottom screen,
+/// otherwise a Settings::SecondaryDisplayLayout (1 top, 2 bottom, 3 side by side, 4 the screen
+/// this device does not show, 5 original, 6 hybrid, 7 large screen) while this device keeps its
+/// own layout.
+@property(nonatomic) NSInteger secondaryDisplayLayout;
+/// Do not draw the right eye while 3D is rendered (Settings::disable_right_eye_render).
+@property(nonatomic) BOOL disableRightEyeRender;
+/// Scale the screens by whole multiples only (the default aspect ratio).
+@property(nonatomic) BOOL integerScaling;
+/// Load custom textures in the background (the game does not wait for them).
+@property(nonatomic) BOOL asyncCustomTextures;
+/// Run file and install operations in a fixed order and time, which netplay and movies need.
+@property(nonatomic) BOOL deterministicAsync;
+/// The DSP reports plugged in headphones to the game.
+@property(nonatomic) BOOL simulateHeadphones;
 
 // Textures
 @property(nonatomic) BOOL customTextures;

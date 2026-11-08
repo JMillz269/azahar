@@ -42,6 +42,12 @@
     config.customLayoutPortrait = @[];
     config.customSecondLayerOpacity = 100;
     config.useExternalDisplay = YES;
+    config.secondaryDisplayLayout = 0;
+    config.disableRightEyeRender = NO;
+    config.integerScaling = NO;
+    config.asyncCustomTextures = YES;
+    config.deterministicAsync = NO;
+    config.simulateHeadphones = NO;
     config.customTextures = NO;
     config.preloadTextures = NO;
     config.dumpTextures = NO;

@@ -274,6 +274,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     bool _externalDisplayEnabled;
     Settings::LayoutOption _userLayoutOption;
     bool _userSwapScreens;
+    NSInteger _secondaryLayoutMode;
     // Fractions of the custom layouts, see AZConfiguration (guarded by _surfaceMutex).
     std::array<float, 8> _customLandscape;
     std::array<float, 8> _customPortrait;
@@ -559,6 +560,12 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
         _hasCustomPortrait = read(configuration.customLayoutPortrait, _customPortrait);
     }
     values.custom_textures = configuration.customTextures;
+    values.async_custom_loading = configuration.asyncCustomTextures;
+    values.disable_right_eye_render = configuration.disableRightEyeRender;
+    values.use_integer_scaling = configuration.integerScaling;
+    values.deterministic_async_operations = configuration.deterministicAsync;
+    values.simulate_headphones_plugged = configuration.simulateHeadphones;
+    _secondaryLayoutMode = configuration.secondaryDisplayLayout;
     values.preload_textures = configuration.preloadTextures;
     values.dump_textures = configuration.dumpTextures;
 
@@ -588,9 +595,15 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
 /// window unless the screens are swapped).
 - (void)applyLayoutSettingsForExternal:(BOOL)external {
     auto& values = Settings::values;
-    if (external) {
+    if (external && _secondaryLayoutMode == 0) {
         values.layout_option = Settings::LayoutOption::SeparateWindows;
         values.swap_screen = !_userSwapScreens;
+    } else if (external) {
+        // This device keeps its layout, the display shows the chosen secondary layout.
+        values.secondary_display_layout = static_cast<Settings::SecondaryDisplayLayout>(
+            std::clamp<NSInteger>(_secondaryLayoutMode, 1, 7));
+        values.layout_option = _userLayoutOption;
+        values.swap_screen = _userSwapScreens;
     } else {
         values.layout_option = _userLayoutOption;
         values.swap_screen = _userSwapScreens;

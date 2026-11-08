@@ -193,6 +193,7 @@ struct GraphicsSettingsView: View {
                 Toggle("Fast Lighting Math", isOn: $settings.fastLighting)
                 Toggle("Fast Color Math", isOn: $settings.fastColor)
                 Toggle("Fast Depth Readback", isOn: $settings.fastDepthReadback)
+                Toggle("Disable Right Eye Render", isOn: $settings.disableRightEyeRender)
                 Toggle("Hidden Surface Removal", isOn: $settings.hiddenSurfaceRemoval)
                 Picker("Texture Compression", selection: $settings.textureCompression) {
                     ForEach(TextureCompressionOption.allCases) { Text($0.title).tag($0) }
@@ -219,11 +220,19 @@ struct GraphicsSettingsView: View {
 
             Section {
                 Toggle("Use External Display", isOn: $settings.useExternalDisplay)
+                Picker("External Display Shows", selection: $settings.secondaryDisplayLayout) {
+                    ForEach(0...7, id: \.self) {
+                        Text(SecondaryLayoutOption.title(for: $0)).tag($0)
+                    }
+                }
+                .disabled(!settings.useExternalDisplay)
             } header: {
                 Text("External Display")
             } footer: {
-                Text("With a TV or AirPlay display connected, it shows the top screen and this device "
-                     + "the bottom screen with the controls. Takes effect when a game starts. "
+                Text("With a TV or AirPlay display connected, the default shows the top screen on "
+                     + "it and this device the bottom screen with the controls. The other choices "
+                     + "give the display the screen layout you pick while this device keeps its "
+                     + "own layout. Takes effect when a game starts. "
                      + "Running inside another app (such as LiveContainer) may stop iOS from "
                      + "offering the display to Azahar.")
             }
@@ -231,6 +240,8 @@ struct GraphicsSettingsView: View {
             Section {
                 Toggle("Custom Textures", isOn: $settings.customTextures)
                 Toggle("Preload Custom Textures", isOn: $settings.preloadTextures)
+                    .disabled(!settings.customTextures)
+                Toggle("Load Custom Textures in the Background", isOn: $settings.asyncCustomTextures)
                     .disabled(!settings.customTextures)
                 Toggle("Dump Textures", isOn: $settings.dumpTextures)
             } header: {
@@ -444,6 +455,7 @@ struct LayoutSettingsView: View {
                      + "layout.")
             }
             Section {
+                Toggle("Integer Scaling", isOn: $settings.integerScaling)
                 Picker("Aspect Ratio", selection: $settings.aspectRatio) {
                     Text("Default").tag(0)
                     Text("16:9").tag(1)
@@ -589,6 +601,19 @@ struct SystemSettingsView: View {
                      + "device's battery. Steps per Hour feeds games that count steps (the "
                      + "Play Coins). The region-free patch lets a game run on a console of "
                      + "another region.")
+            }
+
+            Section {
+                Toggle("Deterministic Async Operations", isOn: $settings.deterministicAsync)
+                Toggle("Simulate Headphones Plugged In", isOn: $settings.simulateHeadphones)
+            } header: {
+                Text("Compatibility")
+            } footer: {
+                Text("Deterministic Async Operations runs file and install operations that "
+                     + "normally finish in the background at a fixed time and order, which helps "
+                     + "netplay and movies stay in sync and can fix games that break on the "
+                     + "timing. Simulate Headphones makes the console report headphones plugged "
+                     + "in, which some games use to pick their audio mix.")
             }
 
             Section {
