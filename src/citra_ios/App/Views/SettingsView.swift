@@ -177,6 +177,11 @@ struct GraphicsSettingsView: View {
                     }
                 }
                 Toggle("Linear Screen Filtering", isOn: $settings.linearFiltering)
+                Picker("Texture Sampling", selection: $settings.textureSampling) {
+                    Text("Game Controlled").tag(0)
+                    Text("Nearest Neighbor").tag(1)
+                    Text("Linear").tag(2)
+                }
                 Picker("Texture Filter", selection: $settings.textureFilter) {
                     ForEach(TextureFilterOption.allCases) { Text($0.title).tag($0) }
                 }
@@ -265,6 +270,12 @@ struct GraphicsSettingsView: View {
                             set: { settings.stereoDepth = Int($0.rounded()) }), in: 0...100)
                     }
                     Toggle("Swap Eyes", isOn: $settings.swapEyes3D)
+                }
+                if settings.stereoMode == .off {
+                    Picker("Eye Shown", selection: $settings.monoEye) {
+                        Text("Left").tag(0)
+                        Text("Right").tag(1)
+                    }
                 }
                 if settings.stereoMode == .anaglyph {
                     Picker("Anaglyph Colors", selection: $settings.anaglyphMode) {
@@ -475,11 +486,19 @@ struct AudioSettingsView: View {
                     Slider(value: $settings.volume, in: 0...1)
                 }
                 Toggle("Audio Stretching", isOn: $settings.audioStretching)
+                Picker("Audio Emulation", selection: $settings.audioEmulation) {
+                    Text("HLE (Fast)").tag(0)
+                    Text("LLE (Accurate)").tag(1)
+                    Text("LLE Multithreaded").tag(2)
+                }
                 Toggle("Realtime Audio", isOn: $settings.realtimeAudio)
                 Toggle("Use Microphone", isOn: $settings.useMicrophone)
             } footer: {
                 Text("Audio stretching reduces stuttering when the emulation runs below full speed. "
-                     + "Realtime Audio keeps the sound at its normal speed while a game runs "
+                     + "HLE is the fast built-in audio. LLE runs the console's own audio "
+                     + "processor, which is more accurate for games with audio glitches but "
+                     + "slower (the multithreaded form runs it on its own thread) and needs the "
+                     + "console's system files. Realtime Audio keeps the sound at its normal speed while a game runs "
                      + "slower than full speed, where it would slow down with the game; it can "
                      + "drift out of step with the picture in games that sync to it. Use "
                      + "Microphone lets games listen to the microphone of this device (it asks "
@@ -498,6 +517,7 @@ struct SystemSettingsView: View {
     var body: some View {
         Form {
             Section {
+                NavigationLink("Console Profile") { ConsoleProfileView() }
                 Toggle("New 3DS Mode", isOn: $settings.isNew3DS)
                 Picker("Region", selection: $settings.region) {
                     ForEach(ConsoleRegion.allCases) { Text($0.title).tag($0) }
@@ -536,6 +556,7 @@ struct SystemSettingsView: View {
             }
 
             Section {
+                Toggle("LLE Applets", isOn: $settings.lleApplets)
                 Toggle("Plugin Loader (3GX)", isOn: $settings.pluginLoader)
                 Button("Show Plugins Folder in Files") {
                     try? FileManager.default.createDirectory(
@@ -545,7 +566,9 @@ struct SystemSettingsView: View {
             } header: {
                 Text("Plugins")
             } footer: {
-                Text("Loads Luma-style 3GX plugins for games. Put a plugin in the folder of the "
+                Text("LLE Applets runs the console's own system applets (the Mii maker and the "
+                     + "like) instead of the built-in ones; it needs the system files of a real "
+                     + "console. Loads Luma-style 3GX plugins for games. Put a plugin in the folder of the "
                      + "game's title ID (Files › Azahar › sdmc › luma › plugins › 0004000000XXXXXX "
                      + "› plugin.3gx) or name it default.3gx in plugins. Applies when a game "
                      + "starts.")
@@ -735,5 +758,106 @@ struct OnlinePlayGuideView: View {
             }
         }
         .navigationTitle("Online Play")
+    }
+}
+
+/// The user name, birthday, language, country, sound mode and Play Coins of the emulated console.
+struct ConsoleProfileView: View {
+    @State private var username = ""
+    @State private var birthMonth = 1
+    @State private var birthDay = 1
+    @State private var language = 1
+    @State private var country = 49
+    @State private var soundMode = 1
+    @State private var playCoins = 0
+    @State private var loaded = false
+    @State private var saved = false
+    @State private var failed = false
+
+    private static let languages = [
+        "Japanese", "English", "French", "German", "Italian", "Spanish", "Chinese (Simplified)",
+        "Korean", "Dutch", "Portuguese", "Russian", "Chinese (Traditional)",
+    ]
+    private static let months = [
+        "January", "February", "March", "April", "May", "June", "July", "August", "September",
+        "October", "November", "December",
+    ]
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("User Name", text: Binding(
+                    get: { username },
+                    set: { username = String($0.prefix(10)) }))
+                Picker("Birth Month", selection: $birthMonth) {
+                    ForEach(1...12, id: \.self) { Text(Self.months[$0 - 1]).tag($0) }
+                }
+                Picker("Birth Day", selection: $birthDay) {
+                    ForEach(1...31, id: \.self) { Text("\($0)").tag($0) }
+                }
+            } header: {
+                Text("You")
+            }
+
+            Section {
+                Picker("Language", selection: $language) {
+                    ForEach(0..<Self.languages.count, id: \.self) {
+                        Text(Self.languages[$0]).tag($0)
+                    }
+                }
+                Picker("Country", selection: $country) {
+                    ForEach(CountryNames.all, id: \.code) { Text($0.name).tag($0.code) }
+                }
+                Picker("Sound", selection: $soundMode) {
+                    Text("Mono").tag(0)
+                    Text("Stereo").tag(1)
+                    Text("Surround").tag(2)
+                }
+                Stepper("Play Coins: \(playCoins)", value: $playCoins, in: 0...300)
+            } header: {
+                Text("Console")
+            } footer: {
+                Text("These are the settings of the emulated console, which games read. A country "
+                     + "that does not belong to the console's region can stop some games from "
+                     + "starting.")
+            }
+
+            Section {
+                Button("Save") {
+                    let profile = AZConsoleProfile()
+                    profile.username = username
+                    profile.birthMonth = birthMonth
+                    profile.birthDay = birthDay
+                    profile.language = language
+                    profile.country = country
+                    profile.soundMode = soundMode
+                    profile.playCoins = playCoins
+                    if AZEmulator.writeConsoleProfile(profile) {
+                        saved = true
+                    } else {
+                        failed = true
+                    }
+                }
+            }
+        }
+        .navigationTitle("Console Profile")
+        .onAppear {
+            guard !loaded else { return }
+            loaded = true
+            let profile = AZEmulator.readConsoleProfile()
+            username = profile.username
+            birthMonth = max(1, profile.birthMonth)
+            birthDay = max(1, profile.birthDay)
+            language = profile.language
+            country = profile.country
+            soundMode = profile.soundMode
+            playCoins = profile.playCoins
+        }
+        .alert("Saved", isPresented: $saved) { Button("OK", role: .cancel) {} }
+        .alert("Not Saved", isPresented: $failed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The profile can only be changed while no game runs.")
+        }
     }
 }

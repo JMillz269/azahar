@@ -101,6 +101,16 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL useMicrophone;
 @property(nonatomic) float volume;
 
+// Audio and system modules
+/// 0 HLE (built in), 1 LLE (the console's real DSP), 2 LLE on its own thread.
+@property(nonatomic) NSInteger audioEmulation;
+/// Run the console's real system applets instead of the built-in ones.
+@property(nonatomic) BOOL lleApplets;
+/// 0 as the game wants, 1 nearest neighbor, 2 linear.
+@property(nonatomic) NSInteger textureSampling;
+/// The eye shown when 3D is off: 0 left, 1 right.
+@property(nonatomic) NSInteger monoEye;
+
 // Post-processing
 /// 0 none, 1 sharpen, 2 LCD grid, 3 scanlines.
 @property(nonatomic) NSInteger postEffect;

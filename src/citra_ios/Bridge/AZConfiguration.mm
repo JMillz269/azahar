@@ -50,6 +50,10 @@
     config.audioStretching = YES;
     config.realtimeAudio = NO;
     config.volume = 1.0f;
+    config.audioEmulation = 0;
+    config.lleApplets = NO;
+    config.textureSampling = 0;
+    config.monoEye = 0;
     config.postEffect = 0;
     config.anaglyphMode = 0;
     config.postShader = @"";

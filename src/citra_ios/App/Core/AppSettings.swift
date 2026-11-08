@@ -309,6 +309,10 @@ final class AppSettings: ObservableObject {
         didSet { save(compressCIAInstalls, "compressCIAInstalls") }
     }
     @Published var realtimeAudio: Bool { didSet { save(realtimeAudio, "realtimeAudio") } }
+    @Published var audioEmulation: Int { didSet { save(audioEmulation, "audioEmulation") } }
+    @Published var lleApplets: Bool { didSet { save(lleApplets, "lleApplets") } }
+    @Published var textureSampling: Int { didSet { save(textureSampling, "textureSampling") } }
+    @Published var monoEye: Int { didSet { save(monoEye, "monoEye") } }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -403,6 +407,10 @@ final class AppSettings: ObservableObject {
         useVirtualSD = value("useVirtualSD", true)
         compressCIAInstalls = value("compressCIAInstalls", false)
         realtimeAudio = value("realtimeAudio", false)
+        audioEmulation = value("audioEmulation", 0)
+        lleApplets = value("lleApplets", false)
+        textureSampling = value("textureSampling", 0)
+        monoEye = value("monoEye", 0)
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)
@@ -498,6 +506,10 @@ final class AppSettings: ObservableObject {
         config.compressCIAInstalls = compressCIAInstalls
         config.customStoragePath = CustomStorage.activate()
         config.realtimeAudio = realtimeAudio
+        config.audioEmulation = audioEmulation
+        config.lleApplets = lleApplets
+        config.textureSampling = textureSampling
+        config.monoEye = monoEye
         config.useMicrophone = useMicrophone
         config.volume = Float(volume)
         config.isNew3DS = isNew3DS

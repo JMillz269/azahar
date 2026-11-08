@@ -36,6 +36,20 @@ struct GameSettingsView: View {
                     TextureCompressionOption(rawValue: $0)?.title ?? "\($0)"
                 }
                 OverrideToggle("Hardware Shaders", value: $overrides.hardwareShaders)
+                OverridePicker("Aspect Ratio", value: $overrides.aspectRatio,
+                               options: Array(0...5)) {
+                    ["Default", "16:9", "4:3", "21:9", "16:10", "Stretch to Fit"][$0]
+                }
+                OverridePicker("Texture Sampling", value: $overrides.textureSampling,
+                               options: [0, 1, 2]) {
+                    ["Game Controlled", "Nearest Neighbor", "Linear"][$0]
+                }
+                OverridePicker("Post-Processing Effect", value: $overrides.postEffect,
+                               options: [0, 1, 2, 3]) {
+                    ["None", "Sharpen", "LCD Grid", "Scanlines"][$0]
+                }
+                OverridePicker("Eye Shown With 3D Off", value: $overrides.monoEye,
+                               options: [0, 1]) { $0 == 0 ? "Left" : "Right" }
                 OverridePicker("3D Mode", value: $overrides.stereoMode,
                                options: StereoModeOption.allCases.map(\.rawValue)) {
                     StereoModeOption(rawValue: $0)?.title ?? "\($0)"
@@ -47,6 +61,14 @@ struct GameSettingsView: View {
             Section {
                 OverridePicker("CPU Clock Speed", value: $overrides.cpuClockPercentage,
                                options: [50, 75, 100, 150, 200, 300, 400]) { "\($0)%" }
+                OverridePicker("Fast Forward Speed", value: $overrides.fastForwardSpeed,
+                               options: [150, 200, 300, 400, 500, 800, 0]) {
+                    $0 == 0 ? "Unlimited" : "\($0)%"
+                }
+                OverridePicker("Audio Emulation", value: $overrides.audioEmulation,
+                               options: [0, 1, 2]) {
+                    ["HLE (Fast)", "LLE (Accurate)", "LLE Multithreaded"][$0]
+                }
                 OverridePicker("Speed Limit", value: $overrides.speedLimit,
                                options: [0, 50, 75, 100, 150, 200, 300]) {
                     $0 == 0 ? "No limit" : "\($0)%"
@@ -57,6 +79,10 @@ struct GameSettingsView: View {
 
             Section {
                 OverrideToggle("New 3DS Mode", value: $overrides.isNew3DS)
+                OverrideToggle("LLE Applets", value: $overrides.lleApplets)
+                OverrideToggle("Plugin Loader (3GX)", value: $overrides.pluginLoader)
+                OverrideToggle("Nintendo Network Support", value: $overrides.onlineModules)
+                OverrideToggle("Region-Free Patch", value: $overrides.regionFreePatch)
                 OverridePicker("Region", value: $overrides.region,
                                options: ConsoleRegion.allCases.map(\.rawValue)) {
                     ConsoleRegion(rawValue: $0)?.title ?? "\($0)"

@@ -114,6 +114,20 @@ typedef NS_ENUM(NSInteger, AZInstallStatus) {
     AZInstallStatusUnknown,
 };
 
+/// The identity of the emulated console (what its settings app would show).
+@interface AZConsoleProfile : NSObject
+@property(nonatomic, copy) NSString* username;
+@property(nonatomic) NSInteger birthMonth;
+@property(nonatomic) NSInteger birthDay;
+/// 0 Japanese, 1 English, 2 French, 3 German, 4 Italian, 5 Spanish, 6 Simplified Chinese,
+/// 7 Korean, 8 Dutch, 9 Portuguese, 10 Russian, 11 Traditional Chinese.
+@property(nonatomic) NSInteger language;
+@property(nonatomic) NSInteger country;
+/// 0 mono, 1 stereo, 2 surround.
+@property(nonatomic) NSInteger soundMode;
+@property(nonatomic) NSInteger playCoins;
+@end
+
 typedef NS_ENUM(NSInteger, AZMovieMode) {
     AZMovieModeNone = 0,
     AZMovieModeRecording,
@@ -296,6 +310,12 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 + (BOOL)areNew3DSSystemFilesInstalled;
 /// Removes the installed system files of one setup before it is done again.
 + (void)uninstallSystemFilesForOld3DS:(BOOL)old3DS;
+
+// The console's profile, only while no game runs (the system settings live in a save file).
+
++ (AZConsoleProfile*)readConsoleProfile;
+/// Returns NO while a game runs.
++ (BOOL)writeConsoleProfile:(AZConsoleProfile*)profile;
 
 // Movies: recordings of the controller input of a run, played back later. A recording or a
 // playback starts together with the game, so the game has to be (re)started after one is set.

@@ -486,6 +486,13 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
             ? std::string{_userDirectory.UTF8String} + "shaders/post/" +
                   std::string{configuration.postShader.UTF8String} + ".metal"
             : std::string{});
+    values.audio_emulation = static_cast<Settings::AudioEmulation>(
+        std::clamp<NSInteger>(configuration.audioEmulation, 0, 2));
+    values.lle_applets = configuration.lleApplets;
+    values.texture_sampling = static_cast<Settings::TextureSampling>(
+        std::clamp<NSInteger>(configuration.textureSampling, 0, 2));
+    values.mono_render_option = configuration.monoEye == 1 ? Settings::MonoRenderOption::RightEye
+                                                           : Settings::MonoRenderOption::LeftEye;
     values.use_virtual_sd = configuration.useVirtualSD;
     values.compress_cia_installs = configuration.compressCIAInstalls;
     {

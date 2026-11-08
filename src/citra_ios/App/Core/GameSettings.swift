@@ -23,6 +23,16 @@ struct GameOverrides: Codable, Equatable {
     var stereoMode: Int?
     var region: Int?
     var isNew3DS: Bool?
+    var aspectRatio: Int?
+    var textureSampling: Int?
+    var monoEye: Int?
+    var audioEmulation: Int?
+    var lleApplets: Bool?
+    var pluginLoader: Bool?
+    var onlineModules: Bool?
+    var regionFreePatch: Bool?
+    var postEffect: Int?
+    var fastForwardSpeed: Int?
     /// 0 runs without a speed limit, other values limit the speed to that percentage.
     var speedLimit: Int?
 
@@ -46,6 +56,16 @@ struct GameOverrides: Codable, Equatable {
         if let stereoMode { config.stereoMode = stereoMode }
         if let region { config.region = region }
         if let isNew3DS { config.isNew3DS = isNew3DS }
+        if let aspectRatio { config.aspectRatio = aspectRatio }
+        if let textureSampling { config.textureSampling = textureSampling }
+        if let monoEye { config.monoEye = monoEye }
+        if let audioEmulation { config.audioEmulation = audioEmulation }
+        if let lleApplets { config.lleApplets = lleApplets }
+        if let pluginLoader { config.pluginLoader = pluginLoader }
+        if let onlineModules { config.onlineModules = onlineModules }
+        if let regionFreePatch { config.regionFreePatch = regionFreePatch }
+        if let postEffect { config.postEffect = postEffect }
+        if let fastForwardSpeed { config.fastForwardSpeed = fastForwardSpeed }
         if let speedLimit {
             config.useFrameLimit = speedLimit != 0
             if speedLimit != 0 { config.frameLimit = speedLimit }

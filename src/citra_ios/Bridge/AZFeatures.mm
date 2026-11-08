@@ -32,6 +32,8 @@
 #include "core/frontend/framebuffer_layout.h"
 #include "core/hle/kernel/kernel.h"
 #include "core/hle/service/am/am.h"
+#include "core/hle/service/cfg/cfg.h"
+#include "core/hle/service/ptm/ptm.h"
 #include "core/hle/service/nfc/nfc.h"
 #include "core/hle/service/sm/sm.h"
 #include "common/settings.h"
@@ -659,6 +661,43 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
     Settings::temporary_frame_limit = enabled ? Settings::values.turbo_limit.GetValue() : 0.0;
 }
 
+// MARK: Console profile
+
++ (AZConsoleProfile*)readConsoleProfile {
+    AZConsoleProfile* profile = [[AZConsoleProfile alloc] init];
+    auto& system = Core::System::GetInstance();
+    auto cfg = Service::CFG::GetModule(system);
+    profile.username = [NSString stringWithUTF8String:Common::UTF16ToUTF8(cfg->GetUsername()).c_str()] ?: @"";
+    const auto [month, day] = cfg->GetBirthday();
+    profile.birthMonth = month;
+    profile.birthDay = day;
+    profile.language = static_cast<NSInteger>(cfg->GetSystemLanguage());
+    profile.country = cfg->GetCountryCode();
+    profile.soundMode = static_cast<NSInteger>(cfg->GetSoundOutputMode());
+    profile.playCoins = Service::PTM::Module::GetPlayCoins();
+    return profile;
+}
+
++ (BOOL)writeConsoleProfile:(AZConsoleProfile*)profile {
+    auto& system = Core::System::GetInstance();
+    if (system.IsPoweredOn()) {
+        return NO;
+    }
+    auto cfg = Service::CFG::GetModule(system);
+    cfg->SetUsername(Common::UTF8ToUTF16(profile.username.UTF8String));
+    cfg->SetBirthday(static_cast<u8>(std::clamp<NSInteger>(profile.birthMonth, 1, 12)),
+                     static_cast<u8>(std::clamp<NSInteger>(profile.birthDay, 1, 31)));
+    cfg->SetSystemLanguage(static_cast<Service::CFG::SystemLanguage>(
+        std::clamp<NSInteger>(profile.language, 0, 11)));
+    cfg->SetSoundOutputMode(static_cast<Service::CFG::SoundOutputMode>(
+        std::clamp<NSInteger>(profile.soundMode, 0, 2)));
+    cfg->SetCountryCode(static_cast<u8>(std::clamp<NSInteger>(profile.country, 0, 255)));
+    cfg->UpdateConfigNANDSavegame();
+    Service::PTM::Module::SetPlayCoins(
+        static_cast<u16>(std::clamp<NSInteger>(profile.playCoins, 0, 300)));
+    return YES;
+}
+
 // MARK: Movies
 
 static void (^g_movie_finished)(void) = nil;
@@ -844,6 +883,15 @@ static void (^g_movie_finished)(void) = nil;
             _rerecordCount = metadata.rerecord_count;
             _inputCount = metadata.input_count;
         }
+    }
+    return self;
+}
+@end
+
+@implementation AZConsoleProfile
+- (instancetype)init {
+    if ((self = [super init])) {
+        _username = @"";
     }
     return self;
 }
