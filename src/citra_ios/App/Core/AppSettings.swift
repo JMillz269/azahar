@@ -325,6 +325,9 @@ final class AppSettings: ObservableObject {
         get { defaults.integer(forKey: "lastLayoutPresetIndex") }
         set { defaults.set(newValue, forKey: "lastLayoutPresetIndex") }
     }
+    /// 0 title, 1 recently played, 2 most played, 3 compatibility.
+    @Published var librarySort: Int { didSet { save(librarySort, "librarySort") } }
+    @Published var favoritesFirst: Bool { didSet { save(favoritesFirst, "favoritesFirst") } }
     @Published var useMicrophone: Bool { didSet { save(useMicrophone, "useMicrophone") } }
     @Published var audioStretching: Bool { didSet { save(audioStretching, "audioStretching") } }
     @Published var volume: Double { didSet { save(volume, "volume") } }
@@ -429,6 +432,8 @@ final class AppSettings: ObservableObject {
         } else {
             layoutPresets = []
         }
+        librarySort = value("librarySort", 0)
+        favoritesFirst = value("favoritesFirst", true)
         useMicrophone = value("useMicrophone", false)
         audioStretching = value("audioStretching", true)
         volume = value("volume", 1.0)

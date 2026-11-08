@@ -33,6 +33,7 @@ struct GameIconView: View {
 /// A row of the game list.
 struct GameRowView: View {
     let game: Game
+    @ObservedObject private var stats = GameStatsStore.shared
 
     var body: some View {
         HStack(spacing: 16) {
@@ -42,12 +43,20 @@ struct GameRowView: View {
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
-                Text(game.publisher.isEmpty ? game.programIDString : game.publisher)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    CompatibilityBadge(game: game)
+                    Text(game.publisher.isEmpty ? game.programIDString : game.publisher)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer()
+            if stats.isFavorite(game) {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(.yellow)
+                    .accessibilityLabel("Favorite")
+            }
             if game.isEncrypted {
                 Image(systemName: "lock.fill")
                     .foregroundStyle(.orange)
@@ -62,6 +71,7 @@ struct GameRowView: View {
 /// A card of the game grid.
 struct GameCardView: View {
     let game: Game
+    @ObservedObject private var stats = GameStatsStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -73,10 +83,13 @@ struct GameCardView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                Text(game.publisher)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    CompatibilityBadge(game: game)
+                    Text(game.publisher)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 10)
@@ -89,6 +102,13 @@ struct GameCardView: View {
             if game.isEncrypted {
                 Image(systemName: "lock.fill")
                     .foregroundStyle(.orange)
+                    .padding(8)
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if stats.isFavorite(game) {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(.yellow)
                     .padding(8)
             }
         }

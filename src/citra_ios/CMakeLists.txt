@@ -81,6 +81,7 @@ set(APP_SWIFT_SOURCES
     App/Core/GameCompressor.swift
     App/Core/GameSettings.swift
     App/Core/GameLibrary.swift
+    App/Core/GameStats.swift
     App/Core/LayoutPresets.swift
     App/Core/LogExporter.swift
     App/Core/MultiplayerSession.swift
@@ -104,6 +105,11 @@ set(APP_SWIFT_SOURCES
 )
 
 add_executable(azahar_ios MACOSX_BUNDLE ${APP_SWIFT_SOURCES})
+
+# The project's compatibility list, shown as a rating in the game library.
+set(AZAHAR_COMPAT_LIST "${PROJECT_SOURCE_DIR}/dist/compatibility_list/compatibility_list.json")
+target_sources(azahar_ios PRIVATE ${AZAHAR_COMPAT_LIST})
+set_source_files_properties(${AZAHAR_COMPAT_LIST} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
 include(GenerateBuildInfo)
 set(SRC_DIR "${PROJECT_SOURCE_DIR}")

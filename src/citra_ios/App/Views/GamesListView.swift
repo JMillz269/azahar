@@ -28,12 +28,42 @@ struct GamesListView: View {
         }
     }
 
+    @ObservedObject private var stats = GameStatsStore.shared
+
     private var filteredGames: [Game] {
-        guard !searchText.isEmpty else { return library.games }
-        return library.games.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText)
-                || $0.publisher.localizedCaseInsensitiveContains(searchText)
+        var games = library.games
+        if !searchText.isEmpty {
+            games = games.filter {
+                $0.title.localizedCaseInsensitiveContains(searchText)
+                    || $0.publisher.localizedCaseInsensitiveContains(searchText)
+            }
         }
+        // The library arrives sorted by title; the other orders fall back to it.
+        let sorted: [Game]
+        switch settings.librarySort {
+        case 1:
+            sorted = games.sorted {
+                (stats.entry(for: $0).lastPlayed ?? .distantPast)
+                    > (stats.entry(for: $1).lastPlayed ?? .distantPast)
+            }
+        case 2:
+            sorted = games.sorted {
+                stats.entry(for: $0).playSeconds > stats.entry(for: $1).playSeconds
+            }
+        case 3:
+            sorted = games.sorted { compatibilityRank($0) < compatibilityRank($1) }
+        default:
+            sorted = games
+        }
+        guard settings.favoritesFirst else { return sorted }
+        return sorted.filter { stats.isFavorite($0) } + sorted.filter { !stats.isFavorite($0) }
+    }
+
+    /// Best rated first, the games without a rating last.
+    private func compatibilityRank(_ game: Game) -> Int {
+        guard let rating = CompatibilityList.rating(of: game) else { return 99 }
+        return ["Perfect", "Great", "Okay", "Bad", "Intro/Menu", "Won't Boot"]
+            .firstIndex(of: rating.text) ?? 99
     }
 
     var body: some View {
@@ -60,6 +90,13 @@ struct GamesListView: View {
                                     .tag(style)
                             }
                         }
+                        Picker("Sort By", selection: $settings.librarySort) {
+                            Text("Title").tag(0)
+                            Text("Recently Played").tag(1)
+                            Text("Most Played").tag(2)
+                            Text("Compatibility").tag(3)
+                        }
+                        Toggle("Favorites First", isOn: $settings.favoritesFirst)
                     } label: {
                         Image(systemName: settings.libraryStyle == .list
                               ? "list.bullet" : "square.grid.2x2")
@@ -199,6 +236,12 @@ struct GamesListView: View {
             Label("Play", systemImage: "play.fill")
         }
         Button {
+            stats.toggleFavorite(game)
+        } label: {
+            Label(stats.isFavorite(game) ? "Remove from Favorites" : "Add to Favorites",
+                  systemImage: stats.isFavorite(game) ? "star.slash" : "star")
+        }
+        Button {
             selectedGameInfo = game
         } label: {
             Label("Game Info", systemImage: "info.circle")
@@ -248,6 +291,7 @@ private struct EmptyLibraryView: View {
 
 struct GameInfoView: View {
     let game: Game
+    @ObservedObject private var stats = GameStatsStore.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -268,6 +312,25 @@ struct GameInfoView: View {
                         GameSettingsView(game: game)
                     } label: {
                         Label("Game Settings", systemImage: "slider.horizontal.3")
+                    }
+                }
+                Section("Played") {
+                    LabeledContent("Play Time", value: GameStatsStore.playTimeText(
+                        stats.entry(for: game).playSeconds))
+                    if let last = stats.entry(for: game).lastPlayed {
+                        LabeledContent("Last Played",
+                                       value: last.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    if let rating = CompatibilityList.rating(of: game) {
+                        HStack {
+                            Text("Compatibility")
+                            Spacer()
+                            Circle().fill(rating.color).frame(width: 10, height: 10)
+                            Text(rating.text).foregroundStyle(.secondary)
+                        }
+                    }
+                    Button(stats.isFavorite(game) ? "Remove from Favorites" : "Add to Favorites") {
+                        stats.toggleFavorite(game)
                     }
                 }
                 Section("Details") {

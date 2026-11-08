@@ -40,6 +40,9 @@ final class EmulationSession: ObservableObject {
     let controllers = GameControllerInput()
     let motion = MotionInput()
 
+    private var playStart: Date?
+    private var pausedSince: Date?
+    private var pausedTotal: TimeInterval = 0
     private var pendingGame: Game?
     private var pendingSettings: AppSettings?
     private var statsTimer: Timer?
@@ -208,6 +211,9 @@ final class EmulationSession: ObservableObject {
             return
         }
 
+        playStart = Date()
+        pausedTotal = 0
+        pausedSince = nil
         UIApplication.shared.isIdleTimerDisabled = true
         prepareAudioSession(recording: settings.useMicrophone)
         controllers.start()
@@ -230,6 +236,13 @@ final class EmulationSession: ObservableObject {
     }
 
     func togglePause() {
+        // The time paused does not count as play time.
+        if isPaused {
+            if let since = pausedSince { pausedTotal += Date().timeIntervalSince(since) }
+            pausedSince = nil
+        } else {
+            pausedSince = Date()
+        }
         if isPaused {
             AZEmulator.shared.resume()
         } else {
@@ -290,6 +303,14 @@ final class EmulationSession: ObservableObject {
     }
 
     private func cleanUp() {
+        if let game = currentGame, let start = playStart {
+            let now = Date()
+            let pausedNow = pausedSince.map { now.timeIntervalSince($0) } ?? 0
+            let played = now.timeIntervalSince(start) - pausedTotal - pausedNow
+            GameStatsStore.shared.recordPlay(of: game.programID, seconds: played, at: now)
+        }
+        playStart = nil
+        pausedSince = nil
         prepareAudioSession(recording: false)
         statsTimer?.invalidate()
         statsTimer = nil
