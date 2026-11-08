@@ -479,6 +479,13 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     values.battery_charging = configuration.batteryCharging;
     values.steps_per_hour = static_cast<u16>(std::clamp<NSInteger>(configuration.stepsPerHour, 0, 65535));
     values.apply_region_free_patch = configuration.regionFreePatch;
+    Metal::SetPostProcessing(static_cast<int>(std::clamp<NSInteger>(configuration.postEffect, 0, 3)),
+                             static_cast<int>(std::clamp<NSInteger>(configuration.anaglyphMode, 0, 3)));
+    Metal::SetCustomPostShader(
+        configuration.postShader.length > 0
+            ? std::string{_userDirectory.UTF8String} + "shaders/post/" +
+                  std::string{configuration.postShader.UTF8String} + ".metal"
+            : std::string{});
     values.use_virtual_sd = configuration.useVirtualSD;
     values.compress_cia_installs = configuration.compressCIAInstalls;
     {

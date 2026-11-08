@@ -99,6 +99,14 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL useMicrophone;
 @property(nonatomic) float volume;
 
+// Post-processing
+/// 0 none, 1 sharpen, 2 LCD grid, 3 scanlines.
+@property(nonatomic) NSInteger postEffect;
+/// 0 Dubois, 1 gray, 2 half color, 3 color.
+@property(nonatomic) NSInteger anaglyphMode;
+/// The name of a Metal shader file in Azahar/shaders/post (without .metal), or empty.
+@property(nonatomic, copy) NSString* postShader;
+
 // Storage
 /// Keep the console's SD card on the device (on by default).
 @property(nonatomic) BOOL useVirtualSD;

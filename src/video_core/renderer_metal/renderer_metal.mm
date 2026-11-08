@@ -7,8 +7,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <mutex>
+#include <string>
 #include <vector>
 #include "common/assert.h"
+#include "common/file_util.h"
 #include "common/logging/log.h"
 #include "common/microprofile.h"
 #include "common/settings.h"
@@ -54,8 +57,17 @@ struct PresentUniforms {
     s32 reverse_interlaced;
     f32 interlace_rows;
     s32 interlace_use_y;
+    s32 effect;
+    s32 anaglyph_mode;
+    s32 pad0;
+    s32 pad1;
 };
-static_assert(sizeof(PresentUniforms) == 48);
+static_assert(sizeof(PresentUniforms) == 64);
+
+std::atomic<int> g_post_effect{0};
+std::atomic<int> g_anaglyph_mode{0};
+std::mutex g_custom_post_mutex;
+std::string g_custom_post_path;
 
 std::atomic<int> g_upscaler_mode{static_cast<int>(UpscalerMode::Off)};
 
@@ -215,6 +227,8 @@ private:
     bool second_layer_dirty{true};
 
     id<MTLRenderPipelineState> present_pipeline = nil;
+    /// A post-processing shader the user wrote (see SetCustomPostShader), or nil.
+    id<MTLRenderPipelineState> custom_post_pipeline = nil;
     id<MTLRenderPipelineState> present_anaglyph_pipeline = nil;
     id<MTLRenderPipelineState> present_interlaced_pipeline = nil;
     std::array<id<MTLSamplerState>, 2> present_samplers{};
@@ -265,6 +279,59 @@ void RendererMetal::CompilePresentPipelines() {
         return pipeline;
     };
     present_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm);
+
+    // A shader the user wrote: their post_effect function inside a fragment function of ours.
+    std::string custom_path;
+    {
+        std::scoped_lock lock{g_custom_post_mutex};
+        custom_path = g_custom_post_path;
+    }
+    if (!custom_path.empty()) {
+        std::string user_source;
+        if (FileUtil::ReadFileToString(true, custom_path, user_source) > 0) {
+            std::string source{Shaders::PRESENT};
+            source += "\n// ---- user shader ----\n";
+            source += user_source;
+            source += "\n// ---- end of user shader ----\n";
+            source += Shaders::PRESENT_POST_WRAPPER;
+            NSError* custom_error = nil;
+            id<MTLLibrary> custom_library =
+                [device newLibraryWithSource:ToNSString(source)
+                                     options:[MTLCompileOptions new]
+                                       error:&custom_error];
+            if (custom_library == nil) {
+                LOG_ERROR(Render, "The post-processing shader {} does not compile: {}", custom_path,
+                          custom_error ? [custom_error.localizedDescription UTF8String]
+                                       : "unknown error");
+            } else {
+                MTLRenderPipelineDescriptor* desc = [MTLRenderPipelineDescriptor new];
+                desc.vertexFunction = [custom_library newFunctionWithName:@"present_vs"];
+                desc.fragmentFunction = [custom_library newFunctionWithName:@"present_post_fs"];
+                MTLRenderPipelineColorAttachmentDescriptor* color = desc.colorAttachments[0];
+                color.pixelFormat = MTLPixelFormatBGRA8Unorm;
+                color.blendingEnabled = YES;
+                color.rgbBlendOperation = MTLBlendOperationAdd;
+                color.alphaBlendOperation = MTLBlendOperationAdd;
+                color.sourceRGBBlendFactor = MTLBlendFactorBlendAlpha;
+                color.destinationRGBBlendFactor = MTLBlendFactorOneMinusBlendAlpha;
+                color.sourceAlphaBlendFactor = MTLBlendFactorOne;
+                color.destinationAlphaBlendFactor = MTLBlendFactorZero;
+                NSError* pipeline_error = nil;
+                custom_post_pipeline =
+                    [device newRenderPipelineStateWithDescriptor:desc error:&pipeline_error];
+                if (custom_post_pipeline == nil) {
+                    LOG_ERROR(Render, "The post-processing shader {} cannot be used: {}",
+                              custom_path,
+                              pipeline_error ? [pipeline_error.localizedDescription UTF8String]
+                                             : "unknown error");
+                } else {
+                    LOG_INFO(Render, "Post-processing shader: {}", custom_path);
+                }
+            }
+        } else {
+            LOG_ERROR(Render, "The post-processing shader {} cannot be read", custom_path);
+        }
+    }
     present_anaglyph_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm, @"present_anaglyph_fs");
     present_interlaced_pipeline = make_pipeline(MTLPixelFormatBGRA8Unorm, @"present_interlaced_fs");
 
@@ -395,6 +462,7 @@ void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 sc
         .o_resolution = o_resolution,
         .fill_color = fill_colors[screen_id],
         .use_fill = use_fill[screen_id] ? 1 : 0,
+        .effect = g_post_effect.load(std::memory_order_relaxed),
     };
     DrawQuad(encoder, vertices, screen_info.texture, uniforms);
 }
@@ -462,6 +530,8 @@ void RendererMetal::DrawSingleScreenStereo(id<MTLRenderCommandEncoder> encoder, 
         // Scaled screens have their rows along the y axis of the texture, native ones along x.
         .interlace_rows = (rotated && !upscaled) ? w : h,
         .interlace_use_y = upscaled ? 1 : 0,
+        .effect = 0,
+        .anaglyph_mode = g_anaglyph_mode.load(std::memory_order_relaxed),
     };
     [encoder setRenderPipelineState:mode == Settings::StereoRenderOption::Anaglyph
                                         ? present_anaglyph_pipeline
@@ -475,7 +545,8 @@ void RendererMetal::DrawSingleScreenStereo(id<MTLRenderCommandEncoder> encoder, 
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     // The other screens use the plain pipeline again.
-    [encoder setRenderPipelineState:present_pipeline];
+    [encoder setRenderPipelineState:custom_post_pipeline != nil ? custom_post_pipeline
+                                                                : present_pipeline];
 }
 
 #if AZAHAR_HAS_METALFX
@@ -673,6 +744,7 @@ void RendererMetal::DrawUpscaled(id<MTLRenderCommandEncoder> encoder, const Upsc
         .o_resolution = o_resolution,
         .fill_color = {},
         .use_fill = 0,
+        .effect = g_post_effect.load(std::memory_order_relaxed),
     };
     DrawQuad(encoder, vertices, upscale_slots[index].output, uniforms);
 }
@@ -775,7 +847,8 @@ void RendererMetal::DrawScreens(id<MTLRenderCommandEncoder> encoder,
     o_resolution = {static_cast<f32>(layout.width), static_cast<f32>(layout.height),
                     1.0f / static_cast<f32>(layout.width), 1.0f / static_cast<f32>(layout.height)};
 
-    [encoder setRenderPipelineState:present_pipeline];
+    [encoder setRenderPipelineState:custom_post_pipeline != nil ? custom_post_pipeline
+                                                                : present_pipeline];
     [encoder setFragmentSamplerState:present_samplers[!Settings::values.filter_mode.GetValue()]
                              atIndex:0];
     [encoder setViewport:MTLViewport{0.0, 0.0, static_cast<double>(layout.width),
@@ -1010,6 +1083,16 @@ FrameStats TakeFrameStats() {
         result.drawable_ms = static_cast<double>(drawable_ns) / 1e6 / frames;
     }
     return result;
+}
+
+void SetPostProcessing(int effect, int anaglyph_mode) {
+    g_post_effect.store(effect, std::memory_order_relaxed);
+    g_anaglyph_mode.store(anaglyph_mode, std::memory_order_relaxed);
+}
+
+void SetCustomPostShader(const std::string& path) {
+    std::scoped_lock lock{g_custom_post_mutex};
+    g_custom_post_path = path;
 }
 
 void SetUpscalerMode(UpscalerMode mode) {

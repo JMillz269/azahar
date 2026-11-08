@@ -148,6 +148,7 @@ struct GeneralSettingsView: View {
 
 struct GraphicsSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
+    @State private var postShaders = PostShaders.availableNames()
     @State private var clearedShaderCache = false
 
     var body: some View {
@@ -265,6 +266,14 @@ struct GraphicsSettingsView: View {
                     }
                     Toggle("Swap Eyes", isOn: $settings.swapEyes3D)
                 }
+                if settings.stereoMode == .anaglyph {
+                    Picker("Anaglyph Colors", selection: $settings.anaglyphMode) {
+                        Text("Dubois").tag(0)
+                        Text("Gray").tag(1)
+                        Text("Half Color").tag(2)
+                        Text("Color").tag(3)
+                    }
+                }
                 if settings.stereoMode == .cardboard {
                     Stepper("Cardboard Screen Size: \(settings.cardboardSize)%",
                             value: $settings.cardboardSize, in: 30...100, step: 5)
@@ -297,6 +306,30 @@ struct GraphicsSettingsView: View {
                 } else {
                     Text("MetalFX is not available on this device.")
                 }
+            }
+
+            Section {
+                Picker("Effect", selection: $settings.postEffect) {
+                    Text("None").tag(0)
+                    Text("Sharpen").tag(1)
+                    Text("LCD Grid").tag(2)
+                    Text("Scanlines").tag(3)
+                }
+                Picker("Custom Shader", selection: $settings.postShader) {
+                    Text("None").tag("")
+                    ForEach(postShaders, id: \.self) { Text($0).tag($0) }
+                }
+                Button("Show Shaders Folder in Files") {
+                    _ = PostShaders.availableNames()
+                    FileLocations.showInFiles(FileLocations.postShadersDirectory)
+                }
+            } header: {
+                Text("Post-Processing")
+            } footer: {
+                Text("An effect is applied to the finished screens. A custom shader replaces it: "
+                     + "put a .metal file with a post_effect function in Files › Azahar › shaders "
+                     + "› post (Example.metal shows how). A shader that does not compile is "
+                     + "ignored, the log tells why. Applies when a game starts.")
             }
 
             Section {

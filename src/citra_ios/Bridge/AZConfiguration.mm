@@ -49,6 +49,9 @@
     config.uprightScreens = NO;
     config.audioStretching = YES;
     config.volume = 1.0f;
+    config.postEffect = 0;
+    config.anaglyphMode = 0;
+    config.postShader = @"";
     config.useVirtualSD = YES;
     config.compressCIAInstalls = NO;
     config.customStoragePath = nil;

@@ -125,6 +125,10 @@ struct PresentUniforms {
     int reverse_interlaced;
     float interlace_rows; // stereo screens: the extent the interlacing alternates over
     int interlace_use_y;  // 1 when the rows run along the texture's y axis (upscaled screens)
+    int effect;           // post-processing: 0 none, 1 sharpen, 2 LCD grid, 3 scanlines
+    int anaglyph_mode;    // 0 Dubois, 1 gray, 2 half color, 3 color
+    int pad0;
+    int pad1;
 };
 
 struct PresentVertex {
@@ -154,20 +158,52 @@ fragment float4 present_fs(PresentVOut in [[stage_in]], texture2d<float> screen 
     if (u.use_fill != 0) {
         return u.fill_color;
     }
-    return float4(screen.sample(s, in.tex_coord).rgb, 1.0f);
+    float3 color = screen.sample(s, in.tex_coord).rgb;
+    if (u.effect == 1) {
+        // Sharpen: add the difference to the average of the four neighbours.
+        float2 texel = 1.0f / float2(screen.get_width(), screen.get_height());
+        float3 around = screen.sample(s, in.tex_coord + float2(texel.x, 0.0f)).rgb +
+                        screen.sample(s, in.tex_coord - float2(texel.x, 0.0f)).rgb +
+                        screen.sample(s, in.tex_coord + float2(0.0f, texel.y)).rgb +
+                        screen.sample(s, in.tex_coord - float2(0.0f, texel.y)).rgb;
+        color = clamp(color + (color - around * 0.25f) * 0.8f, 0.0f, 1.0f);
+    } else if (u.effect == 2) {
+        // LCD grid: darken the gaps between the pixels of the console's screen.
+        float2 cell = fract(in.tex_coord * float2(screen.get_width(), screen.get_height()));
+        float2 edge = smoothstep(0.0f, 0.18f, cell) * smoothstep(0.0f, 0.18f, 1.0f - cell);
+        color *= mix(0.55f, 1.0f, edge.x * edge.y);
+    } else if (u.effect == 3) {
+        // Scanlines: every other row of the console's screen is a little darker.
+        float row = fract(in.tex_coord.y * float(screen.get_height()));
+        color *= mix(0.6f, 1.0f, smoothstep(0.0f, 0.5f, row) * smoothstep(0.0f, 0.5f, 1.0f - row));
+    }
+    return float4(color, 1.0f);
 }
 
 // Red/cyan anaglyph from the left (texture 0) and right (texture 1) eye, same matrices as the
 // other backends.
 fragment float4 present_anaglyph_fs(PresentVOut in [[stage_in]], texture2d<float> left [[texture(0)]],
                                     texture2d<float> right [[texture(1)]],
-                                    sampler s [[sampler(0)]]) {
+                                    sampler s [[sampler(0)]],
+                                    constant PresentUniforms& u [[buffer(1)]]) {
     const float3x3 l = float3x3(float3(0.437, 0.449, 0.164), float3(-0.062, -0.062, -0.024),
                                 float3(-0.048, -0.050, -0.017));
     const float3x3 r = float3x3(float3(-0.011, -0.032, -0.007), float3(0.377, 0.761, 0.009),
                                 float3(-0.026, -0.093, 1.234));
     float4 color_l = left.sample(s, in.tex_coord);
     float4 color_r = right.sample(s, in.tex_coord);
+    const float3 luma = float3(0.299f, 0.587f, 0.114f);
+    if (u.anaglyph_mode == 1) {
+        // Gray: both eyes as luminance, red from the left and cyan from the right.
+        return float4(dot(color_l.rgb, luma), dot(color_r.rgb, luma), dot(color_r.rgb, luma),
+                      1.0f);
+    } else if (u.anaglyph_mode == 2) {
+        // Half color: the left eye as luminance, the right eye in color.
+        return float4(dot(color_l.rgb, luma), color_r.g, color_r.b, 1.0f);
+    } else if (u.anaglyph_mode == 3) {
+        // Color: red from the left eye, green and blue from the right eye.
+        return float4(color_l.r, color_r.g, color_r.b, 1.0f);
+    }
     return float4(color_l.rgb * l + color_r.rgb * r, 1.0f);
 }
 
@@ -185,6 +221,30 @@ fragment float4 present_interlaced_fs(PresentVOut in [[stage_in]],
 }
 )";
 
+
+/// Appended to PRESENT and the user's post-processing shader (which defines post_effect).
+constexpr std::string_view PRESENT_POST_WRAPPER = R"(
+fragment float4 present_post_fs(PresentVOut in [[stage_in]], texture2d<float> screen [[texture(0)]],
+                                sampler s [[sampler(0)]], constant PresentUniforms& u [[buffer(1)]]) {
+    if (u.use_fill != 0) {
+        return u.fill_color;
+    }
+    return float4(post_effect(in.tex_coord, screen, s, u.o_resolution).rgb, 1.0f);
+}
+)";
+
+/// A post-processing shader as the user writes one, also used by the shader tests.
+constexpr std::string_view POST_EXAMPLE = R"(
+// A post-processing shader for Azahar. Define post_effect: it gets the position in the screen
+// (0 to 1), the picture of the screen, a sampler and the size of the window (width, height,
+// 1/width, 1/height), and returns the color of that point.
+float4 post_effect(float2 uv, texture2d<float> screen, sampler s, float4 resolution) {
+    float3 color = screen.sample(s, uv).rgb;
+    float gray = dot(color, float3(0.299f, 0.587f, 0.114f));
+    // A little more color than the original.
+    return float4(mix(float3(gray), color, 1.25f), 1.0f);
+}
+)";
 
 /// Texture upscaling filters, run when a texture is uploaded at an internal resolution above 1x.
 /// They are ports of the shaders in host_shaders/texture_filtering. The vertex stage and the

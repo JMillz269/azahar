@@ -35,6 +35,11 @@ enum FileLocations {
         sdmcDirectory.appendingPathComponent("luma/plugins", isDirectory: true)
     }
 
+    /// Metal post-processing shaders written by the user.
+    static var postShadersDirectory: URL {
+        userDirectory.appendingPathComponent("shaders/post", isDirectory: true)
+    }
+
     /// Recorded movies (.ctm).
     static var moviesDirectory: URL {
         userDirectory.appendingPathComponent("movies", isDirectory: true)
@@ -93,5 +98,38 @@ enum FileLocations {
         for url in [userDirectory, romsDirectory] {
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
+    }
+}
+
+/// The post-processing shaders the user can pick.
+enum PostShaders {
+    /// A shader to start from, written to the folder the first time it is looked at.
+    private static let example = """
+        // A post-processing shader for Azahar. Define post_effect: it gets the position in the
+        // screen (0 to 1), the picture of the screen, a sampler and the size of the window
+        // (width, height, 1/width, 1/height), and returns the color of that point.
+        float4 post_effect(float2 uv, texture2d<float> screen, sampler s, float4 resolution) {
+            float3 color = screen.sample(s, uv).rgb;
+            float gray = dot(color, float3(0.299f, 0.587f, 0.114f));
+            // A little more color than the original.
+            return float4(mix(float3(gray), color, 1.25f), 1.0f);
+        }
+
+        """
+
+    /// The names (without .metal) of the shader files, after making the folder with the example.
+    static func availableNames() -> [String] {
+        let directory = FileLocations.postShadersDirectory
+        let fileManager = FileManager.default
+        if !fileManager.fileExists(atPath: directory.path) {
+            try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try? example.write(to: directory.appendingPathComponent("Example.metal"),
+                               atomically: true, encoding: .utf8)
+        }
+        let files = (try? fileManager.contentsOfDirectory(at: directory,
+                                                          includingPropertiesForKeys: nil)) ?? []
+        return files.filter { $0.pathExtension.lowercased() == "metal" }
+            .map { $0.deletingPathExtension().lastPathComponent }
+            .sorted()
     }
 }

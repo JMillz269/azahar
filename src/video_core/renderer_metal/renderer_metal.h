@@ -41,6 +41,14 @@ enum class UpscalerMode : int {
 
 void SetUpscalerMode(UpscalerMode mode);
 
+/// Built-in post-processing (0 none, 1 sharpen, 2 LCD grid, 3 scanlines) and the anaglyph variant
+/// (0 Dubois, 1 gray, 2 half color, 3 color). Both apply at once.
+void SetPostProcessing(int effect, int anaglyph_mode);
+
+/// A Metal file with a post_effect function that replaces the built-in effect, applied to games
+/// started afterwards. See the post-processing section of the iOS settings. Empty for none.
+void SetCustomPostShader(const std::string& path);
+
 /// Holds each frame on screen for the time of an emulated frame so frames are evenly spaced.
 void SetFramePacing(bool enabled);
 

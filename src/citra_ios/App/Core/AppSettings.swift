@@ -301,6 +301,9 @@ final class AppSettings: ObservableObject {
     @Published var cardboardYShift: Int { didSet { save(cardboardYShift, "cardboardYShift") } }
     @Published var fastForwardSpeed: Int { didSet { save(fastForwardSpeed, "fastForwardSpeed") } }
     @Published var fastForwardHold: Bool { didSet { save(fastForwardHold, "fastForwardHold") } }
+    @Published var postEffect: Int { didSet { save(postEffect, "postEffect") } }
+    @Published var anaglyphMode: Int { didSet { save(anaglyphMode, "anaglyphMode") } }
+    @Published var postShader: String { didSet { save(postShader, "postShader") } }
     @Published var useVirtualSD: Bool { didSet { save(useVirtualSD, "useVirtualSD") } }
     @Published var compressCIAInstalls: Bool {
         didSet { save(compressCIAInstalls, "compressCIAInstalls") }
@@ -393,6 +396,9 @@ final class AppSettings: ObservableObject {
         cardboardYShift = value("cardboardYShift", 0)
         fastForwardSpeed = value("fastForwardSpeed", 300)
         fastForwardHold = value("fastForwardHold", false)
+        postEffect = value("postEffect", 0)
+        anaglyphMode = value("anaglyphMode", 0)
+        postShader = value("postShader", "")
         useVirtualSD = value("useVirtualSD", true)
         compressCIAInstalls = value("compressCIAInstalls", false)
         useMicrophone = value("useMicrophone", false)
@@ -483,6 +489,9 @@ final class AppSettings: ObservableObject {
         config.cardboardYShift = cardboardYShift
         config.fastForwardSpeed = fastForwardSpeed
         config.fastForwardHold = fastForwardHold
+        config.postEffect = postEffect
+        config.anaglyphMode = anaglyphMode
+        config.postShader = postShader
         config.useVirtualSD = useVirtualSD
         config.compressCIAInstalls = compressCIAInstalls
         config.customStoragePath = CustomStorage.activate()
