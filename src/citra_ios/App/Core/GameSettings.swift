@@ -16,6 +16,11 @@ struct GameOverrides: Codable, Equatable {
     var fastColor: Bool?
     var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
+    var frameSkip: Bool?
+    /// Id of the controller profile this game uses, nil for the mapping being edited.
+    var controllerProfile: String?
+    var customTextures: Bool?
+    var preloadTextures: Bool?
     var hiddenSurfaceRemoval: Bool?
     var textureCompression: Int?
     var hardwareShaders: Bool?
@@ -52,6 +57,9 @@ struct GameOverrides: Codable, Equatable {
         if let fastColor { config.fastColor = fastColor }
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }
+        if let frameSkip { config.frameSkip = frameSkip }
+        if let customTextures { config.customTextures = customTextures }
+        if let preloadTextures { config.preloadTextures = preloadTextures }
         if let hiddenSurfaceRemoval { config.hiddenSurfaceRemoval = hiddenSurfaceRemoval }
         if let textureCompression { config.textureCompression = textureCompression }
         if let hardwareShaders { config.useHardwareShaders = hardwareShaders }

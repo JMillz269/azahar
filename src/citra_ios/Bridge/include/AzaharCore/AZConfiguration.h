@@ -52,6 +52,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) NSInteger textureCompression;
 /// Small depth reads by the game get the previous frame's values instead of waiting (next game).
 @property(nonatomic) BOOL fastDepthReadback;
+/// Frame presentation skip: do not present a frame while the GPU is busy with the previous one.
+@property(nonatomic) BOOL frameSkip;
 /// Holds each frame on screen for the time of a game frame so frames are evenly spaced.
 @property(nonatomic) BOOL framePacing;
 @property(nonatomic) BOOL fastShaderMath;

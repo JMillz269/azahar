@@ -218,10 +218,22 @@ struct ControllerMapping: Codable, Equatable {
     }
 }
 
+/// A named controller mapping, for example one per controller or per game.
+struct ControllerProfile: Codable, Equatable, Identifiable {
+    var id = UUID().uuidString
+    var name: String
+    var mapping: ControllerMapping
+}
+
 /// The saved mapping, shared with the settings screen.
+///
+/// `mapping` is the one being edited. When a profile is selected it is the profile's mapping, and
+/// changes to it are saved into the profile.
 @MainActor
 final class ControllerMappingStore: ObservableObject {
     nonisolated private static let key = "controllerMapping.v1"
+    nonisolated private static let profilesKey = "controllerProfiles.v1"
+    nonisolated private static let activeKey = "controllerProfileActive.v1"
 
     @Published var mapping: ControllerMapping {
         didSet {
@@ -229,11 +241,77 @@ final class ControllerMappingStore: ObservableObject {
             if let data = try? JSONEncoder().encode(mapping) {
                 UserDefaults.standard.set(data, forKey: Self.key)
             }
+            if let id = activeProfileID, let index = profiles.firstIndex(where: { $0.id == id }) {
+                profiles[index].mapping = mapping
+            }
         }
+    }
+
+    @Published private(set) var profiles: [ControllerProfile] {
+        didSet {
+            if let data = try? JSONEncoder().encode(profiles) {
+                UserDefaults.standard.set(data, forKey: Self.profilesKey)
+            }
+        }
+    }
+
+    /// The profile being edited, nil for the unnamed mapping.
+    @Published private(set) var activeProfileID: String? {
+        didSet { UserDefaults.standard.set(activeProfileID, forKey: Self.activeKey) }
     }
 
     init() {
         mapping = ControllerMappingStore.load()
+        profiles = ControllerMappingStore.loadProfiles()
+        let active = UserDefaults.standard.string(forKey: Self.activeKey)
+        activeProfileID = profiles.contains { $0.id == active } ? active : nil
+    }
+
+    nonisolated static func loadProfiles() -> [ControllerProfile] {
+        guard let data = UserDefaults.standard.data(forKey: profilesKey),
+              let profiles = try? JSONDecoder().decode([ControllerProfile].self, from: data)
+        else { return [] }
+        return profiles
+    }
+
+    /// The mapping of a profile, for a game that uses one.
+    nonisolated static func profileMapping(id: String) -> ControllerMapping? {
+        loadProfiles().first { $0.id == id }?.mapping
+    }
+
+    var activeProfile: ControllerProfile? {
+        profiles.first { $0.id == activeProfileID }
+    }
+
+    /// Saves the mapping being edited as a new profile and continues with that profile.
+    func addProfile(named name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let profile = ControllerProfile(name: trimmed.isEmpty ? "Profile \(profiles.count + 1)" : trimmed,
+                                        mapping: mapping)
+        profiles.append(profile)
+        activeProfileID = profile.id
+    }
+
+    /// Makes a profile the one being edited, or the unnamed mapping for nil. The unnamed mapping
+    /// keeps what it had when a profile was chosen.
+    func select(_ id: String?) {
+        if let id, let profile = profiles.first(where: { $0.id == id }) {
+            activeProfileID = id
+            mapping = profile.mapping
+        } else {
+            activeProfileID = nil
+        }
+    }
+
+    func rename(_ id: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[index].name = trimmed
+    }
+
+    func deleteProfile(_ id: String) {
+        profiles.removeAll { $0.id == id }
+        if activeProfileID == id { activeProfileID = nil }
     }
 
     nonisolated static func load() -> ControllerMapping {

@@ -229,6 +229,11 @@ final class EmulationSession: ObservableObject {
             NSLog("Azahar: JIT is not available, falling back to the interpreters")
         }
         AZEmulator.shared.apply(configuration: settings.makeConfiguration(for: game))
+        // A game can use its own controller profile for as long as it runs.
+        if let id = GameOverridesStore.shared.overrides(for: game).controllerProfile,
+           let mapping = ControllerMappingStore.profileMapping(id: id) {
+            ControllerMapping.current = mapping
+        }
         do {
             try AZEmulator.shared.start(path: game.startPath)
         } catch {
@@ -337,6 +342,8 @@ final class EmulationSession: ObservableObject {
         }
         playStart = nil
         pausedSince = nil
+        // Back to the mapping from the settings after a game with its own profile.
+        ControllerMapping.current = ControllerMappingStore.load()
         prepareAudioSession(recording: false)
         statsTimer?.invalidate()
         statsTimer = nil

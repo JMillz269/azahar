@@ -193,6 +193,7 @@ struct GraphicsSettingsView: View {
                 Toggle("Fast Lighting Math", isOn: $settings.fastLighting)
                 Toggle("Fast Color Math", isOn: $settings.fastColor)
                 Toggle("Fast Depth Readback", isOn: $settings.fastDepthReadback)
+                Toggle("Frame Presentation Skip", isOn: $settings.frameSkip)
                 Toggle("Hidden Surface Removal", isOn: $settings.hiddenSurfaceRemoval)
                 Picker("Texture Compression", selection: $settings.textureCompression) {
                     ForEach(TextureCompressionOption.allCases) { Text($0.title).tag($0) }
@@ -211,6 +212,9 @@ struct GraphicsSettingsView: View {
                      + "pixels hidden behind others (not for games using W-buffering). Texture "
                      + "Compression saves GPU memory bandwidth: Lossless looks identical, Lossy "
                      + "(A15 and later) saves more with a tiny loss of quality. "
+                     + "Frame Presentation Skip drops a frame from the display (up to two in a "
+                     + "row) while the GPU is still busy with the previous one, so the game keeps "
+                     + "its speed when the screen cannot keep up. "
                      + "Fast Depth Readback answers the small depth checks some games do every "
                      + "frame (Mario Kart 7's sun glare) with the previous frame's values instead "
                      + "of waiting for the GPU. "

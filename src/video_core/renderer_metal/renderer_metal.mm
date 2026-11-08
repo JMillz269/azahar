@@ -238,6 +238,7 @@ private:
     std::array<bool, 3> use_fill{};
     std::array<f32, 4> o_resolution{};
     u64 previous_frame_tick{};
+    u32 consecutive_skipped_presents{};
 
 #if AZAHAR_HAS_METALFX
     std::vector<UpscaleJob> upscale_jobs;
@@ -1003,8 +1004,17 @@ void RendererMetal::SwapBuffers() {
     PrepareRendertarget();
     RenderScreenshot();
 
-    if (!Settings::values.use_skip_duplicate_frames.GetValue() ||
-        Core::PerfStats::game_frames_updated) {
+    bool skip_present = false;
+    if (GetQualityOptions().skip_busy_presents && previous_frame_tick != 0 &&
+        !scheduler.IsFree(previous_frame_tick) && consecutive_skipped_presents < 2) {
+        skip_present = true;
+        ++consecutive_skipped_presents;
+    } else {
+        consecutive_skipped_presents = 0;
+    }
+
+    if (!skip_present && (!Settings::values.use_skip_duplicate_frames.GetValue() ||
+                          Core::PerfStats::game_frames_updated)) {
         if (layer_dirty) {
             AcquireLayer();
         }

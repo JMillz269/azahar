@@ -63,9 +63,40 @@ struct ControllerMappingView: View {
     @EnvironmentObject private var settings: AppSettings
     @StateObject private var capture = ButtonCapture()
     @State private var noController = false
+    @State private var namingProfile = false
+    @State private var renamingProfile = false
+    @State private var profileName = ""
 
     var body: some View {
         Form {
+            Section {
+                Picker("Profile", selection: Binding(
+                    get: { store.activeProfileID },
+                    set: { store.select($0) })) {
+                    Text("Unsaved Mapping").tag(String?.none)
+                    ForEach(store.profiles) { Text($0.name).tag(String?.some($0.id)) }
+                }
+                Button("Save as New Profile…") {
+                    profileName = ""
+                    namingProfile = true
+                }
+                if let profile = store.activeProfile {
+                    Button("Rename \"\(profile.name)\"…") {
+                        profileName = profile.name
+                        renamingProfile = true
+                    }
+                    Button("Delete \"\(profile.name)\"", role: .destructive) {
+                        store.deleteProfile(profile.id)
+                    }
+                }
+            } header: {
+                Text("Profiles")
+            } footer: {
+                Text("Keep several mappings, for example one per controller. Changes below are "
+                     + "saved into the chosen profile. A game can use its own profile in its Game "
+                     + "Settings.")
+            }
+
             Section {
                 ForEach(ConsoleButton.remappable, id: \.self) { button in
                     row(title: button.title,
@@ -133,6 +164,20 @@ struct ControllerMappingView: View {
             }
         }
         .navigationTitle("Controller Mapping")
+        .alert("New Profile", isPresented: $namingProfile) {
+            TextField("Name", text: $profileName)
+            Button("Save") { store.addProfile(named: profileName) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves the mapping below under this name.")
+        }
+        .alert("Rename Profile", isPresented: $renamingProfile) {
+            TextField("Name", text: $profileName)
+            Button("Rename") {
+                if let id = store.activeProfileID { store.rename(id, to: profileName) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .onDisappear { capture.cancel() }
         .alert(capture.target.map { "Press a button for \($0.title)" } ?? "",
                isPresented: Binding(get: { capture.target != nil },

@@ -9,6 +9,7 @@ struct GameSettingsView: View {
     let game: Game
     @ObservedObject private var store = GameOverridesStore.shared
     @State private var overrides = GameOverrides()
+    private var profiles: [ControllerProfile] { ControllerMappingStore.loadProfiles() }
 
     var body: some View {
         Form {
@@ -30,6 +31,9 @@ struct GameSettingsView: View {
                 OverrideToggle("Fast Color Math", value: $overrides.fastColor)
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
+                OverrideToggle("Frame Presentation Skip", value: $overrides.frameSkip)
+                OverrideToggle("Custom Textures", value: $overrides.customTextures)
+                OverrideToggle("Preload Custom Textures", value: $overrides.preloadTextures)
                 OverrideToggle("Hidden Surface Removal", value: $overrides.hiddenSurfaceRemoval)
                 OverridePicker("Texture Compression", value: $overrides.textureCompression,
                                options: TextureCompressionOption.allCases.map(\.rawValue)) {
@@ -117,6 +121,18 @@ struct GameSettingsView: View {
             } footer: {
                 Text(GameHack.allCases.map { "\($0.title): \($0.details)" }
                         .joined(separator: "\n\n"))
+            }
+
+            Section {
+                Picker("Controller Profile", selection: $overrides.controllerProfile) {
+                    Text("Current Mapping").tag(String?.none)
+                    ForEach(profiles) { Text($0.name).tag(String?.some($0.id)) }
+                }
+            } header: {
+                Text("Controller")
+            } footer: {
+                Text("Uses a saved controller profile for this game. Create profiles in "
+                     + "Settings › Controller Mapping.")
             }
 
             Section {
