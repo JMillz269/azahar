@@ -42,6 +42,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) NSInteger upscaling;
 @property(nonatomic) BOOL skipDuplicateFrames;
 @property(nonatomic) BOOL asyncShaderCompilation;
+/// Keep showing the previous frame while a draw waits for its shader (no flicker, a repeated frame).
+@property(nonatomic) BOOL holdFramesForShaders;
 /// Fragment lighting in half precision with fast normalization (applies to the next game).
 @property(nonatomic) BOOL fastLighting;
 /// Texture combiners in half precision (applies to the next game).

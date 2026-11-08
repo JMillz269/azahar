@@ -26,6 +26,7 @@
     config.hiddenSurfaceRemoval = NO;
     config.textureCompression = 0;
     config.fastDepthReadback = NO;
+    config.holdFramesForShaders = YES;
     config.stereoMode = 0;
     config.outerCamera = 0;
     config.innerCamera = 0;

@@ -16,6 +16,8 @@ struct GameOverrides: Codable, Equatable {
     var fastColor: Bool?
     var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
+    var asyncShaders: Bool?
+    var holdFramesForShaders: Bool?
     var disableRightEyeRender: Bool?
     var integerScaling: Bool?
     var secondaryDisplayLayout: Int?
@@ -60,6 +62,8 @@ struct GameOverrides: Codable, Equatable {
         if let fastColor { config.fastColor = fastColor }
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }
+        if let asyncShaders { config.asyncShaderCompilation = asyncShaders }
+        if let holdFramesForShaders { config.holdFramesForShaders = holdFramesForShaders }
         if let disableRightEyeRender { config.disableRightEyeRender = disableRightEyeRender }
         if let integerScaling { config.integerScaling = integerScaling }
         if let secondaryDisplayLayout { config.secondaryDisplayLayout = secondaryDisplayLayout }

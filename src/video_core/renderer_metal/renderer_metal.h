@@ -78,6 +78,9 @@ struct QualityOptions {
     bool async_depth_readback = false;
     /// Maximum anisotropic filtering level for linearly filtered textures, 1 disables it.
     int max_anisotropy = 4;
+    /// A frame in which a draw was skipped (its shader was still being built) is not shown, the
+    /// previous frame stays (at most three in a row), instead of a frame with parts missing.
+    bool hold_frames_for_shaders = false;
 };
 void SetQualityOptions(const QualityOptions& options);
 const QualityOptions& GetQualityOptions();

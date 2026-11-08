@@ -24,6 +24,7 @@ struct GpuStats {
     std::atomic<u64> stall_ns{};   ///< Time the emulation thread waited for the GPU
     std::atomic<u32> stalls{};     ///< Number of those waits
     std::atomic<u32> draws{};      ///< Draw calls
+    std::atomic<u32> frame_skipped{}; ///< Same, since the last presented frame
     std::atomic<u32> skipped{};    ///< Draws skipped because their pipeline was not built yet
     std::atomic<u32> frames{};     ///< Presented frames
     std::atomic<u32> render_passes{}; ///< Render encoders, each loads and stores its attachments

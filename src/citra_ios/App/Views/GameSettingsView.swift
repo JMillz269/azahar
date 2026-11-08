@@ -31,6 +31,8 @@ struct GameSettingsView: View {
                 OverrideToggle("Fast Color Math", value: $overrides.fastColor)
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
+                OverrideToggle("Async Shader Compilation", value: $overrides.asyncShaders)
+                OverrideToggle("Hold Frame While Shaders Build", value: $overrides.holdFramesForShaders)
                 OverrideToggle("Disable Right Eye Render", value: $overrides.disableRightEyeRender)
                 OverrideToggle("Integer Scaling", value: $overrides.integerScaling)
                 OverridePicker("External Display", value: $overrides.secondaryDisplayLayout,

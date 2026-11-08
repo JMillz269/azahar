@@ -238,6 +238,7 @@ private:
     std::array<bool, 3> use_fill{};
     std::array<f32, 4> o_resolution{};
     u64 previous_frame_tick{};
+    u32 held_frames{};
 
 #if AZAHAR_HAS_METALFX
     std::vector<UpscaleJob> upscale_jobs;
@@ -1003,8 +1004,19 @@ void RendererMetal::SwapBuffers() {
     PrepareRendertarget();
     RenderScreenshot();
 
-    if (!Settings::values.use_skip_duplicate_frames.GetValue() ||
-        Core::PerfStats::game_frames_updated) {
+    // A frame with a draw that was skipped (shader still being built) would show up with parts
+    // missing for a moment: keep the previous frame instead.
+    bool hold_frame = false;
+    if (Stats().frame_skipped.exchange(0, std::memory_order_relaxed) > 0 &&
+        GetQualityOptions().hold_frames_for_shaders && held_frames < 3) {
+        hold_frame = true;
+        ++held_frames;
+    } else {
+        held_frames = 0;
+    }
+
+    if (!hold_frame && (!Settings::values.use_skip_duplicate_frames.GetValue() ||
+                        Core::PerfStats::game_frames_updated)) {
         if (layer_dirty) {
             AcquireLayer();
         }

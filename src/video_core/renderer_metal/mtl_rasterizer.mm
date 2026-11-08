@@ -462,6 +462,7 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
         pipeline_cache.GetPipeline(key, vertex, fragment, draw_vertices <= 6);
     if (pipeline == nil) {
         Stats().skipped.fetch_add(1, std::memory_order_relaxed);
+        Stats().frame_skipped.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
     id<MTLDepthStencilState> depth_stencil = pipeline_cache.GetDepthStencilState(ds_key);

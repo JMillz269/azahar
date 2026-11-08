@@ -374,6 +374,8 @@ struct GraphicsSettingsView: View {
 
             Section {
                 Toggle("Async Shader Compilation", isOn: $settings.asyncShaders)
+                Toggle("Hold Frame While Shaders Build", isOn: $settings.holdFramesForShaders)
+                    .disabled(!settings.asyncShaders)
                 Toggle("Disk Shader Cache", isOn: $settings.diskShaderCache)
                 Button("Clear Shader Cache", role: .destructive) {
                     clearedShaderCache = FileLocations.clearShaderCache()
@@ -382,7 +384,10 @@ struct GraphicsSettingsView: View {
                 Text("Shaders")
             } footer: {
                 Text("Async Shader Compilation builds new shaders in the background instead of "
-                     + "pausing the game, an object may be missing for a moment instead. The disk "
+                     + "pausing the game, an object may be missing for a moment instead. Hold "
+                     + "Frame keeps showing the previous frame (up to three in a row) while a "
+                     + "shader is still building, so nothing flickers; the picture repeats "
+                     + "for a moment instead. The disk "
                      + "shader cache remembers the shaders of each game and builds them while it "
                      + "boots, so they don't need to be built again during play.")
             }
