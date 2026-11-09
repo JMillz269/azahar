@@ -411,8 +411,8 @@ struct GraphicsSettingsView: View {
     /// checker.
     private static var performanceFooter: String {
         var text: String = "Frame Generation makes the frames between the real ones with Apple's "
-        text += "frame interpolation, so a 30 FPS game looks like 60 (or 120 on a ProMotion "
-        text += "display). "
+        text += "frame interpolation, so a 30 FPS game looks like 60. Games that already run "
+        text += "at 60 FPS are left alone: making a frame takes longer than a 60 FPS frame lasts. "
         if !FrameGenerator.isSupported {
             text += "Not available on this device or iOS version. "
         }
@@ -428,11 +428,9 @@ struct GraphicsSettingsView: View {
     @ViewBuilder private var performanceSections: some View {
             Section {
                 Toggle("Frame Presentation Skip", isOn: $settings.skipDuplicateFrames)
-                Picker("Frame Generation (Experimental)", selection: $settings.frameGeneration) {
-                    Text("Off").tag(0)
-                    Text("30 FPS Games").tag(1)
-                    Text("All Games").tag(2)
-                }
+                Toggle("Frame Generation (Experimental)", isOn: Binding(
+                    get: { settings.frameGeneration > 0 },
+                    set: { settings.frameGeneration = $0 ? 1 : 0 }))
                 .disabled(!FrameGenerator.isSupported)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)
             } header: {

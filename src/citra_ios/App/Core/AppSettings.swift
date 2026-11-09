@@ -384,7 +384,7 @@ final class AppSettings: ObservableObject {
         framePacing = value("framePacing", true)
         asyncShaders = value("asyncShaders", true)
         holdFramesForShaders = value("holdFramesForShaders", true)
-        frameGeneration = value("frameGeneration", 0)
+        frameGeneration = min(value("frameGeneration", 0), 1)
         shaderWaitMs = value("shaderWaitMs", 2)
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)

@@ -201,8 +201,7 @@ private:
     void RenderToLayer(CAMetalLayer* target, const Layout::FramebufferLayout& layout,
                        bool allow_upscale);
     bool UseFrameGeneration(const Layout::FramebufferLayout& layout);
-    void RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> drawable,
-                         const Layout::FramebufferLayout& layout);
+    void RenderGenerated(CAMetalLayer* target, const Layout::FramebufferLayout& layout);
     bool PrepareFrameGenerationResources();
     void RenderScreenshot();
     void DrawScreens(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout);
@@ -966,9 +965,10 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
         target.drawableSize = size;
     }
 
-    const bool generated = allow_upscale && UseFrameGeneration(layout);
-    if (!target.framebufferOnly) {
-        target.framebufferOnly = YES;
+    if (allow_upscale && UseFrameGeneration(layout)) {
+        // Takes its drawables itself, when the frames are ready to be shown.
+        RenderGenerated(target, layout);
+        return;
     }
 
     id<CAMetalDrawable> drawable = nil;
@@ -981,11 +981,6 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
                                                        .count()),
                                   std::memory_order_relaxed);
     if (drawable == nil) {
-        return;
-    }
-
-    if (generated) {
-        RenderGenerated(target, drawable, layout);
         return;
     }
 
@@ -1096,9 +1091,9 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
     fg_last_swaps = fg_swaps;
     fg_cadence = fg_cadence * 0.8f + static_cast<f32>(std::min(swaps, 4u)) * 0.2f;
     const bool thirty_fps = fg_cadence >= 1.7f;
-    // Every game: a 60 FPS game only gets frames in between on a display faster than 60 Hz.
-    const bool eligible = fg_interval > 0.0 &&
-                          (thirty_fps || (mode == 2 && GetQualityOptions().display_hz >= 100));
+    // Only games that draw at 30 FPS: making a frame takes over 10 ms on an A18 Pro, which does
+    // not fit between the frames of a 60 FPS game.
+    const bool eligible = fg_interval > 0.0 && thirty_fps;
     if (!eligible) {
         // The frame is drawn the usual way and the next one starts over.
         fg_prev = -1;
@@ -1210,8 +1205,17 @@ bool RendererMetal::PrepareFrameGenerationResources() {
     return true;
 }
 
-void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> drawable_current,
+void RendererMetal::RenderGenerated(CAMetalLayer* target,
                                     const Layout::FramebufferLayout& layout) {
+    // The frames go to the screen from the callbacks of the interpolation, in order. While the
+    // previous ones are still on their way, this frame is dropped: the emulation never waits for
+    // frame generation, and a frame shown out of order would be worse than one not shown.
+    if (fg_busy.load(std::memory_order_acquire)) {
+        Stats().fg_skipped.fetch_add(1, std::memory_order_relaxed);
+        fg_prev = -1;
+        return;
+    }
+
     id<MTLTexture> current = fg_color[fg_cur];
     id<MTLTexture> current_luma = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur, 0);
     id<MTLTexture> current_chroma = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur, 1);
@@ -1242,6 +1246,13 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
     upscale_pass = UpscalePass::Off;
 #endif
 
+    const u32 previous = fg_prev >= 0 ? static_cast<u32>(fg_prev) : 0;
+    const bool make_between = fg_prev >= 0;
+    const u32 source = fg_cur;
+    const u32 destination = (fg_cur + 2) % FG_SLOTS;
+    id<MTLTexture> between_luma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 0);
+    id<MTLTexture> between_chroma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 1);
+
     // The picture in the planes the interpolation reads.
     {
         id<MTLComputeCommandEncoder> convert = [scheduler.CommandBuffer() computeCommandEncoder];
@@ -1257,119 +1268,96 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
 
     const f32 width = static_cast<f32>(layout.width);
     const f32 height = static_cast<f32>(layout.height);
+    // The real frame follows the made one after half the time between the game's frames.
     const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
 
-    // Frames reach the screen in order: a frame still being made goes first. Waiting for it is
-    // short (the interpolation of a small frame), and when it takes too long no frame is made
-    // this time.
-    for (int i = 0; i < 25 && fg_busy.load(std::memory_order_acquire); i++) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    bool make_between = fg_prev >= 0;
-    if (make_between && fg_busy.load(std::memory_order_acquire)) {
-        Stats().fg_skipped.fetch_add(1, std::memory_order_relaxed);
-        make_between = false;
-    }
-    id<CAMetalDrawable> drawable_between = nil;
-    if (make_between) {
-        @autoreleasepool {
-            drawable_between = [target nextDrawable];
-        }
-        make_between = drawable_between != nil;
-    }
+    fg_busy.store(true, std::memory_order_release);
+    std::atomic<bool>* busy = &fg_busy;
+    std::atomic<u32>* failures = &fg_failures;
+    id<MTLCommandQueue> queue = instance.GetCommandQueue();
+    id<MTLRenderPipelineState> color_pipeline = present_pipeline;
+    id<MTLSamplerState> color_sampler = present_samplers[0];
+    id<MTLRenderPipelineState> ycbcr_pipeline = fg_from_ycbcr;
+    id<MTLSamplerState> ycbcr_sampler = fg_sampler;
+    const auto interpolate = g_fg_hooks.interpolate;
 
-    const u32 destination = (fg_cur + 2) % FG_SLOTS;
-    id<MTLTexture> between_luma =
-        make_between ? (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 0) : nil;
-    id<MTLTexture> between_chroma =
-        make_between ? (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 1) : nil;
-    if (between_luma == nil || between_chroma == nil) {
-        make_between = false;
-    }
-
-    if (!make_between) {
-        // Only the real frame, shown the usual way.
-        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-        pass.colorAttachments[0].texture = drawable_current.texture;
-        pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
-        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-        id<MTLRenderCommandEncoder> draw = scheduler.BeginRendering(pass);
-        EncodeFullscreen(draw, present_pipeline, present_samplers[0], current, width, height);
-        scheduler.EndEncoding();
-        scheduler.PresentDrawable(drawable_current, true);
-        scheduler.Flush();
-    } else {
-        // Once the GPU has the picture in the planes, the interpolation makes the frame between
-        // the previous one and this one; then both are shown, the made one first.
-        fg_busy.store(true, std::memory_order_release);
-        std::atomic<bool>* busy = &fg_busy;
-        std::atomic<u32>* failures = &fg_failures;
-        id<MTLCommandQueue> queue = instance.GetCommandQueue();
-        id<MTLRenderPipelineState> color_pipeline = present_pipeline;
-        id<MTLSamplerState> color_sampler = present_samplers[0];
-        id<MTLRenderPipelineState> ycbcr_pipeline = fg_from_ycbcr;
-        id<MTLSamplerState> ycbcr_sampler = fg_sampler;
-        const auto interpolate = g_fg_hooks.interpolate;
-        const u32 previous = static_cast<u32>(fg_prev);
-        const u32 source = fg_cur;
-
-        const auto show = std::make_shared<std::function<void(bool)>>(
-            [=](bool made) {
-                id<MTLCommandBuffer> buffer = [queue commandBuffer];
-                const auto begin = [&](id<CAMetalDrawable> to) {
-                    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-                    pass.colorAttachments[0].texture = to.texture;
-                    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
-                    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-                    return [buffer renderCommandEncoderWithDescriptor:pass];
-                };
-                if (made) {
-                    id<MTLRenderCommandEncoder> draw = begin(drawable_between);
-                    [draw setRenderPipelineState:ycbcr_pipeline];
-                    [draw setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
-                    [draw setFragmentTexture:between_luma atIndex:0];
-                    [draw setFragmentTexture:between_chroma atIndex:1];
-                    [draw setFragmentSamplerState:ycbcr_sampler atIndex:0];
-                    [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-                    [draw endEncoding];
-                    [buffer presentDrawable:drawable_between];
-                }
-                id<MTLRenderCommandEncoder> draw = begin(drawable_current);
-                EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
+    // Shows the made frame (when there is one) and the real one. Runs on a callback thread, which
+    // is where the waits for drawables happen, not on the emulation thread.
+    const auto show = std::make_shared<std::function<void(bool)>>([=](bool made) {
+        made = made && between_luma != nil && between_chroma != nil;
+        id<MTLCommandBuffer> buffer = [queue commandBuffer];
+        const auto begin = [&](id<CAMetalDrawable> to) {
+            MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+            pass.colorAttachments[0].texture = to.texture;
+            pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+            pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+            return [buffer renderCommandEncoderWithDescriptor:pass];
+        };
+        if (made) {
+            id<CAMetalDrawable> drawable_between = nil;
+            @autoreleasepool {
+                drawable_between = [target nextDrawable];
+            }
+            if (drawable_between != nil) {
+                id<MTLRenderCommandEncoder> draw = begin(drawable_between);
+                [draw setRenderPipelineState:ycbcr_pipeline];
+                [draw setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
+                [draw setFragmentTexture:between_luma atIndex:0];
+                [draw setFragmentTexture:between_chroma atIndex:1];
+                [draw setFragmentSamplerState:ycbcr_sampler atIndex:0];
+                [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
                 [draw endEncoding];
-                if (made) {
-                    [buffer presentDrawable:drawable_current afterMinimumDuration:half];
-                } else {
-                    [buffer presentDrawable:drawable_current];
-                }
-                [buffer commit];
-                if (made) {
-                    failures->store(0, std::memory_order_relaxed);
-                } else {
-                    failures->fetch_add(1, std::memory_order_relaxed);
-                }
-                busy->store(false, std::memory_order_release);
-            });
+                [buffer presentDrawable:drawable_between];
+            } else {
+                made = false;
+            }
+        }
+        id<CAMetalDrawable> drawable_current = nil;
+        @autoreleasepool {
+            drawable_current = [target nextDrawable];
+        }
+        if (drawable_current != nil) {
+            id<MTLRenderCommandEncoder> draw = begin(drawable_current);
+            EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
+            [draw endEncoding];
+            if (made) {
+                [buffer presentDrawable:drawable_current afterMinimumDuration:half];
+            } else {
+                [buffer presentDrawable:drawable_current];
+            }
+        }
+        [buffer commit];
+        busy->store(false, std::memory_order_release);
+    });
 
-        [scheduler.CommandBuffer() addCompletedHandler:^(id<MTLCommandBuffer>) {
-          const auto start = std::chrono::steady_clock::now();
-          const bool started = interpolate(previous, source, destination, [show, start](bool ok) {
+    // Once the GPU has the picture in the planes, the interpolation makes the frame between the
+    // previous one and this one; without a previous frame only this one is shown.
+    [scheduler.CommandBuffer() addCompletedHandler:^(id<MTLCommandBuffer>) {
+      if (!make_between) {
+          (*show)(false);
+          return;
+      }
+      const auto start = std::chrono::steady_clock::now();
+      const bool started = interpolate(previous, source, destination, [show, start,
+                                                                      failures](bool ok) {
+          if (ok) {
               const auto took = std::chrono::steady_clock::now() - start;
-              if (ok) {
-                  Stats().fg_ns.fetch_add(
-                      static_cast<u64>(
-                          std::chrono::duration_cast<std::chrono::nanoseconds>(took).count()),
-                      std::memory_order_relaxed);
-                  Stats().fg_made.fetch_add(1, std::memory_order_relaxed);
-              }
-              (*show)(ok);
-          });
-          if (!started) {
-              (*show)(false);
+              Stats().fg_ns.fetch_add(
+                  static_cast<u64>(
+                      std::chrono::duration_cast<std::chrono::nanoseconds>(took).count()),
+                  std::memory_order_relaxed);
+              Stats().fg_made.fetch_add(1, std::memory_order_relaxed);
+              failures->store(0, std::memory_order_relaxed);
+          } else {
+              failures->fetch_add(1, std::memory_order_relaxed);
           }
-        }];
-        scheduler.Flush();
-    }
+          (*show)(ok);
+      });
+      if (!started) {
+          (*show)(false);
+      }
+    }];
+    scheduler.Flush();
 
     fg_prev = static_cast<int>(fg_cur);
     fg_cur = (fg_cur + 1) % FG_SLOTS;
