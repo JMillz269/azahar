@@ -415,9 +415,11 @@ struct GraphicsSettingsView: View {
             } header: {
                 Text("Performance")
             } footer: {
+                let unsupported: String = FrameGenerator.isSupported
+                    ? "" : "Not available on this device or iOS version. "
                 Text("Frame Generation makes the frames between the real ones with Apple's frame "
                      + "interpolation, so a 30 FPS game looks like 60 (or 120 on a ProMotion display). "
-                     + (FrameGenerator.isSupported ? "" : "Not available on this device or iOS version. ")
+                     + unsupported
                      + "It adds about half a frame of delay, can smear text and the 3D depth, and uses "
                      + "more GPU and battery. It turns on Frame Presentation Skip. \n\n"
                      + "Frame Presentation Skip: Does not present a frame the game did not draw again, so a 30 FPS game "
