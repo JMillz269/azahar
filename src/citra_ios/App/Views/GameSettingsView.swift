@@ -33,6 +33,8 @@ struct GameSettingsView: View {
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
                 OverrideToggle("Async Shader Compilation", value: $overrides.asyncShaders)
                 OverrideToggle("Hold Frame While Shaders Build", value: $overrides.holdFramesForShaders)
+                OverridePicker("Wait for Shaders", value: $overrides.shaderWaitMs,
+                               options: [0, 1, 2, 4, 8]) { $0 == 0 ? "Never" : "\($0) ms" }
                 OverrideToggle("Disable Right Eye Render", value: $overrides.disableRightEyeRender)
                 OverrideToggle("Integer Scaling", value: $overrides.integerScaling)
                 OverridePicker("External Display", value: $overrides.secondaryDisplayLayout,

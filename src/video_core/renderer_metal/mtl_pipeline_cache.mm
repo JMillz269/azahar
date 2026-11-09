@@ -377,6 +377,29 @@ id<MTLRenderPipelineState> PipelineCache::GetPipeline(const PipelineKey& key,
             BuildPipeline(*pipeline);
         });
     }
+
+    // Give the build a moment before the draw is skipped: with the binary archive most builds
+    // finish within a couple of milliseconds. The waiting per frame is limited.
+    const u32 wait_us = GetQualityOptions().shader_wait_us;
+    if (wait_us > 0) {
+        const u32 budget = wait_us * 4;
+        const u32 allowed = std::min(wait_us, budget > frame_wait_us ? budget - frame_wait_us : 0u);
+        if (allowed > 0) {
+            const auto start = std::chrono::steady_clock::now();
+            const auto deadline = start + std::chrono::microseconds(allowed);
+            while (!entry->done.load(std::memory_order_acquire) &&
+                   std::chrono::steady_clock::now() < deadline) {
+                std::this_thread::sleep_for(std::chrono::microseconds(40));
+            }
+            frame_wait_us += static_cast<u32>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - start)
+                    .count());
+            if (entry->done.load(std::memory_order_acquire)) {
+                return entry->state;
+            }
+        }
+    }
     return nil;
 }
 
@@ -415,6 +438,7 @@ void PipelineCache::QueryBlendEmulation(const Pica::RegsInternal& regs, bool& rg
 }
 
 void PipelineCache::TickFrame() {
+    frame_wait_us = 0;
     // Save new pipeline binaries every minute or so, in the background, so they are not lost if
     // iOS terminates the app.
     constexpr u32 SAVE_INTERVAL_FRAMES = 3600;

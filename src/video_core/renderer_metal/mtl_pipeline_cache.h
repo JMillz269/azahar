@@ -185,6 +185,8 @@ private:
     id<MTLBinaryArchive> binary_archive = nil;
     std::atomic<bool> archive_dirty{};
     u32 frames_since_save{};
+    /// Microseconds this frame spent waiting for pipelines to build (see GetPipeline).
+    u32 frame_wait_us{};
 
     // Declared last so the workers stop before the rest is destroyed.
     std::unique_ptr<Common::ThreadWorker> workers;

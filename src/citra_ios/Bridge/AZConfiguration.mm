@@ -27,6 +27,7 @@
     config.textureCompression = 0;
     config.fastDepthReadback = NO;
     config.holdFramesForShaders = YES;
+    config.shaderWaitMs = 2;
     config.stereoMode = 0;
     config.outerCamera = 0;
     config.innerCamera = 0;

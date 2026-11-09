@@ -447,6 +447,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
         std::clamp<NSInteger>(configuration.textureCompression, 0, 2));
     quality.async_depth_readback = configuration.fastDepthReadback;
     quality.hold_frames_for_shaders = configuration.holdFramesForShaders;
+    quality.shader_wait_us = static_cast<u32>(std::clamp<NSInteger>(configuration.shaderWaitMs, 0, 16)) * 1000;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);
     // Camera slots: 0 outer right, 1 inner, 2 outer left.

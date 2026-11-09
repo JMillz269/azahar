@@ -18,6 +18,7 @@ struct GameOverrides: Codable, Equatable {
     var fastDepthReadback: Bool?
     var asyncShaders: Bool?
     var holdFramesForShaders: Bool?
+    var shaderWaitMs: Int?
     var disableRightEyeRender: Bool?
     var integerScaling: Bool?
     var secondaryDisplayLayout: Int?
@@ -64,6 +65,7 @@ struct GameOverrides: Codable, Equatable {
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }
         if let asyncShaders { config.asyncShaderCompilation = asyncShaders }
         if let holdFramesForShaders { config.holdFramesForShaders = holdFramesForShaders }
+        if let shaderWaitMs { config.shaderWaitMs = shaderWaitMs }
         if let disableRightEyeRender { config.disableRightEyeRender = disableRightEyeRender }
         if let integerScaling { config.integerScaling = integerScaling }
         if let secondaryDisplayLayout { config.secondaryDisplayLayout = secondaryDisplayLayout }

@@ -462,7 +462,13 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
         pipeline_cache.GetPipeline(key, vertex, fragment, draw_vertices <= 6);
     if (pipeline == nil) {
         Stats().skipped.fetch_add(1, std::memory_order_relaxed);
-        Stats().frame_skipped.fetch_add(1, std::memory_order_relaxed);
+        // Only a hole in a target the size of a screen makes a frame worth holding back; shadow
+        // maps and small off-screen textures are not seen as a flicker.
+        const u32 native_width = framebuffer->Width() / std::max(framebuffer->Scale(), 1u);
+        const u32 native_height = framebuffer->Height() / std::max(framebuffer->Scale(), 1u);
+        if (has_color && native_width >= 240 && native_height >= 320) {
+            Stats().frame_skipped.fetch_add(1, std::memory_order_relaxed);
+        }
         return true;
     }
     id<MTLDepthStencilState> depth_stencil = pipeline_cache.GetDepthStencilState(ds_key);

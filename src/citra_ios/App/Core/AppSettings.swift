@@ -236,6 +236,7 @@ final class AppSettings: ObservableObject {
     @Published var refreshRate: RefreshRateOption { didSet { save(refreshRate.rawValue, "refreshRate") } }
     @Published var framePacing: Bool { didSet { save(framePacing, "framePacing") } }
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
+    @Published var shaderWaitMs: Int { didSet { save(shaderWaitMs, "shaderWaitMs") } }
     @Published var holdFramesForShaders: Bool { didSet { save(holdFramesForShaders, "holdFramesForShaders") } }
     @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
     @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
@@ -381,6 +382,7 @@ final class AppSettings: ObservableObject {
         framePacing = value("framePacing", true)
         asyncShaders = value("asyncShaders", true)
         holdFramesForShaders = value("holdFramesForShaders", true)
+        shaderWaitMs = value("shaderWaitMs", 2)
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
         fastColor = value("fastColor", false)
@@ -500,6 +502,7 @@ final class AppSettings: ObservableObject {
         config.skipDuplicateFrames = skipDuplicateFrames
         config.asyncShaderCompilation = asyncShaders
         config.holdFramesForShaders = holdFramesForShaders
+        config.shaderWaitMs = shaderWaitMs
         config.framePacing = framePacing
         config.fastShaderMath = fastShaderMath
         config.fastLighting = fastLighting

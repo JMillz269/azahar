@@ -376,6 +376,11 @@ struct GraphicsSettingsView: View {
                 Toggle("Async Shader Compilation", isOn: $settings.asyncShaders)
                 Toggle("Hold Frame While Shaders Build", isOn: $settings.holdFramesForShaders)
                     .disabled(!settings.asyncShaders)
+                Picker("Wait for Shaders", selection: $settings.shaderWaitMs) {
+                    Text("Never").tag(0)
+                    ForEach([1, 2, 4, 8], id: \.self) { Text("\($0) ms").tag($0) }
+                }
+                .disabled(!settings.asyncShaders)
                 Toggle("Disk Shader Cache", isOn: $settings.diskShaderCache)
                 Button("Clear Shader Cache", role: .destructive) {
                     clearedShaderCache = FileLocations.clearShaderCache()
@@ -387,7 +392,10 @@ struct GraphicsSettingsView: View {
                      + "pausing the game, an object may be missing for a moment instead. Hold "
                      + "Frame keeps showing the previous frame (up to three in a row) while a "
                      + "shader is still building, so nothing flickers; the picture repeats "
-                     + "for a moment instead. The disk "
+                     + "for a moment instead. Wait for Shaders lets a draw wait a few milliseconds "
+                     + "for its shader first (at most four times that per frame), which avoids "
+                     + "most skipped draws for a tiny hitch. Only frames with a hole in the "
+                     + "screen-sized picture are held. The disk "
                      + "shader cache remembers the shaders of each game and builds them while it "
                      + "boots, so they don't need to be built again during play.")
             }

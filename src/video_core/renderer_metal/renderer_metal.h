@@ -81,6 +81,8 @@ struct QualityOptions {
     /// A frame in which a draw was skipped (its shader was still being built) is not shown, the
     /// previous frame stays (at most three in a row), instead of a frame with parts missing.
     bool hold_frames_for_shaders = false;
+    /// How long (microseconds) a draw waits for its shader to build before it is skipped.
+    u32 shader_wait_us = 0;
 };
 void SetQualityOptions(const QualityOptions& options);
 const QualityOptions& GetQualityOptions();
