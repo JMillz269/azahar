@@ -405,11 +405,22 @@ struct GraphicsSettingsView: View {
 
             Section {
                 Toggle("Frame Presentation Skip", isOn: $settings.skipDuplicateFrames)
+                Picker("Frame Generation (Experimental)", selection: $settings.frameGeneration) {
+                    Text("Off").tag(0)
+                    Text("30 FPS Games").tag(1)
+                    Text("All Games").tag(2)
+                }
+                .disabled(!FrameGenerator.isSupported)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)
             } header: {
                 Text("Performance")
             } footer: {
-                Text("Does not present a frame the game did not draw again, so a 30 FPS game "
+                Text("Frame Generation makes the frames between the real ones with Apple's frame "
+                     + "interpolation, so a 30 FPS game looks like 60 (or 120 on a ProMotion display). "
+                     + (FrameGenerator.isSupported ? "" : "Not available on this device or iOS version. ")
+                     + "It adds about half a frame of delay, can smear text and the 3D depth, and uses "
+                     + "more GPU and battery. It turns on Frame Presentation Skip. \n\n"
+                     + "Frame Presentation Skip: Does not present a frame the game did not draw again, so a 30 FPS game "
                      + "shows 30 frames per second instead of every frame twice at 60. The "
                      + "emulation speed and the audio stay the same. Meant for frame generation "
                      + "and interpolation tools that need the real frame rate.")

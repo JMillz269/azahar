@@ -19,6 +19,9 @@ struct AzaharApp: App {
 
     init() {
         FileLocations.createDirectories()
+        if FrameGenerator.isSupported {
+            AZEmulator.setFrameGenerator(FrameGenerator.shared)
+        }
         AZEmulator.shared.setUp(userDirectory: FileLocations.userDirectory.path)
 
         let audioSession = AVAudioSession.sharedInstance()

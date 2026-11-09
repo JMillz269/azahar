@@ -42,6 +42,8 @@ namespace Metal {
 
 namespace {
 
+FrameGeneratorHooks g_fg_hooks;
+
 struct ScreenRectVertex {
     ScreenRectVertex() = default;
     ScreenRectVertex(float x, float y, float u, float v) : position{x, y}, tex_coord{u, v} {}
@@ -165,6 +167,9 @@ private:
                             bool right_eye);
     void RenderToLayer(CAMetalLayer* target, const Layout::FramebufferLayout& layout,
                        bool allow_upscale);
+    bool UseFrameGeneration(const Layout::FramebufferLayout& layout);
+    void RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> drawable,
+                         const Layout::FramebufferLayout& layout);
     void RenderScreenshot();
     void DrawScreens(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout);
     void DrawTopScreen(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout,
@@ -239,6 +244,20 @@ private:
     std::array<f32, 4> o_resolution{};
     u64 previous_frame_tick{};
     u32 held_frames{};
+
+    // Frame generation (see FrameGeneratorHooks): the picture of a frame is drawn into one of
+    // four slots, the frame between it and the previous one is made from the two, and both are
+    // shown, the made one first.
+    static constexpr u32 FG_SLOTS = 4;
+    bool fg_ready{};
+    bool fg_failed{};
+    u32 fg_width{}, fg_height{};
+    u32 fg_cur{};
+    int fg_prev{-1};
+    id<MTLEvent> fg_event = nil;
+    u64 fg_event_value{};
+    std::chrono::steady_clock::time_point fg_last_frame{};
+    double fg_interval{};
 
 #if AZAHAR_HAS_METALFX
     std::vector<UpscaleJob> upscale_jobs;
@@ -891,6 +910,12 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
         target.drawableSize = size;
     }
 
+    const bool generated = allow_upscale && UseFrameGeneration(layout);
+    // The finished picture is copied into the drawables, which a framebuffer-only layer forbids.
+    if (generated == target.framebufferOnly) {
+        target.framebufferOnly = !generated;
+    }
+
     id<CAMetalDrawable> drawable = nil;
     const auto drawable_start = std::chrono::steady_clock::now();
     @autoreleasepool {
@@ -901,6 +926,11 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
                                                        .count()),
                                   std::memory_order_relaxed);
     if (drawable == nil) {
+        return;
+    }
+
+    if (generated) {
+        RenderGenerated(target, drawable, layout);
         return;
     }
 
@@ -931,6 +961,143 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
 #if AZAHAR_HAS_METALFX
     upscale_pass = UpscalePass::Off;
 #endif
+}
+
+bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) {
+    const int mode = GetQualityOptions().frame_generation;
+    if (mode <= 0 || !g_fg_hooks.prepare || !g_fg_hooks.texture || !g_fg_hooks.interpolate) {
+        fg_prev = -1;
+        return false;
+    }
+    if (layout.width != fg_width || layout.height != fg_height) {
+        fg_width = layout.width;
+        fg_height = layout.height;
+        fg_ready = g_fg_hooks.prepare((__bridge void*)instance.GetDevice(), fg_width, fg_height);
+        fg_failed = !fg_ready;
+        fg_prev = -1;
+        if (fg_ready && fg_event == nil) {
+            fg_event = [instance.GetDevice() newEvent];
+        }
+        if (!fg_ready) {
+            LOG_WARNING(Render, "Frame generation is not available for {}x{} frames", fg_width,
+                        fg_height);
+        }
+    }
+    if (!fg_ready || fg_event == nil) {
+        return false;
+    }
+
+    // The time between the games' frames, smoothed. A pause or a menu does not count.
+    const auto now = std::chrono::steady_clock::now();
+    if (fg_last_frame.time_since_epoch().count() != 0) {
+        const double elapsed = std::chrono::duration<double>(now - fg_last_frame).count();
+        if (elapsed > 0.1) {
+            fg_prev = -1;
+            fg_interval = 0.0;
+        } else {
+            fg_interval = fg_interval == 0.0 ? elapsed : fg_interval * 0.7 + elapsed * 0.3;
+        }
+    }
+    fg_last_frame = now;
+
+    // Mode 1 only helps games that update below 40 FPS, others would only add delay.
+    const bool eligible = fg_interval > 0.0 && (mode == 2 || fg_interval >= 0.026);
+    if (!eligible) {
+        // The frame is drawn the usual way and the next one starts over.
+        fg_prev = -1;
+        return false;
+    }
+    return true;
+}
+
+void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> drawable_current,
+                                    const Layout::FramebufferLayout& layout) {
+    id<MTLTexture> current = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur);
+    if (current == nil) {
+        fg_ready = false;
+        return;
+    }
+
+    scheduler.Flush();
+    scheduler.MarkPresentation();
+#if AZAHAR_HAS_METALFX
+    PrepareUpscaling(layout);
+#endif
+    MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
+    desc.colorAttachments[0].texture = current;
+    desc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    desc.colorAttachments[0].clearColor =
+        MTLClearColorMake(Settings::values.bg_red.GetValue(), Settings::values.bg_green.GetValue(),
+                          Settings::values.bg_blue.GetValue(), 1.0);
+    id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
+    DrawScreens(encoder, layout);
+    scheduler.EndEncoding();
+#if AZAHAR_HAS_METALFX
+    upscale_pass = UpscalePass::Off;
+#endif
+
+    // The command buffer with the picture of the game signals when it is done.
+    const u64 drawn_value = ++fg_event_value;
+    [scheduler.CommandBuffer() encodeSignalEvent:fg_event value:drawn_value];
+    scheduler.Flush();
+
+    id<MTLCommandQueue> queue = instance.GetCommandQueue();
+    const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
+    const auto copy_to = [&](id<MTLCommandBuffer> buffer, id<MTLTexture> from,
+                             id<CAMetalDrawable> to) {
+        id<MTLBlitCommandEncoder> blit = [buffer blitCommandEncoder];
+        [blit copyFromTexture:from
+                  sourceSlice:0
+                  sourceLevel:0
+                 sourceOrigin:MTLOriginMake(0, 0, 0)
+                   sourceSize:MTLSizeMake(layout.width, layout.height, 1)
+                    toTexture:to.texture
+             destinationSlice:0
+             destinationLevel:0
+            destinationOrigin:MTLOriginMake(0, 0, 0)];
+        [blit endEncoding];
+    };
+
+    bool shown_between = false;
+    if (fg_prev >= 0) {
+        const u32 destination = (fg_cur + 2) % FG_SLOTS;
+        id<CAMetalDrawable> drawable_between = nil;
+        @autoreleasepool {
+            drawable_between = [target nextDrawable];
+        }
+        id<MTLTexture> between = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination);
+        if (drawable_between != nil && between != nil) {
+            id<MTLCommandBuffer> make = [queue commandBuffer];
+            [make encodeWaitForEvent:fg_event value:drawn_value];
+            const bool encoded = g_fg_hooks.interpolate(static_cast<u32>(fg_prev), fg_cur,
+                                                        destination, (__bridge void*)make);
+            const u64 made_value = ++fg_event_value;
+            [make encodeSignalEvent:fg_event value:made_value];
+            [make commit];
+            if (encoded) {
+                id<MTLCommandBuffer> show = [queue commandBuffer];
+                [show encodeWaitForEvent:fg_event value:made_value];
+                copy_to(show, between, drawable_between);
+                [show presentDrawable:drawable_between afterMinimumDuration:half];
+                [show commit];
+                shown_between = true;
+            }
+        }
+    }
+
+    id<MTLCommandBuffer> show_current = [queue commandBuffer];
+    [show_current encodeWaitForEvent:fg_event value:drawn_value];
+    copy_to(show_current, current, drawable_current);
+    if (shown_between) {
+        [show_current presentDrawable:drawable_current afterMinimumDuration:half];
+    } else {
+        [show_current presentDrawable:drawable_current];
+    }
+    [show_current commit];
+
+    fg_prev = static_cast<int>(fg_cur);
+    fg_cur = (fg_cur + 1) % FG_SLOTS;
 }
 
 void RendererMetal::RenderScreenshot() {
@@ -1046,6 +1213,10 @@ void RendererMetal::SwapBuffers() {
 } // Anonymous namespace
 
 QualityOptions g_quality_options;
+
+void SetFrameGeneratorHooks(FrameGeneratorHooks hooks) {
+    g_fg_hooks = std::move(hooks);
+}
 
 void SetQualityOptions(const QualityOptions& options) {
     g_quality_options = options;

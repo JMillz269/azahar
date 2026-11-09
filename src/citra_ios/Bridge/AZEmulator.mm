@@ -290,6 +290,29 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     NSDictionary<NSString*, NSNumber*>* _gameHackOverrides;
 }
 
++ (void)setFrameGenerator:(id<AZFrameGenerating>)generator {
+    if (generator == nil) {
+        Metal::SetFrameGeneratorHooks({});
+        return;
+    }
+    Metal::FrameGeneratorHooks hooks;
+    hooks.prepare = [generator](void* device, u32 width, u32 height) {
+        return [generator prepareWithDevice:(__bridge id<MTLDevice>)device
+                                      width:width
+                                     height:height];
+    };
+    hooks.texture = [generator](u32 slot) -> void* {
+        return (__bridge void*)[generator textureForSlot:slot];
+    };
+    hooks.interpolate = [generator](u32 previous, u32 current, u32 destination, void* buffer) {
+        return [generator interpolateFromSlot:previous
+                                       toSlot:current
+                                     intoSlot:destination
+                                commandBuffer:(__bridge id<MTLCommandBuffer>)buffer];
+    };
+    Metal::SetFrameGeneratorHooks(std::move(hooks));
+}
+
 + (AZEmulator*)shared {
     static AZEmulator* instance;
     static dispatch_once_t once;
@@ -437,7 +460,9 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     values.resolution_factor = static_cast<u32>(configuration.resolutionFactor);
     values.filter_mode = configuration.linearFiltering;
     values.texture_filter = static_cast<Settings::TextureFilter>(configuration.textureFilter);
-    values.use_skip_duplicate_frames = configuration.skipDuplicateFrames;
+    // Frame generation needs to know which frames are new, so it skips the repeated ones.
+    values.use_skip_duplicate_frames =
+        configuration.skipDuplicateFrames || configuration.frameGeneration > 0;
     Metal::QualityOptions quality;
     quality.fast_math = configuration.fastShaderMath;
     quality.fast_lighting = configuration.fastLighting;
@@ -447,6 +472,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
         std::clamp<NSInteger>(configuration.textureCompression, 0, 2));
     quality.async_depth_readback = configuration.fastDepthReadback;
     quality.hold_frames_for_shaders = configuration.holdFramesForShaders;
+    quality.frame_generation = static_cast<int>(std::clamp<NSInteger>(configuration.frameGeneration, 0, 2));
     quality.shader_wait_us = static_cast<u32>(std::clamp<NSInteger>(configuration.shaderWaitMs, 0, 16)) * 1000;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);

@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -59,6 +61,19 @@ enum class TextureCompression : int {
     Lossy = 2,    ///< Lossy compression (A15 and later), lossless on older GPUs
 };
 
+/// Hooks of the frame generator, which the app provides (see AZFrameGenerating). Textures and
+/// command buffers are passed as the Objective-C objects behind the pointers.
+struct FrameGeneratorHooks {
+    /// Gets ready for frames of this size (the device is an id<MTLDevice>).
+    std::function<bool(void* device, u32 width, u32 height)> prepare;
+    /// The texture of a slot (id<MTLTexture>), nullptr when there is none.
+    std::function<void*(u32 slot)> texture;
+    /// Encodes the frame between `previous` and `current` into `destination`.
+    std::function<bool(u32 previous, u32 current, u32 destination, void* command_buffer)>
+        interpolate;
+};
+void SetFrameGeneratorHooks(FrameGeneratorHooks hooks);
+
 /// Fragment shader math and texture sampling options. They apply to games started afterwards.
 struct QualityOptions {
     /// Compile fragment shaders with fast math (assumes no NaN/Inf, allows reassociation). Faster,
@@ -81,6 +96,8 @@ struct QualityOptions {
     /// A frame in which a draw was skipped (its shader was still being built) is not shown, the
     /// previous frame stays (at most three in a row), instead of a frame with parts missing.
     bool hold_frames_for_shaders = false;
+    /// Frame generation: 0 off, 1 for games below 40 FPS only, 2 for every game.
+    int frame_generation = 0;
     /// How long (microseconds) a draw waits for its shader to build before it is skipped.
     u32 shader_wait_us = 0;
 };

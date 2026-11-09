@@ -6,6 +6,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 
 @class AZConfiguration;
+@protocol AZFrameGenerating;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -202,6 +203,10 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 
 /// Prepares the emulator user directory and logging. Must be called once at startup.
 - (void)setUpWithUserDirectory:(NSString*)directory NS_SWIFT_NAME(setUp(userDirectory:));
+
+/// Gives the renderer the frame generator that makes the frames between the game's frames.
++ (void)setFrameGenerator:(nullable id<AZFrameGenerating>)generator
+    NS_SWIFT_NAME(setFrameGenerator(_:));
 
 /// Fractions (see AZConfiguration.customLayoutLandscape) of the layout used when none was set,
 /// for a screen of the given shape.

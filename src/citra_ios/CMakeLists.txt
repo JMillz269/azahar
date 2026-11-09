@@ -39,6 +39,7 @@ add_library(azahar_ios_bridge STATIC
     Bridge/include/AzaharCore/AZEmulator.h
     Bridge/include/AzaharCore/AZGameInfo.h
     Bridge/include/AzaharCore/AZMultiplayer.h
+    Bridge/include/AzaharCore/AZFrameGenerator.h
     Bridge/include/AzaharCore/module.modulemap
 )
 
@@ -72,6 +73,7 @@ set(APP_SWIFT_SOURCES
     App/Core/AppSettings.swift
     App/Core/ConsoleInput.swift
     App/Core/ControllerNavigator.swift
+    App/Core/FrameGenerator.swift
     App/Core/CountryNames.swift
     App/Core/ControllerLayout.swift
     App/Core/CustomStorage.swift

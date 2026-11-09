@@ -7,5 +7,6 @@
 
 #import <AzaharCore/AZConfiguration.h>
 #import <AzaharCore/AZEmulator.h>
+#import <AzaharCore/AZFrameGenerator.h>
 #import <AzaharCore/AZGameInfo.h>
 #import <AzaharCore/AZMultiplayer.h>
