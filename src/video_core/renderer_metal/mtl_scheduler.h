@@ -36,6 +36,9 @@ struct GpuStats {
     std::atomic<u64> present_interval_us{};    ///< Sum of the intervals
     std::atomic<u64> present_interval_sq_us{}; ///< Sum of their squares
     std::atomic<u32> present_late{};           ///< Intervals well above the frame time
+    std::atomic<u64> fg_ns{};      ///< GPU time of making frames (frame generation)
+    std::atomic<u32> fg_made{};    ///< Frames made
+    std::atomic<u32> fg_skipped{}; ///< Frames not made because the previous one was not done yet
 };
 
 /// Turns even frame pacing on or off, see Scheduler::PresentDrawable.

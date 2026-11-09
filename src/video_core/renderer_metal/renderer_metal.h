@@ -119,6 +119,9 @@ struct FrameStats {
     double drawable_ms = 0.0;     ///< Time waiting for the layer to hand out a drawable
     double present_interval_ms = 0.0; ///< Average time between frames reaching the display
     double present_jitter_ms = 0.0;   ///< Standard deviation of that time
+    double fg_ms = 0.0;      ///< GPU time per made frame (frame generation)
+    double fg_made = 0.0;    ///< Frames made in the interval
+    double fg_skipped = 0.0; ///< Frames not made because the previous one was still being made
     double present_late = 0.0;        ///< Frames shown clearly later than the frame time, per second
     u32 frames = 0;
 };

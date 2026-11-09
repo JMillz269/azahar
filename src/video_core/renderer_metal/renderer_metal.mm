@@ -259,8 +259,9 @@ private:
     f32 draw_scale{1.0f};
     u32 fg_cur{};
     int fg_prev{-1};
-    id<MTLEvent> fg_event = nil;
+    id<MTLSharedEvent> fg_event = nil;
     u64 fg_event_value{};
+    u64 fg_making_value{}; ///< Event value the frame being made signals when done
     std::chrono::steady_clock::time_point fg_last_frame{};
     double fg_interval{};
     /// The pictures of the frames in color, at slot size, shown as the real frames.
@@ -985,7 +986,10 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         fg_ready = false;
         // The interpolation has a size limit below a phone screen: try smaller frames, which are
         // drawn at that size and scaled up onto the screen.
-        for (const f32 scale : {1.0f, 0.75f, 0.5f, 0.375f, 0.25f}) {
+        // The interpolation costs about the same per pixel whatever the content: a full phone
+        // screen takes longer than a game frame. Half the size is about a quarter of the work and
+        // looks nearly the same for the frame shown between two real ones.
+        for (const f32 scale : {0.5f, 0.375f, 0.25f}) {
             const u32 width = static_cast<u32>(std::lround(layout.width * scale)) & ~1u;
             const u32 height = static_cast<u32>(std::lround(layout.height * scale)) & ~1u;
             if (width < 64 || height < 64) {
@@ -1007,7 +1011,7 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         }
         fg_failed = !fg_ready;
         if (fg_ready && fg_event == nil) {
-            fg_event = [instance.GetDevice() newEvent];
+            fg_event = [instance.GetDevice() newSharedEvent];
         }
         if (!fg_ready) {
             LOG_WARNING(Render, "Frame generation is not available for this screen size");
@@ -1208,7 +1212,13 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
     };
 
     bool shown_between = false;
-    if (fg_prev >= 0) {
+    // Never wait for the previous made frame: when it is not done the GPU can't keep up, skip
+    // making one this time instead of slowing the game down.
+    const bool still_making = fg_making_value > fg_event.signaledValue;
+    if (fg_prev >= 0 && still_making) {
+        Stats().fg_skipped.fetch_add(1, std::memory_order_relaxed);
+    }
+    if (fg_prev >= 0 && !still_making) {
         const u32 destination = (fg_cur + 2) % FG_SLOTS;
         id<CAMetalDrawable> drawable_between = nil;
         @autoreleasepool {
@@ -1223,6 +1233,14 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
                                                         destination, (__bridge void*)make);
             const u64 made_value = ++fg_event_value;
             [make encodeSignalEvent:fg_event value:made_value];
+            fg_making_value = made_value;
+            [make addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+              const double seconds = buffer.GPUEndTime - buffer.GPUStartTime;
+              if (seconds > 0.0) {
+                  Stats().fg_ns.fetch_add(static_cast<u64>(seconds * 1e9), std::memory_order_relaxed);
+                  Stats().fg_made.fetch_add(1, std::memory_order_relaxed);
+              }
+            }];
             [make commit];
             if (encoded) {
                 id<MTLCommandBuffer> show = [queue commandBuffer];
@@ -1420,6 +1438,13 @@ FrameStats TakeFrameStats() {
     const u64 interval_us = stats.present_interval_us.exchange(0);
     const u64 interval_sq_us = stats.present_interval_sq_us.exchange(0);
     result.present_late = static_cast<double>(stats.present_late.exchange(0));
+    const u64 fg_ns = stats.fg_ns.exchange(0);
+    const u32 fg_made = stats.fg_made.exchange(0);
+    result.fg_made = static_cast<double>(fg_made);
+    result.fg_skipped = static_cast<double>(stats.fg_skipped.exchange(0));
+    if (fg_made > 0) {
+        result.fg_ms = static_cast<double>(fg_ns) / 1e6 / fg_made;
+    }
     if (intervals > 1) {
         const double n = static_cast<double>(intervals);
         const double mean = static_cast<double>(interval_us) / n;

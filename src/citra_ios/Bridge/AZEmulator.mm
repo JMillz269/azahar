@@ -1059,6 +1059,12 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
                          gpu.draws, gpu.skipped, gpu.render_passes, gpu.blit_passes,
                          gpu.feedback_copies, gpu.drawable_ms, gpu.present_interval_ms,
                          gpu.present_jitter_ms, gpu.present_late);
+                if (gpu.fg_made > 0 || gpu.fg_skipped > 0) {
+                    LOG_INFO(Frontend,
+                             "Frame generation: {:.0f} frames made ({:.1f} ms of GPU each), {:.0f} "
+                             "not made because the previous one was still being made",
+                             gpu.fg_made, gpu.fg_ms, gpu.fg_skipped);
+                }
             }
         }
     }
