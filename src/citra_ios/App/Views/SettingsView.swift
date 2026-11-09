@@ -417,7 +417,11 @@ struct GraphicsSettingsView: View {
             text += "Not available on this device or iOS version. "
         }
         text += "It adds about half a frame of delay, can smear text and the 3D depth, and uses "
-        text += "more GPU and battery. It turns on Frame Presentation Skip.\n\n"
+        text += "more GPU and battery. It turns on Frame Presentation Skip. Faster Frame "
+        text += "Generation makes the in-between frames at 3/8 of the screen size instead of half: "
+        text += "less work and heat, slightly softer in-between frames. Top Screen Only leaves "
+        text += "the bottom screen at the game's own frame rate, which halves the work in most "
+        text += "layouts.\n\n"
         text += "Frame Presentation Skip does not present a frame the game did not draw again, so "
         text += "a 30 FPS game shows 30 frames per second instead of every frame twice at 60. "
         text += "The emulation speed and the audio stay the same. Meant for frame generation and "
@@ -431,6 +435,10 @@ struct GraphicsSettingsView: View {
                 Toggle("Frame Generation (Experimental)", isOn: Binding(
                     get: { settings.frameGeneration > 0 },
                     set: { settings.frameGeneration = $0 ? 1 : 0 }))
+                Toggle("Faster Frame Generation", isOn: $settings.frameGenerationFast)
+                    .disabled(settings.frameGeneration == 0)
+                Toggle("Top Screen Only", isOn: $settings.frameGenerationTopOnly)
+                    .disabled(settings.frameGeneration == 0)
                 .disabled(!FrameGenerator.isSupported)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)
             } header: {

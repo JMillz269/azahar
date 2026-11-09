@@ -239,6 +239,12 @@ final class AppSettings: ObservableObject {
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
     @Published var shaderWaitMs: Int { didSet { save(shaderWaitMs, "shaderWaitMs") } }
     @Published var frameGeneration: Int { didSet { save(frameGeneration, "frameGeneration") } }
+    @Published var frameGenerationFast: Bool {
+        didSet { save(frameGenerationFast, "frameGenerationFast") }
+    }
+    @Published var frameGenerationTopOnly: Bool {
+        didSet { save(frameGenerationTopOnly, "frameGenerationTopOnly") }
+    }
     @Published var holdFramesForShaders: Bool { didSet { save(holdFramesForShaders, "holdFramesForShaders") } }
     @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
     @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
@@ -385,6 +391,8 @@ final class AppSettings: ObservableObject {
         asyncShaders = value("asyncShaders", true)
         holdFramesForShaders = value("holdFramesForShaders", true)
         frameGeneration = min(value("frameGeneration", 0), 1)
+        frameGenerationFast = value("frameGenerationFast", false)
+        frameGenerationTopOnly = value("frameGenerationTopOnly", false)
         shaderWaitMs = value("shaderWaitMs", 2)
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
@@ -506,6 +514,8 @@ final class AppSettings: ObservableObject {
         config.asyncShaderCompilation = asyncShaders
         config.holdFramesForShaders = holdFramesForShaders
         config.frameGeneration = FrameGenerator.isSupported ? frameGeneration : 0
+        config.frameGenerationFast = frameGenerationFast
+        config.frameGenerationTopOnly = frameGenerationTopOnly
         config.displayRefreshRate = UIScreen.main.maximumFramesPerSecond
         config.shaderWaitMs = shaderWaitMs
         config.framePacing = framePacing

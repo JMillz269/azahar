@@ -46,6 +46,10 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL holdFramesForShaders;
 /// Frame generation: 0 off, 1 for games below 40 FPS, 2 for every game.
 @property(nonatomic) NSInteger frameGeneration;
+/// Make the frames at 3/8 of the screen size instead of half (faster, softer made frames).
+@property(nonatomic) BOOL frameGenerationFast;
+/// Make frames for the top screen only.
+@property(nonatomic) BOOL frameGenerationTopOnly;
 /// Highest refresh rate of the display (UIScreen.maximumFramesPerSecond).
 @property(nonatomic) NSInteger displayRefreshRate;
 /// Milliseconds a draw waits for its shader to build before it is skipped (0 never waits).

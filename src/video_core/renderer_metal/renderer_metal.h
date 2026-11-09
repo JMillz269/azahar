@@ -102,6 +102,10 @@ struct QualityOptions {
     bool hold_frames_for_shaders = false;
     /// Frame generation: 0 off, 1 for games below 40 FPS only, 2 for every game.
     int frame_generation = 0;
+    /// Make the frames at 3/8 of the screen size instead of half: faster, softer made frames.
+    bool frame_generation_fast = false;
+    /// Make frames for the top screen only; the bottom screen shows the game's own frames.
+    bool frame_generation_top_only = false;
     /// Highest refresh rate of the display, frame generation for 60 FPS games needs 100 or more.
     int display_hz = 60;
     /// How long (microseconds) a draw waits for its shader to build before it is skipped.

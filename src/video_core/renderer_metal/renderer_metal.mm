@@ -290,6 +290,7 @@ private:
     /// them. In pixels of the color picture; the slots have its size.
     u32 fg_crop_x{}, fg_crop_y{}, fg_crop_width{}, fg_crop_height{};
     Common::Rectangle<u32> fg_screens{}; ///< The screens' area the crop was made for
+    bool fg_fast{};                      ///< frame_generation_fast the slots were made with
     f32 fg_scale{1.0f};                        ///< Slot size over screen size
     /// Scale of the viewport DrawScreens uses, below 1 while drawing into a smaller slot.
     f32 draw_scale{1.0f};
@@ -1043,10 +1044,13 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
                 box.bottom = std::max(box.bottom, r.bottom);
             }
         };
+        // Only the top screen when asked (and shown): the bottom one then keeps the game's frames.
+        const bool top_only =
+            GetQualityOptions().frame_generation_top_only && layout.top_screen_enabled;
         if (layout.top_screen_enabled) {
             add(layout.top_screen);
         }
-        if (layout.bottom_screen_enabled) {
+        if (layout.bottom_screen_enabled && !top_only) {
             add(layout.bottom_screen);
         }
         if (any) {
@@ -1057,9 +1061,12 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         }
     }
 
+    const bool fast = GetQualityOptions().frame_generation_fast;
     if (layout.width != fg_layout_width || layout.height != fg_layout_height ||
         screens.left != fg_screens.left || screens.top != fg_screens.top ||
-        screens.right != fg_screens.right || screens.bottom != fg_screens.bottom) {
+        screens.right != fg_screens.right || screens.bottom != fg_screens.bottom ||
+        fast != fg_fast) {
+        fg_fast = fast;
         fg_layout_width = layout.width;
         fg_layout_height = layout.height;
         fg_screens = screens;
@@ -1069,7 +1076,13 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         // Half the size is about a quarter of the work and looks nearly the same for the frame
         // shown between two real ones; smaller when the interpolation refuses that size.
         const auto round_up = [](u32 value) { return (value + 15u) & ~15u; };
-        for (const f32 scale : {0.5f, 0.375f, 0.25f}) {
+        // The faster setting starts at 3/8 of the size: about 44% fewer pixels than half.
+        const std::array<f32, 3> scales = fast ? std::array<f32, 3>{0.375f, 0.25f, 0.0f}
+                                               : std::array<f32, 3>{0.5f, 0.375f, 0.25f};
+        for (const f32 scale : scales) {
+            if (scale <= 0.0f) {
+                break;
+            }
             // Video processors work in blocks: sizes in multiples of 16.
             const u32 width = static_cast<u32>(std::lround(layout.width * scale)) & ~15u;
             const u32 height = static_cast<u32>(std::lround(layout.height * scale)) & ~15u;
