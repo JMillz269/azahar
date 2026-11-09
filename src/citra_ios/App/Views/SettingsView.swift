@@ -151,8 +151,7 @@ struct GraphicsSettingsView: View {
     @State private var postShaders = PostShaders.availableNames()
     @State private var clearedShaderCache = false
 
-    var body: some View {
-        Form {
+    @ViewBuilder private var rendererSections: some View {
             Section {
                 LabeledContent("Renderer", value: "Metal")
                 Toggle("Hardware Shaders", isOn: $settings.hardwareShaders)
@@ -236,7 +235,9 @@ struct GraphicsSettingsView: View {
                      + "Running inside another app (such as LiveContainer) may stop iOS from "
                      + "offering the display to Azahar.")
             }
+    }
 
+    @ViewBuilder private var enhancementSections: some View {
             Section {
                 Toggle("Custom Textures", isOn: $settings.customTextures)
                 Toggle("Preload Custom Textures", isOn: $settings.preloadTextures)
@@ -329,7 +330,9 @@ struct GraphicsSettingsView: View {
                     Text("MetalFX is not available on this device.")
                 }
             }
+    }
 
+    @ViewBuilder private var shaderSections: some View {
             Section {
                 Picker("Effect", selection: $settings.postEffect) {
                     Text("None").tag(0)
@@ -402,7 +405,9 @@ struct GraphicsSettingsView: View {
             .alert("Shader Cache Cleared", isPresented: $clearedShaderCache) {
                 Button("OK", role: .cancel) {}
             }
+    }
 
+    @ViewBuilder private var performanceSections: some View {
             Section {
                 Toggle("Frame Presentation Skip", isOn: $settings.skipDuplicateFrames)
                 Picker("Frame Generation (Experimental)", selection: $settings.frameGeneration) {
@@ -427,6 +432,14 @@ struct GraphicsSettingsView: View {
                      + "emulation speed and the audio stay the same. Meant for frame generation "
                      + "and interpolation tools that need the real frame rate.")
             }
+    }
+
+    var body: some View {
+        Form {
+            rendererSections
+            enhancementSections
+            shaderSections
+            performanceSections
         }
         .navigationTitle("Graphics")
     }

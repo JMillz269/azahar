@@ -4,6 +4,7 @@
 
 #import <AzaharCore/AZConfiguration.h>
 #import <AzaharCore/AZEmulator.h>
+#import <AzaharCore/AZFrameGenerator.h>
 #import <AzaharCore/AZMultiplayer.h>
 #import <Metal/Metal.h>
 
