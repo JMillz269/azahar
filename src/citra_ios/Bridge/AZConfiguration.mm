@@ -28,6 +28,7 @@
     config.fastDepthReadback = NO;
     config.holdFramesForShaders = YES;
     config.frameGeneration = 0;
+    config.displayRefreshRate = 60;
     config.shaderWaitMs = 2;
     config.stereoMode = 0;
     config.outerCamera = 0;

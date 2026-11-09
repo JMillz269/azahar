@@ -22,12 +22,14 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable id<MTLTexture>)textureForSlot:(NSInteger)slot
                                     plane:(NSInteger)plane NS_SWIFT_NAME(texture(slot:plane:));
 
-/// Encodes the frame between the frames in the `previous` and `current` slots into `destination`.
+/// Starts making the frame between the frames in the `previous` and `current` slots into
+/// `destination`. `completion` is called (on any thread) once it is written, with whether it
+/// worked. Returns NO, without calling `completion`, when it could not start.
 - (BOOL)interpolateFromSlot:(NSInteger)previous
                      toSlot:(NSInteger)current
                    intoSlot:(NSInteger)destination
-              commandBuffer:(id<MTLCommandBuffer>)commandBuffer
-    NS_SWIFT_NAME(interpolate(from:to:into:commandBuffer:));
+                 completion:(void (^)(BOOL made))completion
+    NS_SWIFT_NAME(interpolate(from:to:into:completion:));
 
 @end
 

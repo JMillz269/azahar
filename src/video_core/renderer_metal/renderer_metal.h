@@ -69,8 +69,11 @@ struct FrameGeneratorHooks {
     /// A plane of a slot (id<MTLTexture>): 0 luma (R8), 1 chroma (RG8, half size). The frames are
     /// 4:2:0 YCbCr, the only format the interpolation takes. nullptr when there is none.
     std::function<void*(u32 slot, u32 plane)> texture;
-    /// Encodes the frame between `previous` and `current` into `destination`.
-    std::function<bool(u32 previous, u32 current, u32 destination, void* command_buffer)>
+    /// Starts making the frame between `previous` and `current` into `destination` (the planes
+    /// must be written already). `done` is called on another thread when it is finished, with
+    /// whether it worked. Returns false when it could not start (`done` is not called then).
+    std::function<bool(u32 previous, u32 current, u32 destination,
+                       std::function<void(bool made)> done)>
         interpolate;
 };
 void SetFrameGeneratorHooks(FrameGeneratorHooks hooks);
@@ -99,6 +102,8 @@ struct QualityOptions {
     bool hold_frames_for_shaders = false;
     /// Frame generation: 0 off, 1 for games below 40 FPS only, 2 for every game.
     int frame_generation = 0;
+    /// Highest refresh rate of the display, frame generation for 60 FPS games needs 100 or more.
+    int display_hz = 60;
     /// How long (microseconds) a draw waits for its shader to build before it is skipped.
     u32 shader_wait_us = 0;
 };

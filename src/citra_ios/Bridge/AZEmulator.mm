@@ -309,11 +309,14 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     hooks.texture = [generator](u32 slot, u32 plane) -> void* {
         return (__bridge void*)[generator textureForSlot:slot plane:plane];
     };
-    hooks.interpolate = [generator](u32 previous, u32 current, u32 destination, void* buffer) {
+    hooks.interpolate = [generator](u32 previous, u32 current, u32 destination,
+                                    std::function<void(bool)> done) {
         return [generator interpolateFromSlot:previous
                                        toSlot:current
                                      intoSlot:destination
-                                commandBuffer:(__bridge id<MTLCommandBuffer>)buffer];
+                                   completion:^(BOOL made) {
+                                     done(made);
+                                   }] == YES;
     };
     Metal::SetFrameGeneratorHooks(std::move(hooks));
 }
@@ -478,6 +481,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     quality.async_depth_readback = configuration.fastDepthReadback;
     quality.hold_frames_for_shaders = configuration.holdFramesForShaders;
     quality.frame_generation = static_cast<int>(std::clamp<NSInteger>(configuration.frameGeneration, 0, 2));
+    quality.display_hz = static_cast<int>(configuration.displayRefreshRate);
     quality.shader_wait_us = static_cast<u32>(std::clamp<NSInteger>(configuration.shaderWaitMs, 0, 16)) * 1000;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);

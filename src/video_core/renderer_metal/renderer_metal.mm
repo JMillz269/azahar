@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -116,6 +117,34 @@ bool MakeScreenVertices(std::array<ScreenRectVertex, 4>& vertices,
     }
 }
 
+/// Draws a texture over the whole target with the present pipeline (no effect, full opacity).
+void EncodeFullscreen(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineState> pipeline,
+                      id<MTLSamplerState> sampler, id<MTLTexture> texture, f32 width, f32 height) {
+    [encoder setRenderPipelineState:pipeline];
+    [encoder setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
+    [encoder setBlendColorRed:0.0f green:0.0f blue:0.0f alpha:1.0f];
+    [encoder setFragmentSamplerState:sampler atIndex:0];
+    const std::array<ScreenRectVertex, 4> vertices{{
+        ScreenRectVertex(0.0f, 0.0f, 0.0f, 0.0f),
+        ScreenRectVertex(width, 0.0f, 1.0f, 0.0f),
+        ScreenRectVertex(0.0f, height, 0.0f, 1.0f),
+        ScreenRectVertex(width, height, 1.0f, 1.0f),
+    }};
+    const PresentUniforms uniforms = {
+        .o_resolution = {width, height, 1.0f / width, 1.0f / height},
+        .fill_color = {},
+        .use_fill = 0,
+        .effect = 0,
+    };
+    [encoder setVertexBytes:vertices.data()
+                     length:sizeof(ScreenRectVertex) * vertices.size()
+                    atIndex:0];
+    [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    [encoder setFragmentTexture:texture atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+}
+
 #if AZAHAR_HAS_METALFX
 /// Spatial scalers only exist on iOS 16 / macOS 13 and newer, and not on every GPU.
 bool MetalFXSupported(id<MTLDevice> device) {
@@ -140,6 +169,10 @@ public:
 
     ~RendererMetal() override {
         scheduler.Finish();
+        // A made frame may still be on its way to the screen, its callbacks use this renderer.
+        for (int i = 0; i < 200 && fg_busy.load(std::memory_order_acquire); i++) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
     }
 
     [[nodiscard]] VideoCore::RasterizerInterface* Rasterizer() override {
@@ -261,7 +294,11 @@ private:
     int fg_prev{-1};
     id<MTLSharedEvent> fg_event = nil;
     u64 fg_event_value{};
-    u64 fg_making_value{}; ///< Event value the frame being made signals when done
+    /// A frame is being made: its callbacks show it and the real frame after it.
+    std::atomic<bool> fg_busy{false};
+    u32 fg_swaps{};      ///< SwapBuffers calls (60 per second of emulation)
+    u32 fg_last_swaps{}; ///< fg_swaps at the previous new frame
+    f32 fg_cadence{1.0f}; ///< Swaps per new frame of the game, smoothed: 2 for a 30 FPS game
     std::chrono::steady_clock::time_point fg_last_frame{};
     double fg_interval{};
     /// The pictures of the frames in color, at slot size, shown as the real frames.
@@ -1021,7 +1058,8 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         return false;
     }
 
-    // The time between the games' frames, smoothed. A pause or a menu does not count.
+    // The time between the game's frames, smoothed, which spaces the made frame. A pause or a
+    // menu does not count.
     const auto now = std::chrono::steady_clock::now();
     if (fg_last_frame.time_since_epoch().count() != 0) {
         const double elapsed = std::chrono::duration<double>(now - fg_last_frame).count();
@@ -1034,8 +1072,16 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
     }
     fg_last_frame = now;
 
-    // Mode 1 only helps games that update below 40 FPS, others would only add delay.
-    const bool eligible = fg_interval > 0.0 && (mode == 2 || fg_interval >= 0.026);
+    // Whether the game draws at 30 FPS is counted in emulated time (how many 60 Hz refreshes go
+    // by per new frame), not in real time: a game slowed down by anything must not look like a
+    // 30 FPS game, or frame generation would keep it slow.
+    const u32 swaps = fg_swaps - fg_last_swaps;
+    fg_last_swaps = fg_swaps;
+    fg_cadence = fg_cadence * 0.8f + static_cast<f32>(std::min(swaps, 4u)) * 0.2f;
+    const bool thirty_fps = fg_cadence >= 1.7f;
+    // Every game: a 60 FPS game only gets frames in between on a display faster than 60 Hz.
+    const bool eligible = fg_interval > 0.0 &&
+                          (thirty_fps || (mode == 2 && GetQualityOptions().display_hz >= 100));
     if (!eligible) {
         // The frame is drawn the usual way and the next one starts over.
         fg_prev = -1;
@@ -1192,103 +1238,115 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
         [convert endEncoding];
     }
 
-    // The command buffer with the picture of the game signals when it is done.
-    const u64 drawn_value = ++fg_event_value;
-    [scheduler.CommandBuffer() encodeSignalEvent:fg_event value:drawn_value];
-    scheduler.Flush();
-
-    id<MTLCommandQueue> queue = instance.GetCommandQueue();
-    const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
     const f32 width = static_cast<f32>(layout.width);
     const f32 height = static_cast<f32>(layout.height);
-    const auto begin_screen = [&](id<MTLCommandBuffer> buffer, id<CAMetalDrawable> to) {
-        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-        pass.colorAttachments[0].texture = to.texture;
-        pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
-        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-        id<MTLRenderCommandEncoder> draw = [buffer renderCommandEncoderWithDescriptor:pass];
-        [draw setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
-        return draw;
-    };
+    const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
 
-    bool shown_between = false;
-    // Never wait for the previous made frame: when it is not done the GPU can't keep up, skip
-    // making one this time instead of slowing the game down.
-    const bool still_making = fg_making_value > fg_event.signaledValue;
-    if (fg_prev >= 0 && still_making) {
-        Stats().fg_skipped.fetch_add(1, std::memory_order_relaxed);
+    // Frames reach the screen in order: a frame still being made goes first. Waiting for it is
+    // short (the interpolation of a small frame), and when it takes too long no frame is made
+    // this time.
+    for (int i = 0; i < 25 && fg_busy.load(std::memory_order_acquire); i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (fg_prev >= 0 && !still_making) {
-        const u32 destination = (fg_cur + 2) % FG_SLOTS;
-        id<CAMetalDrawable> drawable_between = nil;
+    bool make_between = fg_prev >= 0;
+    if (make_between && fg_busy.load(std::memory_order_acquire)) {
+        Stats().fg_skipped.fetch_add(1, std::memory_order_relaxed);
+        make_between = false;
+    }
+    id<CAMetalDrawable> drawable_between = nil;
+    if (make_between) {
         @autoreleasepool {
             drawable_between = [target nextDrawable];
         }
-        id<MTLTexture> luma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 0);
-        id<MTLTexture> chroma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 1);
-        if (drawable_between != nil && luma != nil && chroma != nil) {
-            id<MTLCommandBuffer> make = [queue commandBuffer];
-            [make encodeWaitForEvent:fg_event value:drawn_value];
-            const bool encoded = g_fg_hooks.interpolate(static_cast<u32>(fg_prev), fg_cur,
-                                                        destination, (__bridge void*)make);
-            const u64 made_value = ++fg_event_value;
-            [make encodeSignalEvent:fg_event value:made_value];
-            fg_making_value = made_value;
-            [make addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-              const double seconds = buffer.GPUEndTime - buffer.GPUStartTime;
-              if (seconds > 0.0) {
-                  Stats().fg_ns.fetch_add(static_cast<u64>(seconds * 1e9), std::memory_order_relaxed);
-                  Stats().fg_made.fetch_add(1, std::memory_order_relaxed);
-              }
-            }];
-            [make commit];
-            if (encoded) {
-                id<MTLCommandBuffer> show = [queue commandBuffer];
-                [show encodeWaitForEvent:fg_event value:made_value];
-                id<MTLRenderCommandEncoder> draw = begin_screen(show, drawable_between);
-                [draw setRenderPipelineState:fg_from_ycbcr];
-                [draw setFragmentTexture:luma atIndex:0];
-                [draw setFragmentTexture:chroma atIndex:1];
-                [draw setFragmentSamplerState:fg_sampler atIndex:0];
-                [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-                [draw endEncoding];
-                [show presentDrawable:drawable_between afterMinimumDuration:half];
-                [show commit];
-                shown_between = true;
-            }
-        }
+        make_between = drawable_between != nil;
     }
 
-    // The real frame, from its color picture.
-    id<MTLCommandBuffer> show_current = [queue commandBuffer];
-    [show_current encodeWaitForEvent:fg_event value:drawn_value];
-    {
-        id<MTLRenderCommandEncoder> draw = begin_screen(show_current, drawable_current);
-        [draw setRenderPipelineState:present_pipeline];
-        [draw setFragmentSamplerState:present_samplers[0] atIndex:0];
-        SetOpacity(draw, 1.0f);
-        const std::array<ScreenRectVertex, 4> vertices{{
-            ScreenRectVertex(0.0f, 0.0f, 0.0f, 0.0f),
-            ScreenRectVertex(width, 0.0f, 1.0f, 0.0f),
-            ScreenRectVertex(0.0f, height, 0.0f, 1.0f),
-            ScreenRectVertex(width, height, 1.0f, 1.0f),
-        }};
-        // The effects were applied when the frame was drawn.
-        const PresentUniforms uniforms = {
-            .o_resolution = {width, height, 1.0f / width, 1.0f / height},
-            .fill_color = {},
-            .use_fill = 0,
-            .effect = 0,
-        };
-        DrawQuad(draw, vertices, current, uniforms);
-        [draw endEncoding];
+    const u32 destination = (fg_cur + 2) % FG_SLOTS;
+    id<MTLTexture> between_luma =
+        make_between ? (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 0) : nil;
+    id<MTLTexture> between_chroma =
+        make_between ? (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 1) : nil;
+    if (between_luma == nil || between_chroma == nil) {
+        make_between = false;
     }
-    if (shown_between) {
-        [show_current presentDrawable:drawable_current afterMinimumDuration:half];
+
+    if (!make_between) {
+        // Only the real frame, shown the usual way.
+        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = drawable_current.texture;
+        pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> draw = scheduler.BeginRendering(pass);
+        EncodeFullscreen(draw, present_pipeline, present_samplers[0], current, width, height);
+        scheduler.EndEncoding();
+        scheduler.PresentDrawable(drawable_current, true);
+        scheduler.Flush();
     } else {
-        [show_current presentDrawable:drawable_current];
+        // Once the GPU has the picture in the planes, the interpolation makes the frame between
+        // the previous one and this one; then both are shown, the made one first.
+        fg_busy.store(true, std::memory_order_release);
+        std::atomic<bool>* busy = &fg_busy;
+        id<MTLCommandQueue> queue = instance.GetCommandQueue();
+        id<MTLRenderPipelineState> color_pipeline = present_pipeline;
+        id<MTLSamplerState> color_sampler = present_samplers[0];
+        id<MTLRenderPipelineState> ycbcr_pipeline = fg_from_ycbcr;
+        id<MTLSamplerState> ycbcr_sampler = fg_sampler;
+        const auto interpolate = g_fg_hooks.interpolate;
+        const u32 previous = static_cast<u32>(fg_prev);
+        const u32 source = fg_cur;
+
+        const auto show = std::make_shared<std::function<void(bool)>>(
+            [=](bool made) {
+                id<MTLCommandBuffer> buffer = [queue commandBuffer];
+                const auto begin = [&](id<CAMetalDrawable> to) {
+                    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+                    pass.colorAttachments[0].texture = to.texture;
+                    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+                    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                    return [buffer renderCommandEncoderWithDescriptor:pass];
+                };
+                if (made) {
+                    id<MTLRenderCommandEncoder> draw = begin(drawable_between);
+                    [draw setRenderPipelineState:ycbcr_pipeline];
+                    [draw setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
+                    [draw setFragmentTexture:between_luma atIndex:0];
+                    [draw setFragmentTexture:between_chroma atIndex:1];
+                    [draw setFragmentSamplerState:ycbcr_sampler atIndex:0];
+                    [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+                    [draw endEncoding];
+                    [buffer presentDrawable:drawable_between];
+                }
+                id<MTLRenderCommandEncoder> draw = begin(drawable_current);
+                EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
+                [draw endEncoding];
+                if (made) {
+                    [buffer presentDrawable:drawable_current afterMinimumDuration:half];
+                } else {
+                    [buffer presentDrawable:drawable_current];
+                }
+                [buffer commit];
+                busy->store(false, std::memory_order_release);
+            });
+
+        [scheduler.CommandBuffer() addCompletedHandler:^(id<MTLCommandBuffer>) {
+          const auto start = std::chrono::steady_clock::now();
+          const bool started = interpolate(previous, source, destination, [show, start](bool ok) {
+              const auto took = std::chrono::steady_clock::now() - start;
+              if (ok) {
+                  Stats().fg_ns.fetch_add(
+                      static_cast<u64>(
+                          std::chrono::duration_cast<std::chrono::nanoseconds>(took).count()),
+                      std::memory_order_relaxed);
+                  Stats().fg_made.fetch_add(1, std::memory_order_relaxed);
+              }
+              (*show)(ok);
+          });
+          if (!started) {
+              (*show)(false);
+          }
+        }];
+        scheduler.Flush();
     }
-    [show_current commit];
 
     fg_prev = static_cast<int>(fg_cur);
     fg_cur = (fg_cur + 1) % FG_SLOTS;
@@ -1364,6 +1422,7 @@ void RendererMetal::SwapBuffers() {
     const Layout::FramebufferLayout& layout = render_window.GetFramebufferLayout();
     PrepareRendertarget();
     RenderScreenshot();
+    fg_swaps++;
 
     // A frame with a draw that was skipped (shader still being built) would show up with parts
     // missing for a moment: keep the previous frame instead.

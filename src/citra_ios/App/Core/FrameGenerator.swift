@@ -126,14 +126,14 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
     }
 
     func interpolate(from previous: Int, to current: Int, into destination: Int,
-                     commandBuffer: MTLCommandBuffer) -> Bool {
+                     completion: @escaping (Bool) -> Void) -> Bool {
         guard #available(iOS 26.0, *) else { return false }
-        return encode(from: previous, to: current, into: destination, commandBuffer: commandBuffer)
+        return start(from: previous, to: current, into: destination, completion: completion)
     }
 
     @available(iOS 26.0, *)
-    private func encode(from previous: Int, to current: Int, into destination: Int,
-                        commandBuffer: MTLCommandBuffer) -> Bool {
+    private func start(from previous: Int, to current: Int, into destination: Int,
+                       completion: @escaping (Bool) -> Void) -> Bool {
         guard let processor = processor as? VTFrameProcessor,
               slots.indices.contains(previous), slots.indices.contains(current),
               slots.indices.contains(destination)
@@ -156,7 +156,14 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
                 interpolationPhase: [0.5], destinationFrames: [destinationFrame])
         else { return false }
 
-        processor.process(with: commandBuffer, parameters: parameters)
+        // The interpolation does not run on the renderer's GPU queue: wait for it to be done
+        // before the made frame is shown.
+        processor.process(parameters: parameters) { _, error in
+            if let error {
+                Self.log("making a frame failed: \(error)")
+            }
+            completion(error == nil)
+        }
         return true
     }
 }

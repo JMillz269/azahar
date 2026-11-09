@@ -5,6 +5,7 @@
 import AzaharCore
 import Combine
 import Foundation
+import UIKit
 
 enum LibraryStyle: String, CaseIterable, Identifiable {
     case list
@@ -505,6 +506,7 @@ final class AppSettings: ObservableObject {
         config.asyncShaderCompilation = asyncShaders
         config.holdFramesForShaders = holdFramesForShaders
         config.frameGeneration = FrameGenerator.isSupported ? frameGeneration : 0
+        config.displayRefreshRate = UIScreen.main.maximumFramesPerSecond
         config.shaderWaitMs = shaderWaitMs
         config.framePacing = framePacing
         config.fastShaderMath = fastShaderMath
