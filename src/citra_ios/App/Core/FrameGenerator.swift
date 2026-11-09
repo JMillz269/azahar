@@ -49,7 +49,7 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
               let configuration = VTLowLatencyFrameInterpolationConfiguration(
                 frameWidth: width, frameHeight: height, numberOfInterpolatedFrames: 1)
         else {
-            Self.log("frame interpolation does not take \(width)x\(height) frames (\(Self.limits()))")
+            Self.log("frame interpolation does not take \(width)x\(height) frames")
             return false
         }
         let formats = configuration.supportedPixelFormats
@@ -110,18 +110,6 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
     /// Into the emulator log, which is the one users send.
     private static func log(_ message: String) {
         AZEmulator.log("Frame generation: " + message)
-    }
-
-    /// The size limits the system reports, for the log.
-    private static func limits() -> String {
-        guard #available(iOS 26.0, *) else { return "unknown" }
-        let side = VTLowLatencyFrameInterpolationConfiguration.maximumDimension(
-            forSpatialScaleFactor: 1)
-        let pixels = VTLowLatencyFrameInterpolationConfiguration.maximumPixelCount(
-            forSpatialScaleFactor: 1)
-        let sideText = side.map { "\($0)" } ?? "?"
-        let pixelText = pixels.map { "\($0)" } ?? "?"
-        return "max side \(sideText), max pixels \(pixelText)"
     }
 
     func texture(slot: Int) -> MTLTexture? {
