@@ -296,6 +296,8 @@ private:
     u64 fg_event_value{};
     /// A frame is being made: its callbacks show it and the real frame after it.
     std::atomic<bool> fg_busy{false};
+    /// Made frames that failed in a row: when the interpolation rejects every frame, stop.
+    std::atomic<u32> fg_failures{0};
     u32 fg_swaps{};      ///< SwapBuffers calls (60 per second of emulation)
     u32 fg_last_swaps{}; ///< fg_swaps at the previous new frame
     f32 fg_cadence{1.0f}; ///< Swaps per new frame of the game, smoothed: 2 for a 30 FPS game
@@ -919,8 +921,14 @@ void RendererMetal::DrawScreens(id<MTLRenderCommandEncoder> encoder,
                                                                 : present_pipeline];
     [encoder setFragmentSamplerState:present_samplers[!Settings::values.filter_mode.GetValue()]
                              atIndex:0];
-    [encoder setViewport:MTLViewport{0.0, 0.0, static_cast<double>(layout.width) * draw_scale,
-                                     static_cast<double>(layout.height) * draw_scale, 0.0, 1.0}];
+    // Drawing into a frame generation slot: the slot is a little smaller than the screen.
+    const bool into_slot = draw_scale != 1.0f;
+    [encoder setViewport:MTLViewport{0.0, 0.0,
+                                     into_slot ? static_cast<double>(fg_width)
+                                               : static_cast<double>(layout.width),
+                                     into_slot ? static_cast<double>(fg_height)
+                                               : static_cast<double>(layout.height),
+                                     0.0, 1.0}];
     SetOpacity(encoder, 1.0f);
 
     if (!Settings::values.swap_screen.GetValue()) {
@@ -1021,14 +1029,16 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         fg_layout_height = layout.height;
         fg_prev = -1;
         fg_ready = false;
+        fg_failures.store(0, std::memory_order_relaxed);
         // The interpolation has a size limit below a phone screen: try smaller frames, which are
         // drawn at that size and scaled up onto the screen.
         // The interpolation costs about the same per pixel whatever the content: a full phone
         // screen takes longer than a game frame. Half the size is about a quarter of the work and
         // looks nearly the same for the frame shown between two real ones.
         for (const f32 scale : {0.5f, 0.375f, 0.25f}) {
-            const u32 width = static_cast<u32>(std::lround(layout.width * scale)) & ~1u;
-            const u32 height = static_cast<u32>(std::lround(layout.height * scale)) & ~1u;
+            // Video processors work in blocks: sizes in multiples of 16.
+            const u32 width = static_cast<u32>(std::lround(layout.width * scale)) & ~15u;
+            const u32 height = static_cast<u32>(std::lround(layout.height * scale)) & ~15u;
             if (width < 64 || height < 64) {
                 break;
             }
@@ -1053,6 +1063,13 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         if (!fg_ready) {
             LOG_WARNING(Render, "Frame generation is not available for this screen size");
         }
+    }
+    if (fg_ready && fg_failures.load(std::memory_order_relaxed) >= 120) {
+        LOG_WARNING(Render, "Frame generation stopped: the interpolation rejected 120 frames in a "
+                            "row");
+        fg_ready = false;
+        fg_failed = true;
+        fg_prev = -1;
     }
     if (!fg_ready || fg_event == nil) {
         return false;
@@ -1286,6 +1303,7 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
         // the previous one and this one; then both are shown, the made one first.
         fg_busy.store(true, std::memory_order_release);
         std::atomic<bool>* busy = &fg_busy;
+        std::atomic<u32>* failures = &fg_failures;
         id<MTLCommandQueue> queue = instance.GetCommandQueue();
         id<MTLRenderPipelineState> color_pipeline = present_pipeline;
         id<MTLSamplerState> color_sampler = present_samplers[0];
@@ -1325,6 +1343,11 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
                     [buffer presentDrawable:drawable_current];
                 }
                 [buffer commit];
+                if (made) {
+                    failures->store(0, std::memory_order_relaxed);
+                } else {
+                    failures->fetch_add(1, std::memory_order_relaxed);
+                }
                 busy->store(false, std::memory_order_release);
             });
 

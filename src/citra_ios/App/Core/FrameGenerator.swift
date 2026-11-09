@@ -39,6 +39,7 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
     /// The VTFrameProcessor, kept as AnyObject so this file also builds for older iOS versions.
     private var processor: AnyObject?
     private var frameCounter: Int64 = 0
+    nonisolated(unsafe) private static var failures = 0
 
     func prepare(device: MTLDevice, width: Int, height: Int) -> Bool {
         slots = []
@@ -65,9 +66,20 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
             return false
         }
 
+        // The buffers have to be what the processor asks for (its attributes), for the frames it
+        // reads and for the one it writes, since every slot takes both roles.
+        var attributes: [String: Any] = [:]
+        for (key, value) in configuration.sourcePixelBufferAttributes { attributes[key] = value }
+        for (key, value) in configuration.destinationPixelBufferAttributes {
+            attributes[key] = value
+        }
+        Self.log("frame interpolation buffer attributes: "
+                 + attributes.keys.sorted().joined(separator: ", "))
+
         var created: [Slot] = []
         for _ in 0..<Self.slotCount {
-            guard let slot = makeSlot(device: device, width: width, height: height) else {
+            guard let slot = makeSlot(device: device, width: width, height: height,
+                                      required: attributes) else {
                 Self.log("frame interpolation could not make its \(width)x\(height) buffers")
                 return false
             }
@@ -89,17 +101,31 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
         return true
     }
 
-    private func makeSlot(device: MTLDevice, width: Int, height: Int) -> Slot? {
-        let attributes: [String: Any] = [
-            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
-            kCVPixelBufferMetalCompatibilityKey as String: true,
-        ]
+    private func makeSlot(device: MTLDevice, width: Int, height: Int,
+                          required: [String: Any]) -> Slot? {
+        var attributes = required
+        attributes[kCVPixelBufferPixelFormatTypeKey as String] = Self.pixelFormat
+        attributes[kCVPixelBufferWidthKey as String] = width
+        attributes[kCVPixelBufferHeightKey as String] = height
+        if attributes[kCVPixelBufferIOSurfacePropertiesKey as String] == nil {
+            attributes[kCVPixelBufferIOSurfacePropertiesKey as String] = [String: Any]()
+        }
+        attributes[kCVPixelBufferMetalCompatibilityKey as String] = true
         var buffer: CVPixelBuffer?
         guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, Self.pixelFormat,
                                   attributes as CFDictionary, &buffer) == kCVReturnSuccess,
               let buffer,
               let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
         else { return nil }
+
+        // The renderer writes BT.709 video range; video processors read the color description
+        // from these attachments.
+        CVBufferSetAttachment(buffer, kCVImageBufferColorPrimariesKey,
+                              kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
+        CVBufferSetAttachment(buffer, kCVImageBufferTransferFunctionKey,
+                              kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
+        CVBufferSetAttachment(buffer, kCVImageBufferYCbCrMatrixKey,
+                              kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
 
         func plane(_ index: Int, format: MTLPixelFormat) -> MTLTexture? {
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
@@ -160,7 +186,11 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
         // before the made frame is shown.
         processor.process(parameters: parameters) { _, error in
             if let error {
-                Self.log("making a frame failed: \(error)")
+                // Log the first ones, then now and then: it fails for every frame when it fails.
+                Self.failures += 1
+                if Self.failures <= 3 || Self.failures % 600 == 0 {
+                    Self.log("making a frame failed (\(Self.failures) so far): \(error)")
+                }
             }
             completion(error == nil)
         }
