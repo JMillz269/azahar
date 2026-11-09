@@ -285,7 +285,11 @@ private:
     bool fg_ready{};
     bool fg_failed{};
     u32 fg_layout_width{}, fg_layout_height{}; ///< Screen size the slots were made for
-    u32 fg_width{}, fg_height{};               ///< Size of the slots
+    u32 fg_width{}, fg_height{};               ///< Size of the color pictures (the screen scaled)
+    /// Part of the color picture that is interpolated: the screens, not the empty space around
+    /// them. In pixels of the color picture; the slots have its size.
+    u32 fg_crop_x{}, fg_crop_y{}, fg_crop_width{}, fg_crop_height{};
+    Common::Rectangle<u32> fg_screens{}; ///< The screens' area the crop was made for
     f32 fg_scale{1.0f};                        ///< Slot size over screen size
     /// Scale of the viewport DrawScreens uses, below 1 while drawing into a smaller slot.
     f32 draw_scale{1.0f};
@@ -1019,17 +1023,52 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         fg_prev = -1;
         return false;
     }
-    if (layout.width != fg_layout_width || layout.height != fg_layout_height) {
+    // The area of the screen the game is shown in. Interpolation costs the same for every pixel,
+    // so the empty space around the screens is left out.
+    Common::Rectangle<u32> screens{0, 0, layout.width, layout.height};
+    {
+        bool any = false;
+        Common::Rectangle<u32> box{};
+        const auto add = [&](const Common::Rectangle<u32>& r) {
+            if (r.GetWidth() == 0 || r.GetHeight() == 0) {
+                return;
+            }
+            if (!any) {
+                box = r;
+                any = true;
+            } else {
+                box.left = std::min(box.left, r.left);
+                box.top = std::min(box.top, r.top);
+                box.right = std::max(box.right, r.right);
+                box.bottom = std::max(box.bottom, r.bottom);
+            }
+        };
+        if (layout.top_screen_enabled) {
+            add(layout.top_screen);
+        }
+        if (layout.bottom_screen_enabled) {
+            add(layout.bottom_screen);
+        }
+        if (any) {
+            screens.left = std::min(box.left, layout.width);
+            screens.top = std::min(box.top, layout.height);
+            screens.right = std::clamp(box.right, screens.left, layout.width);
+            screens.bottom = std::clamp(box.bottom, screens.top, layout.height);
+        }
+    }
+
+    if (layout.width != fg_layout_width || layout.height != fg_layout_height ||
+        screens.left != fg_screens.left || screens.top != fg_screens.top ||
+        screens.right != fg_screens.right || screens.bottom != fg_screens.bottom) {
         fg_layout_width = layout.width;
         fg_layout_height = layout.height;
+        fg_screens = screens;
         fg_prev = -1;
         fg_ready = false;
         fg_failures.store(0, std::memory_order_relaxed);
-        // The interpolation has a size limit below a phone screen: try smaller frames, which are
-        // drawn at that size and scaled up onto the screen.
-        // The interpolation costs about the same per pixel whatever the content: a full phone
-        // screen takes longer than a game frame. Half the size is about a quarter of the work and
-        // looks nearly the same for the frame shown between two real ones.
+        // Half the size is about a quarter of the work and looks nearly the same for the frame
+        // shown between two real ones; smaller when the interpolation refuses that size.
+        const auto round_up = [](u32 value) { return (value + 15u) & ~15u; };
         for (const f32 scale : {0.5f, 0.375f, 0.25f}) {
             // Video processors work in blocks: sizes in multiples of 16.
             const u32 width = static_cast<u32>(std::lround(layout.width * scale)) & ~15u;
@@ -1037,19 +1076,35 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
             if (width < 64 || height < 64) {
                 break;
             }
-            if (g_fg_hooks.prepare((__bridge void*)instance.GetDevice(), width, height)) {
+            const f32 sx = static_cast<f32>(width) / static_cast<f32>(layout.width);
+            const f32 sy = static_cast<f32>(height) / static_cast<f32>(layout.height);
+            const u32 x0 = static_cast<u32>(std::floor(screens.left * sx));
+            const u32 y0 = static_cast<u32>(std::floor(screens.top * sy));
+            const u32 x1 = static_cast<u32>(std::ceil(screens.right * sx));
+            const u32 y1 = static_cast<u32>(std::ceil(screens.bottom * sy));
+            const u32 crop_width = std::clamp(round_up(x1 - x0), 64u, width);
+            const u32 crop_height = std::clamp(round_up(y1 - y0), 64u, height);
+            if (g_fg_hooks.prepare((__bridge void*)instance.GetDevice(), crop_width,
+                                   crop_height)) {
                 fg_width = width;
                 fg_height = height;
+                fg_crop_width = crop_width;
+                fg_crop_height = crop_height;
+                fg_crop_x = std::min(x0, width - crop_width);
+                fg_crop_y = std::min(y0, height - crop_height);
                 fg_scale = scale;
                 fg_ready = PrepareFrameGenerationResources();
                 if (!fg_ready) {
                     break;
                 }
-                LOG_INFO(Render, "Frame generation ready: {}x{} frames for a {}x{} screen", width,
-                         height, layout.width, layout.height);
+                LOG_INFO(Render,
+                         "Frame generation ready: {}x{} frames (the screens' area of {}x{}) for a "
+                         "{}x{} screen",
+                         crop_width, crop_height, width, height, layout.width, layout.height);
                 break;
             }
-            LOG_INFO(Render, "Frame generation is not available for {}x{} frames", width, height);
+            LOG_INFO(Render, "Frame generation is not available for {}x{} frames", crop_width,
+                     crop_height);
         }
         fg_failed = !fg_ready;
         if (fg_ready && fg_event == nil) {
@@ -1112,6 +1167,7 @@ using namespace metal;
 kernel void to_ycbcr(texture2d<float, access::read> color [[texture(0)]],
                      texture2d<float, access::write> luma [[texture(1)]],
                      texture2d<float, access::write> chroma [[texture(2)]],
+                     constant uint2& origin [[buffer(0)]],
                      uint2 gid [[thread_position_in_grid]]) {
     if (gid.x >= chroma.get_width() || gid.y >= chroma.get_height()) {
         return;
@@ -1120,7 +1176,7 @@ kernel void to_ycbcr(texture2d<float, access::read> color [[texture(0)]],
     for (uint dy = 0; dy < 2; ++dy) {
         for (uint dx = 0; dx < 2; ++dx) {
             const uint2 p = gid * 2 + uint2(dx, dy);
-            const float3 c = color.read(p).rgb;
+            const float3 c = color.read(p + origin).rgb;
             const float y = dot(c, float3(0.2126, 0.7152, 0.0722));
             luma.write(float4((16.0 + 219.0 * y) / 255.0), p);
             cbcr += float2((c.b - y) / 1.8556, (c.r - y) / 1.5748);
@@ -1260,14 +1316,23 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         [convert setTexture:current atIndex:0];
         [convert setTexture:current_luma atIndex:1];
         [convert setTexture:current_chroma atIndex:2];
+        const std::array<u32, 2> origin{fg_crop_x, fg_crop_y};
+        [convert setBytes:origin.data() length:sizeof(origin) atIndex:0];
         const MTLSize group = MTLSizeMake(8, 8, 1);
-        const MTLSize groups = MTLSizeMake((fg_width / 2 + 7) / 8, (fg_height / 2 + 7) / 8, 1);
+        const MTLSize groups =
+            MTLSizeMake((fg_crop_width / 2 + 7) / 8, (fg_crop_height / 2 + 7) / 8, 1);
         [convert dispatchThreadgroups:groups threadsPerThreadgroup:group];
         [convert endEncoding];
     }
 
     const f32 width = static_cast<f32>(layout.width);
     const f32 height = static_cast<f32>(layout.height);
+    // Where the made frame goes on the screen.
+    const f32 to_screen_x = width / static_cast<f32>(fg_width);
+    const f32 to_screen_y = height / static_cast<f32>(fg_height);
+    const MTLViewport crop_viewport{fg_crop_x * to_screen_x, fg_crop_y * to_screen_y,
+                                    fg_crop_width * to_screen_x, fg_crop_height * to_screen_y,
+                                    0.0, 1.0};
     // The real frame follows the made one after half the time between the game's frames.
     const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
 
@@ -1300,8 +1365,10 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
             }
             if (drawable_between != nil) {
                 id<MTLRenderCommandEncoder> draw = begin(drawable_between);
+                // Around the screens (borders, background) the real frame, over them the made one.
+                EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
                 [draw setRenderPipelineState:ycbcr_pipeline];
-                [draw setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
+                [draw setViewport:crop_viewport];
                 [draw setFragmentTexture:between_luma atIndex:0];
                 [draw setFragmentTexture:between_chroma atIndex:1];
                 [draw setFragmentSamplerState:ycbcr_sampler atIndex:0];
