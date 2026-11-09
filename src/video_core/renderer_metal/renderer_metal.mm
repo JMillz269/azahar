@@ -251,7 +251,11 @@ private:
     static constexpr u32 FG_SLOTS = 4;
     bool fg_ready{};
     bool fg_failed{};
-    u32 fg_width{}, fg_height{};
+    u32 fg_layout_width{}, fg_layout_height{}; ///< Screen size the slots were made for
+    u32 fg_width{}, fg_height{};               ///< Size of the slots
+    f32 fg_scale{1.0f};                        ///< Slot size over screen size
+    /// Scale of the viewport DrawScreens uses, below 1 while drawing into a smaller slot.
+    f32 draw_scale{1.0f};
     u32 fg_cur{};
     int fg_prev{-1};
     id<MTLEvent> fg_event = nil;
@@ -871,8 +875,8 @@ void RendererMetal::DrawScreens(id<MTLRenderCommandEncoder> encoder,
                                                                 : present_pipeline];
     [encoder setFragmentSamplerState:present_samplers[!Settings::values.filter_mode.GetValue()]
                              atIndex:0];
-    [encoder setViewport:MTLViewport{0.0, 0.0, static_cast<double>(layout.width),
-                                     static_cast<double>(layout.height), 0.0, 1.0}];
+    [encoder setViewport:MTLViewport{0.0, 0.0, static_cast<double>(layout.width) * draw_scale,
+                                     static_cast<double>(layout.height) * draw_scale, 0.0, 1.0}];
     SetOpacity(encoder, 1.0f);
 
     if (!Settings::values.swap_screen.GetValue()) {
@@ -911,9 +915,8 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
     }
 
     const bool generated = allow_upscale && UseFrameGeneration(layout);
-    // The finished picture is copied into the drawables, which a framebuffer-only layer forbids.
-    if (generated == target.framebufferOnly) {
-        target.framebufferOnly = !generated;
+    if (!target.framebufferOnly) {
+        target.framebufferOnly = YES;
     }
 
     id<CAMetalDrawable> drawable = nil;
@@ -969,18 +972,36 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         fg_prev = -1;
         return false;
     }
-    if (layout.width != fg_width || layout.height != fg_height) {
-        fg_width = layout.width;
-        fg_height = layout.height;
-        fg_ready = g_fg_hooks.prepare((__bridge void*)instance.GetDevice(), fg_width, fg_height);
-        fg_failed = !fg_ready;
+    if (layout.width != fg_layout_width || layout.height != fg_layout_height) {
+        fg_layout_width = layout.width;
+        fg_layout_height = layout.height;
         fg_prev = -1;
+        fg_ready = false;
+        // The interpolation has a size limit below a phone screen: try smaller frames, which are
+        // drawn at that size and scaled up onto the screen.
+        for (const f32 scale : {1.0f, 0.75f, 0.5f, 0.375f, 0.25f}) {
+            const u32 width = static_cast<u32>(std::lround(layout.width * scale)) & ~1u;
+            const u32 height = static_cast<u32>(std::lround(layout.height * scale)) & ~1u;
+            if (width < 64 || height < 64) {
+                break;
+            }
+            if (g_fg_hooks.prepare((__bridge void*)instance.GetDevice(), width, height)) {
+                fg_width = width;
+                fg_height = height;
+                fg_scale = scale;
+                fg_ready = true;
+                LOG_INFO(Render, "Frame generation ready: {}x{} frames for a {}x{} screen", width,
+                         height, layout.width, layout.height);
+                break;
+            }
+            LOG_INFO(Render, "Frame generation is not available for {}x{} frames", width, height);
+        }
+        fg_failed = !fg_ready;
         if (fg_ready && fg_event == nil) {
             fg_event = [instance.GetDevice() newEvent];
         }
         if (!fg_ready) {
-            LOG_WARNING(Render, "Frame generation is not available for {}x{} frames", fg_width,
-                        fg_height);
+            LOG_WARNING(Render, "Frame generation is not available for this screen size");
         }
     }
     if (!fg_ready || fg_event == nil) {
@@ -1030,9 +1051,12 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
     desc.colorAttachments[0].clearColor =
         MTLClearColorMake(Settings::values.bg_red.GetValue(), Settings::values.bg_green.GetValue(),
                           Settings::values.bg_blue.GetValue(), 1.0);
+    // The slot can be smaller than the screen: the screens are drawn scaled down into it.
+    draw_scale = fg_scale;
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
+    draw_scale = 1.0f;
 #if AZAHAR_HAS_METALFX
     upscale_pass = UpscalePass::Off;
 #endif
@@ -1044,19 +1068,35 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
 
     id<MTLCommandQueue> queue = instance.GetCommandQueue();
     const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
+    // Draws a slot over the whole drawable, scaled up when the slot is smaller.
     const auto copy_to = [&](id<MTLCommandBuffer> buffer, id<MTLTexture> from,
                              id<CAMetalDrawable> to) {
-        id<MTLBlitCommandEncoder> blit = [buffer blitCommandEncoder];
-        [blit copyFromTexture:from
-                  sourceSlice:0
-                  sourceLevel:0
-                 sourceOrigin:MTLOriginMake(0, 0, 0)
-                   sourceSize:MTLSizeMake(layout.width, layout.height, 1)
-                    toTexture:to.texture
-             destinationSlice:0
-             destinationLevel:0
-            destinationOrigin:MTLOriginMake(0, 0, 0)];
-        [blit endEncoding];
+        MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture = to.texture;
+        pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+        pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> draw = [buffer renderCommandEncoderWithDescriptor:pass];
+        const f32 width = static_cast<f32>(layout.width);
+        const f32 height = static_cast<f32>(layout.height);
+        [draw setRenderPipelineState:present_pipeline];
+        [draw setFragmentSamplerState:present_samplers[0] atIndex:0];
+        [draw setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
+        SetOpacity(draw, 1.0f);
+        const std::array<ScreenRectVertex, 4> vertices{{
+            ScreenRectVertex(0.0f, 0.0f, 0.0f, 0.0f),
+            ScreenRectVertex(width, 0.0f, 1.0f, 0.0f),
+            ScreenRectVertex(0.0f, height, 0.0f, 1.0f),
+            ScreenRectVertex(width, height, 1.0f, 1.0f),
+        }};
+        // The effects were applied when the frame was drawn into the slot.
+        const PresentUniforms uniforms = {
+            .o_resolution = {width, height, 1.0f / width, 1.0f / height},
+            .fill_color = {},
+            .use_fill = 0,
+            .effect = 0,
+        };
+        DrawQuad(draw, vertices, from, uniforms);
+        [draw endEncoding];
     };
 
     bool shown_between = false;

@@ -208,6 +208,9 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 + (void)setFrameGenerator:(nullable id<AZFrameGenerating>)generator
     NS_SWIFT_NAME(setFrameGenerator(_:));
 
+/// Writes a line from the app into the emulator log (the log file users can share).
++ (void)logMessage:(NSString*)message NS_SWIFT_NAME(log(_:));
+
 /// Fractions (see AZConfiguration.customLayoutLandscape) of the layout used when none was set,
 /// for a screen of the given shape.
 + (NSArray<NSNumber*>*)defaultCustomLayoutForSize:(CGSize)size

@@ -291,6 +291,10 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     NSDictionary<NSString*, NSNumber*>* _gameHackOverrides;
 }
 
++ (void)logMessage:(NSString*)message {
+    LOG_INFO(Frontend, "{}", message.UTF8String ?: "");
+}
+
 + (void)setFrameGenerator:(id<AZFrameGenerating>)generator {
     if (generator == nil) {
         Metal::SetFrameGeneratorHooks({});

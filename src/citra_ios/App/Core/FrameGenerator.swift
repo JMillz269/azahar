@@ -49,21 +49,22 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
               let configuration = VTLowLatencyFrameInterpolationConfiguration(
                 frameWidth: width, frameHeight: height, numberOfInterpolatedFrames: 1)
         else {
-            NSLog("Azahar: frame interpolation is not available for %dx%d frames", width, height)
+            Self.log("frame interpolation does not take \(width)x\(height) frames (\(Self.limits()))")
             return false
         }
         let formats = configuration.supportedPixelFormats
-        NSLog("Azahar: frame interpolation pixel formats: %@",
-              formats.map { String(format: "0x%08X", $0) }.joined(separator: ", "))
+        Self.log("frame interpolation pixel formats: "
+                 + formats.map { String(format: "0x%08X", $0) }.joined(separator: ", "))
         // The renderer draws BGRA, so the interpolation has to take that.
         guard formats.contains(kCVPixelFormatType_32BGRA) else {
-            NSLog("Azahar: frame interpolation does not take BGRA frames")
+            Self.log("frame interpolation does not take BGRA frames")
             return false
         }
 
         var created: [Slot] = []
         for _ in 0..<Self.slotCount {
             guard let slot = makeSlot(device: device, width: width, height: height) else {
+                Self.log("frame interpolation could not make its \(width)x\(height) buffers")
                 return false
             }
             created.append(slot)
@@ -74,9 +75,10 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
             // Loads the model, which can take a moment.
             try processor.startSession(configuration: configuration)
         } catch {
-            NSLog("Azahar: starting frame interpolation failed: %@", String(describing: error))
+            Self.log("starting frame interpolation failed: \(error)")
             return false
         }
+        Self.log("frame interpolation started for \(width)x\(height) frames")
         self.slots = created
         self.processor = processor
         self.frameCounter = 0
@@ -103,6 +105,23 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
                                                plane: 0)
         else { return nil }
         return Slot(buffer: buffer, texture: texture)
+    }
+
+    /// Into the emulator log, which is the one users send.
+    private static func log(_ message: String) {
+        AZEmulator.log("Frame generation: " + message)
+    }
+
+    /// The size limits the system reports, for the log.
+    private static func limits() -> String {
+        guard #available(iOS 26.0, *) else { return "unknown" }
+        let side = VTLowLatencyFrameInterpolationConfiguration.maximumDimension(
+            forSpatialScaleFactor: 1)
+        let pixels = VTLowLatencyFrameInterpolationConfiguration.maximumPixelCount(
+            forSpatialScaleFactor: 1)
+        let sideText = side.map { "\($0)" } ?? "?"
+        let pixelText = pixels.map { "\($0)" } ?? "?"
+        return "max side \(sideText), max pixels \(pixelText)"
     }
 
     func texture(slot: Int) -> MTLTexture? {
