@@ -407,6 +407,24 @@ struct GraphicsSettingsView: View {
             }
     }
 
+    /// Built in steps: one long concatenation with a condition in it is too much for the type
+    /// checker.
+    private static var performanceFooter: String {
+        var text: String = "Frame Generation makes the frames between the real ones with Apple's "
+        text += "frame interpolation, so a 30 FPS game looks like 60 (or 120 on a ProMotion "
+        text += "display). "
+        if !FrameGenerator.isSupported {
+            text += "Not available on this device or iOS version. "
+        }
+        text += "It adds about half a frame of delay, can smear text and the 3D depth, and uses "
+        text += "more GPU and battery. It turns on Frame Presentation Skip.\n\n"
+        text += "Frame Presentation Skip does not present a frame the game did not draw again, so "
+        text += "a 30 FPS game shows 30 frames per second instead of every frame twice at 60. "
+        text += "The emulation speed and the audio stay the same. Meant for frame generation and "
+        text += "interpolation tools that need the real frame rate."
+        return text
+    }
+
     @ViewBuilder private var performanceSections: some View {
             Section {
                 Toggle("Frame Presentation Skip", isOn: $settings.skipDuplicateFrames)
@@ -420,17 +438,7 @@ struct GraphicsSettingsView: View {
             } header: {
                 Text("Performance")
             } footer: {
-                let unsupported: String = FrameGenerator.isSupported
-                    ? "" : "Not available on this device or iOS version. "
-                Text("Frame Generation makes the frames between the real ones with Apple's frame "
-                     + "interpolation, so a 30 FPS game looks like 60 (or 120 on a ProMotion display). "
-                     + unsupported
-                     + "It adds about half a frame of delay, can smear text and the 3D depth, and uses "
-                     + "more GPU and battery. It turns on Frame Presentation Skip. \n\n"
-                     + "Frame Presentation Skip: Does not present a frame the game did not draw again, so a 30 FPS game "
-                     + "shows 30 frames per second instead of every frame twice at 60. The "
-                     + "emulation speed and the audio stay the same. Meant for frame generation "
-                     + "and interpolation tools that need the real frame rate.")
+                Text(verbatim: Self.performanceFooter)
             }
     }
 
