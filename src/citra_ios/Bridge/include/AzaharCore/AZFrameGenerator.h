@@ -17,8 +17,10 @@ NS_ASSUME_NONNULL_BEGIN
                     width:(NSInteger)width
                    height:(NSInteger)height NS_SWIFT_NAME(prepare(device:width:height:));
 
-/// The texture of a slot, which the renderer draws a frame into and copies from.
-- (nullable id<MTLTexture>)textureForSlot:(NSInteger)slot NS_SWIFT_NAME(texture(slot:));
+/// A plane of a slot: 0 the luma (R8), 1 the chroma (RG8, half the size). The frames are 4:2:0
+/// YCbCr, which is what the interpolation takes. The renderer writes and reads these.
+- (nullable id<MTLTexture>)textureForSlot:(NSInteger)slot
+                                    plane:(NSInteger)plane NS_SWIFT_NAME(texture(slot:plane:));
 
 /// Encodes the frame between the frames in the `previous` and `current` slots into `destination`.
 - (BOOL)interpolateFromSlot:(NSInteger)previous

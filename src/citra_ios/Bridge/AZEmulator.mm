@@ -306,8 +306,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
                                       width:width
                                      height:height];
     };
-    hooks.texture = [generator](u32 slot) -> void* {
-        return (__bridge void*)[generator textureForSlot:slot];
+    hooks.texture = [generator](u32 slot, u32 plane) -> void* {
+        return (__bridge void*)[generator textureForSlot:slot plane:plane];
     };
     hooks.interpolate = [generator](u32 previous, u32 current, u32 destination, void* buffer) {
         return [generator interpolateFromSlot:previous

@@ -170,6 +170,7 @@ private:
     bool UseFrameGeneration(const Layout::FramebufferLayout& layout);
     void RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> drawable,
                          const Layout::FramebufferLayout& layout);
+    bool PrepareFrameGenerationResources();
     void RenderScreenshot();
     void DrawScreens(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout);
     void DrawTopScreen(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout,
@@ -262,6 +263,11 @@ private:
     u64 fg_event_value{};
     std::chrono::steady_clock::time_point fg_last_frame{};
     double fg_interval{};
+    /// The pictures of the frames in color, at slot size, shown as the real frames.
+    std::array<id<MTLTexture>, FG_SLOTS> fg_color{};
+    id<MTLComputePipelineState> fg_to_ycbcr = nil;   ///< Color picture to the slot's planes
+    id<MTLRenderPipelineState> fg_from_ycbcr = nil;  ///< Slot planes onto the screen
+    id<MTLSamplerState> fg_sampler = nil;
 
 #if AZAHAR_HAS_METALFX
     std::vector<UpscaleJob> upscale_jobs;
@@ -989,7 +995,10 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
                 fg_width = width;
                 fg_height = height;
                 fg_scale = scale;
-                fg_ready = true;
+                fg_ready = PrepareFrameGenerationResources();
+                if (!fg_ready) {
+                    break;
+                }
                 LOG_INFO(Render, "Frame generation ready: {}x{} frames for a {}x{} screen", width,
                          height, layout.width, layout.height);
                 break;
@@ -1031,10 +1040,115 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
     return true;
 }
 
+namespace {
+/// Converts the picture of a frame into the 4:2:0 YCbCr planes the interpolation takes (BT.709,
+/// video range), and draws such planes back onto the screen.
+constexpr const char* kFrameGenerationShaders = R"(
+#include <metal_stdlib>
+using namespace metal;
+
+kernel void to_ycbcr(texture2d<float, access::read> color [[texture(0)]],
+                     texture2d<float, access::write> luma [[texture(1)]],
+                     texture2d<float, access::write> chroma [[texture(2)]],
+                     uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= chroma.get_width() || gid.y >= chroma.get_height()) {
+        return;
+    }
+    float2 cbcr = float2(0.0);
+    for (uint dy = 0; dy < 2; ++dy) {
+        for (uint dx = 0; dx < 2; ++dx) {
+            const uint2 p = gid * 2 + uint2(dx, dy);
+            const float3 c = color.read(p).rgb;
+            const float y = dot(c, float3(0.2126, 0.7152, 0.0722));
+            luma.write(float4((16.0 + 219.0 * y) / 255.0), p);
+            cbcr += float2((c.b - y) / 1.8556, (c.r - y) / 1.5748);
+        }
+    }
+    cbcr *= 0.25;
+    chroma.write(float4((128.0 + 224.0 * cbcr) / 255.0, 0.0, 0.0), gid);
+}
+
+struct FullscreenOut {
+    float4 position [[position]];
+    float2 uv;
+};
+
+vertex FullscreenOut fullscreen_vertex(uint vid [[vertex_id]]) {
+    const float2 uv = float2((vid << 1) & 2, vid & 2);
+    FullscreenOut out;
+    out.position = float4(uv * float2(2.0, -2.0) + float2(-1.0, 1.0), 0.0, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+fragment float4 from_ycbcr(FullscreenOut in [[stage_in]],
+                           texture2d<float> luma [[texture(0)]],
+                           texture2d<float> chroma [[texture(1)]],
+                           sampler s [[sampler(0)]]) {
+    const float y = (luma.sample(s, in.uv).r * 255.0 - 16.0) / 219.0;
+    const float2 c = (chroma.sample(s, in.uv).rg * 255.0 - 128.0) / 224.0;
+    const float3 rgb = float3(y + 1.5748 * c.y, y - 0.1873 * c.x - 0.4681 * c.y,
+                              y + 1.8556 * c.x);
+    return float4(saturate(rgb), 1.0);
+}
+)";
+} // Anonymous namespace
+
+bool RendererMetal::PrepareFrameGenerationResources() {
+    id<MTLDevice> device = instance.GetDevice();
+    if (fg_to_ycbcr == nil || fg_from_ycbcr == nil) {
+        NSError* error = nil;
+        id<MTLLibrary> library =
+            [device newLibraryWithSource:[NSString stringWithUTF8String:kFrameGenerationShaders]
+                                 options:nil
+                                   error:&error];
+        if (library == nil) {
+            LOG_ERROR(Render, "Frame generation shaders failed to compile: {}",
+                      error ? error.localizedDescription.UTF8String : "unknown error");
+            return false;
+        }
+        fg_to_ycbcr = [device newComputePipelineStateWithFunction:[library newFunctionWithName:@"to_ycbcr"]
+                                                            error:&error];
+        MTLRenderPipelineDescriptor* desc = [MTLRenderPipelineDescriptor new];
+        desc.vertexFunction = [library newFunctionWithName:@"fullscreen_vertex"];
+        desc.fragmentFunction = [library newFunctionWithName:@"from_ycbcr"];
+        desc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+        fg_from_ycbcr = [device newRenderPipelineStateWithDescriptor:desc error:&error];
+        if (fg_to_ycbcr == nil || fg_from_ycbcr == nil) {
+            LOG_ERROR(Render, "Frame generation pipelines failed: {}",
+                      error ? error.localizedDescription.UTF8String : "unknown error");
+            return false;
+        }
+        MTLSamplerDescriptor* sampler = [MTLSamplerDescriptor new];
+        sampler.minFilter = MTLSamplerMinMagFilterLinear;
+        sampler.magFilter = MTLSamplerMinMagFilterLinear;
+        sampler.sAddressMode = MTLSamplerAddressModeClampToEdge;
+        sampler.tAddressMode = MTLSamplerAddressModeClampToEdge;
+        fg_sampler = [device newSamplerStateWithDescriptor:sampler];
+    }
+
+    MTLTextureDescriptor* desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                           width:fg_width
+                                                          height:fg_height
+                                                       mipmapped:NO];
+    desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    desc.storageMode = MTLStorageModePrivate;
+    for (u32 i = 0; i < FG_SLOTS; i++) {
+        fg_color[i] = [device newTextureWithDescriptor:desc];
+        if (fg_color[i] == nil) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> drawable_current,
                                     const Layout::FramebufferLayout& layout) {
-    id<MTLTexture> current = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur);
-    if (current == nil) {
+    id<MTLTexture> current = fg_color[fg_cur];
+    id<MTLTexture> current_luma = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur, 0);
+    id<MTLTexture> current_chroma = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur, 1);
+    if (current == nil || current_luma == nil || current_chroma == nil) {
         fg_ready = false;
         return;
     }
@@ -1061,6 +1175,19 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
     upscale_pass = UpscalePass::Off;
 #endif
 
+    // The picture in the planes the interpolation reads.
+    {
+        id<MTLComputeCommandEncoder> convert = [scheduler.CommandBuffer() computeCommandEncoder];
+        [convert setComputePipelineState:fg_to_ycbcr];
+        [convert setTexture:current atIndex:0];
+        [convert setTexture:current_luma atIndex:1];
+        [convert setTexture:current_chroma atIndex:2];
+        const MTLSize group = MTLSizeMake(8, 8, 1);
+        const MTLSize groups = MTLSizeMake((fg_width / 2 + 7) / 8, (fg_height / 2 + 7) / 8, 1);
+        [convert dispatchThreadgroups:groups threadsPerThreadgroup:group];
+        [convert endEncoding];
+    }
+
     // The command buffer with the picture of the game signals when it is done.
     const u64 drawn_value = ++fg_event_value;
     [scheduler.CommandBuffer() encodeSignalEvent:fg_event value:drawn_value];
@@ -1068,35 +1195,16 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
 
     id<MTLCommandQueue> queue = instance.GetCommandQueue();
     const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
-    // Draws a slot over the whole drawable, scaled up when the slot is smaller.
-    const auto copy_to = [&](id<MTLCommandBuffer> buffer, id<MTLTexture> from,
-                             id<CAMetalDrawable> to) {
+    const f32 width = static_cast<f32>(layout.width);
+    const f32 height = static_cast<f32>(layout.height);
+    const auto begin_screen = [&](id<MTLCommandBuffer> buffer, id<CAMetalDrawable> to) {
         MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture = to.texture;
         pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
         pass.colorAttachments[0].storeAction = MTLStoreActionStore;
         id<MTLRenderCommandEncoder> draw = [buffer renderCommandEncoderWithDescriptor:pass];
-        const f32 width = static_cast<f32>(layout.width);
-        const f32 height = static_cast<f32>(layout.height);
-        [draw setRenderPipelineState:present_pipeline];
-        [draw setFragmentSamplerState:present_samplers[0] atIndex:0];
         [draw setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
-        SetOpacity(draw, 1.0f);
-        const std::array<ScreenRectVertex, 4> vertices{{
-            ScreenRectVertex(0.0f, 0.0f, 0.0f, 0.0f),
-            ScreenRectVertex(width, 0.0f, 1.0f, 0.0f),
-            ScreenRectVertex(0.0f, height, 0.0f, 1.0f),
-            ScreenRectVertex(width, height, 1.0f, 1.0f),
-        }};
-        // The effects were applied when the frame was drawn into the slot.
-        const PresentUniforms uniforms = {
-            .o_resolution = {width, height, 1.0f / width, 1.0f / height},
-            .fill_color = {},
-            .use_fill = 0,
-            .effect = 0,
-        };
-        DrawQuad(draw, vertices, from, uniforms);
-        [draw endEncoding];
+        return draw;
     };
 
     bool shown_between = false;
@@ -1106,8 +1214,9 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
         @autoreleasepool {
             drawable_between = [target nextDrawable];
         }
-        id<MTLTexture> between = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination);
-        if (drawable_between != nil && between != nil) {
+        id<MTLTexture> luma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 0);
+        id<MTLTexture> chroma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 1);
+        if (drawable_between != nil && luma != nil && chroma != nil) {
             id<MTLCommandBuffer> make = [queue commandBuffer];
             [make encodeWaitForEvent:fg_event value:drawn_value];
             const bool encoded = g_fg_hooks.interpolate(static_cast<u32>(fg_prev), fg_cur,
@@ -1118,7 +1227,13 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
             if (encoded) {
                 id<MTLCommandBuffer> show = [queue commandBuffer];
                 [show encodeWaitForEvent:fg_event value:made_value];
-                copy_to(show, between, drawable_between);
+                id<MTLRenderCommandEncoder> draw = begin_screen(show, drawable_between);
+                [draw setRenderPipelineState:fg_from_ycbcr];
+                [draw setFragmentTexture:luma atIndex:0];
+                [draw setFragmentTexture:chroma atIndex:1];
+                [draw setFragmentSamplerState:fg_sampler atIndex:0];
+                [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+                [draw endEncoding];
                 [show presentDrawable:drawable_between afterMinimumDuration:half];
                 [show commit];
                 shown_between = true;
@@ -1126,9 +1241,30 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target, id<CAMetalDrawable> dr
         }
     }
 
+    // The real frame, from its color picture.
     id<MTLCommandBuffer> show_current = [queue commandBuffer];
     [show_current encodeWaitForEvent:fg_event value:drawn_value];
-    copy_to(show_current, current, drawable_current);
+    {
+        id<MTLRenderCommandEncoder> draw = begin_screen(show_current, drawable_current);
+        [draw setRenderPipelineState:present_pipeline];
+        [draw setFragmentSamplerState:present_samplers[0] atIndex:0];
+        SetOpacity(draw, 1.0f);
+        const std::array<ScreenRectVertex, 4> vertices{{
+            ScreenRectVertex(0.0f, 0.0f, 0.0f, 0.0f),
+            ScreenRectVertex(width, 0.0f, 1.0f, 0.0f),
+            ScreenRectVertex(0.0f, height, 0.0f, 1.0f),
+            ScreenRectVertex(width, height, 1.0f, 1.0f),
+        }};
+        // The effects were applied when the frame was drawn.
+        const PresentUniforms uniforms = {
+            .o_resolution = {width, height, 1.0f / width, 1.0f / height},
+            .fill_color = {},
+            .use_fill = 0,
+            .effect = 0,
+        };
+        DrawQuad(draw, vertices, current, uniforms);
+        [draw endEncoding];
+    }
     if (shown_between) {
         [show_current presentDrawable:drawable_current afterMinimumDuration:half];
     } else {

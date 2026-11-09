@@ -24,10 +24,14 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
         return false
     }
 
+    /// A frame as the interpolation takes it: 4:2:0 YCbCr in two planes.
     private struct Slot {
         let buffer: CVPixelBuffer
-        let texture: MTLTexture
+        let luma: MTLTexture
+        let chroma: MTLTexture
     }
+
+    private static let pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
     private static let slotCount = 4
 
@@ -55,9 +59,9 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
         let formats = configuration.supportedPixelFormats
         Self.log("frame interpolation pixel formats: "
                  + formats.map { String(format: "0x%08X", $0) }.joined(separator: ", "))
-        // The renderer draws BGRA, so the interpolation has to take that.
-        guard formats.contains(kCVPixelFormatType_32BGRA) else {
-            Self.log("frame interpolation does not take BGRA frames")
+        // The renderer converts its frames into this format.
+        guard formats.contains(Self.pixelFormat) else {
+            Self.log("frame interpolation does not take 4:2:0 YCbCr frames")
             return false
         }
 
@@ -91,20 +95,24 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
             kCVPixelBufferMetalCompatibilityKey as String: true,
         ]
         var buffer: CVPixelBuffer?
-        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+        guard CVPixelBufferCreate(kCFAllocatorDefault, width, height, Self.pixelFormat,
                                   attributes as CFDictionary, &buffer) == kCVReturnSuccess,
               let buffer,
               let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
         else { return nil }
 
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
-        descriptor.usage = [.renderTarget, .shaderRead]
-        descriptor.storageMode = .shared
-        guard let texture = device.makeTexture(descriptor: descriptor, iosurface: surface,
-                                               plane: 0)
+        func plane(_ index: Int, format: MTLPixelFormat) -> MTLTexture? {
+            let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: format, width: CVPixelBufferGetWidthOfPlane(buffer, index),
+                height: CVPixelBufferGetHeightOfPlane(buffer, index), mipmapped: false)
+            descriptor.usage = [.shaderRead, .shaderWrite]
+            descriptor.storageMode = .shared
+            return device.makeTexture(descriptor: descriptor, iosurface: surface,
+                                      plane: index)
+        }
+        guard let luma = plane(0, format: .r8Unorm), let chroma = plane(1, format: .rg8Unorm)
         else { return nil }
-        return Slot(buffer: buffer, texture: texture)
+        return Slot(buffer: buffer, luma: luma, chroma: chroma)
     }
 
     /// Into the emulator log, which is the one users send.
@@ -112,8 +120,9 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
         AZEmulator.log("Frame generation: " + message)
     }
 
-    func texture(slot: Int) -> MTLTexture? {
-        slots.indices.contains(slot) ? slots[slot].texture : nil
+    func texture(slot: Int, plane: Int) -> MTLTexture? {
+        guard slots.indices.contains(slot) else { return nil }
+        return plane == 0 ? slots[slot].luma : slots[slot].chroma
     }
 
     func interpolate(from previous: Int, to current: Int, into destination: Int,

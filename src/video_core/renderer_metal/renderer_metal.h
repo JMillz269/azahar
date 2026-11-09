@@ -66,8 +66,9 @@ enum class TextureCompression : int {
 struct FrameGeneratorHooks {
     /// Gets ready for frames of this size (the device is an id<MTLDevice>).
     std::function<bool(void* device, u32 width, u32 height)> prepare;
-    /// The texture of a slot (id<MTLTexture>), nullptr when there is none.
-    std::function<void*(u32 slot)> texture;
+    /// A plane of a slot (id<MTLTexture>): 0 luma (R8), 1 chroma (RG8, half size). The frames are
+    /// 4:2:0 YCbCr, the only format the interpolation takes. nullptr when there is none.
+    std::function<void*(u32 slot, u32 plane)> texture;
     /// Encodes the frame between `previous` and `current` into `destination`.
     std::function<bool(u32 previous, u32 current, u32 destination, void* command_buffer)>
         interpolate;
