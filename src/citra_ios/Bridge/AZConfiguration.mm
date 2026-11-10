@@ -28,7 +28,7 @@
     config.fastDepthReadback = NO;
     config.holdFramesForShaders = YES;
     config.frameGeneration = 0;
-    config.frameGenerationFast = NO;
+    config.frameGenerationSize = 1;
     config.frameGenerationTopOnly = NO;
     config.frameGenerationDisplayPaced = NO;
     config.displayRefreshRate = 60;

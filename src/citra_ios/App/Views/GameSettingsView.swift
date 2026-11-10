@@ -10,6 +10,21 @@ struct GameSettingsView: View {
     @ObservedObject private var store = GameOverridesStore.shared
     @State private var overrides = GameOverrides()
     private var profiles: [ControllerProfile] { ControllerMappingStore.loadProfiles() }
+    private static let sizeNames = ["Full", "Half", "3/8", "Quarter"]
+
+    /// The size of the in-between frames; the older Faster Frame Generation override is 3/8.
+    private var frameGenerationSize: Binding<Int?> {
+        Binding(
+            get: {
+                if let size = overrides.frameGenerationSize { return size }
+                if let fast = overrides.frameGenerationFast { return fast ? 2 : 1 }
+                return nil
+            },
+            set: { value in
+                overrides.frameGenerationSize = value
+                overrides.frameGenerationFast = nil
+            })
+    }
 
     var body: some View {
         Form {
@@ -44,7 +59,8 @@ struct GameSettingsView: View {
                                options: [0, 1, 2]) {
                     ["Off", "30 FPS Games", "All Games (120 Hz)"][$0]
                 }
-                OverrideToggle("Faster Frame Generation", value: $overrides.frameGenerationFast)
+                OverridePicker("Frame Generation Size", value: frameGenerationSize,
+                               options: [0, 1, 2, 3]) { Self.sizeNames[$0] }
                 OverrideToggle("Frame Generation: Top Screen Only",
                                value: $overrides.frameGenerationTopOnly)
                 OverrideToggle("Frame Generation: Display-Driven Pacing",

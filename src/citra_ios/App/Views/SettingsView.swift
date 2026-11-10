@@ -417,9 +417,10 @@ struct GraphicsSettingsView: View {
             text += "Not available on this device or iOS version. "
         }
         text += "It adds about half a frame of delay, can smear text and the 3D depth, and uses "
-        text += "more GPU and battery. It turns on Frame Presentation Skip. Faster Frame "
-        text += "Generation makes the in-between frames at 3/8 of the screen size instead of half: "
-        text += "less work and heat, slightly softer in-between frames. Top Screen Only leaves "
+        text += "more GPU and battery. It turns on Frame Presentation Skip. Frame Generation Size "
+        text += "is the size the in-between frames are made at (the real frames are always full "
+        text += "size): Full is sharpest and slowest, each step down is less work and heat with "
+        text += "softer in-between frames, for slower devices. Top Screen Only leaves "
         text += "the bottom screen at the game's own frame rate, which halves the work in most "
         text += "layouts. Display-Driven Pacing (iOS 17 or later, experimental) lets the display "
         text += "pick up each frame at its own refresh instead of timing the frames in advance, "
@@ -439,8 +440,13 @@ struct GraphicsSettingsView: View {
                 Toggle("Frame Generation (Experimental)", isOn: Binding(
                     get: { settings.frameGeneration > 0 },
                     set: { settings.frameGeneration = $0 ? 1 : 0 }))
-                Toggle("Faster Frame Generation", isOn: $settings.frameGenerationFast)
-                    .disabled(settings.frameGeneration == 0)
+                Picker("Frame Generation Size", selection: $settings.frameGenerationSize) {
+                    Text("Full").tag(0)
+                    Text("Half").tag(1)
+                    Text("3/8").tag(2)
+                    Text("Quarter").tag(3)
+                }
+                .disabled(settings.frameGeneration == 0)
                 Toggle("Top Screen Only", isOn: $settings.frameGenerationTopOnly)
                     .disabled(settings.frameGeneration == 0)
                 Toggle("Display-Driven Pacing", isOn: $settings.frameGenerationDisplayPaced)

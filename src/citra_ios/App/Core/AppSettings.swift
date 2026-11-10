@@ -239,8 +239,9 @@ final class AppSettings: ObservableObject {
     @Published var asyncShaders: Bool { didSet { save(asyncShaders, "asyncShaders") } }
     @Published var shaderWaitMs: Int { didSet { save(shaderWaitMs, "shaderWaitMs") } }
     @Published var frameGeneration: Int { didSet { save(frameGeneration, "frameGeneration") } }
-    @Published var frameGenerationFast: Bool {
-        didSet { save(frameGenerationFast, "frameGenerationFast") }
+    /// Size the in-between frames are made at: 0 full, 1 half, 2 three eighths, 3 a quarter.
+    @Published var frameGenerationSize: Int {
+        didSet { save(frameGenerationSize, "frameGenerationSize") }
     }
     @Published var frameGenerationTopOnly: Bool {
         didSet { save(frameGenerationTopOnly, "frameGenerationTopOnly") }
@@ -397,7 +398,8 @@ final class AppSettings: ObservableObject {
         asyncShaders = value("asyncShaders", true)
         holdFramesForShaders = value("holdFramesForShaders", true)
         frameGeneration = min(value("frameGeneration", 0), 1)
-        frameGenerationFast = value("frameGenerationFast", false)
+        // Faster Frame Generation (3/8) from before became a size.
+        frameGenerationSize = value("frameGenerationSize", value("frameGenerationFast", false) ? 2 : 1)
         frameGenerationTopOnly = value("frameGenerationTopOnly", false)
         frameGenerationDisplayPaced = value("frameGenerationDisplayPaced", false)
         frameGenerationAllGames = value("frameGenerationAllGames", false)
@@ -523,7 +525,7 @@ final class AppSettings: ObservableObject {
         config.holdFramesForShaders = holdFramesForShaders
         config.frameGeneration =
             FrameGenerator.isSupported && frameGeneration > 0 ? (frameGenerationAllGames ? 2 : 1) : 0
-        config.frameGenerationFast = frameGenerationFast
+        config.frameGenerationSize = frameGenerationSize
         config.frameGenerationTopOnly = frameGenerationTopOnly
         config.frameGenerationDisplayPaced = frameGenerationDisplayPaced
         config.displayRefreshRate = UIScreen.main.maximumFramesPerSecond

@@ -383,7 +383,7 @@ private:
     /// back, in pixels of the screen: the screens, not the empty space around them.
     f32 fg_area_x{}, fg_area_y{}, fg_area_width{}, fg_area_height{};
     Common::Rectangle<u32> fg_screens{}; ///< The screens' area the slots were made for
-    bool fg_fast{};                      ///< frame_generation_fast the slots were made with
+    int fg_size{-1};                     ///< frame_generation_size the slots were made with
     u32 fg_cur{};
     int fg_prev{-1};
     /// A frame is being made: its callbacks show it and the real frame after it.
@@ -1177,24 +1177,27 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         }
     }
 
-    const bool fast = GetQualityOptions().frame_generation_fast;
+    const int size = std::clamp(GetQualityOptions().frame_generation_size, 0, 3);
     if (layout.width != fg_layout_width || layout.height != fg_layout_height ||
         screens.left != fg_screens.left || screens.top != fg_screens.top ||
         screens.right != fg_screens.right || screens.bottom != fg_screens.bottom ||
-        fast != fg_fast) {
-        fg_fast = fast;
+        size != fg_size) {
+        fg_size = size;
         fg_layout_width = layout.width;
         fg_layout_height = layout.height;
         fg_screens = screens;
         fg_prev = -1;
         fg_ready = false;
         fg_failures.store(0, std::memory_order_relaxed);
-        // The interpolation works on a copy at half the size: about a quarter of the work, and
-        // the made frame is scaled back up. Smaller when the interpolation refuses that size.
+        // The interpolation works on a copy of the chosen size (half the size is about a quarter
+        // of the work), and the made frame is scaled back up. Smaller when the interpolation
+        // refuses that size.
         const auto round_up = [](u32 value) { return (value + 15u) & ~15u; };
-        // The faster setting starts at 3/8 of the size: about 44% fewer pixels than half.
-        const std::array<f32, 3> scales = fast ? std::array<f32, 3>{0.375f, 0.25f, 0.0f}
-                                               : std::array<f32, 3>{0.5f, 0.375f, 0.25f};
+        constexpr std::array<f32, 4> all_scales{1.0f, 0.5f, 0.375f, 0.25f};
+        std::array<f32, 4> scales{};
+        for (int i = size, n = 0; i < 4; i++) {
+            scales[n++] = all_scales[i];
+        }
         for (const f32 scale : scales) {
             if (scale <= 0.0f) {
                 break;

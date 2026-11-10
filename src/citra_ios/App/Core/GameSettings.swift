@@ -20,6 +20,7 @@ struct GameOverrides: Codable, Equatable {
     var holdFramesForShaders: Bool?
     var frameGeneration: Int?
     var frameGenerationFast: Bool?
+    var frameGenerationSize: Int?
     var frameGenerationTopOnly: Bool?
     var frameGenerationDisplayPaced: Bool?
     var shaderWaitMs: Int?
@@ -72,7 +73,8 @@ struct GameOverrides: Codable, Equatable {
         if let frameGeneration {
             config.frameGeneration = FrameGenerator.isSupported ? min(frameGeneration, 2) : 0
         }
-        if let frameGenerationFast { config.frameGenerationFast = frameGenerationFast }
+        if let frameGenerationFast { config.frameGenerationSize = frameGenerationFast ? 2 : 1 }
+        if let frameGenerationSize { config.frameGenerationSize = frameGenerationSize }
         if let frameGenerationTopOnly { config.frameGenerationTopOnly = frameGenerationTopOnly }
         if let frameGenerationDisplayPaced {
             config.frameGenerationDisplayPaced = frameGenerationDisplayPaced
