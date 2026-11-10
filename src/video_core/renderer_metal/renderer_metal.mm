@@ -56,11 +56,9 @@ struct FrameTimeline {
     /// When a real frame was shown (the time the display reports), and the target it had.
     std::atomic<double> real_actual{0.0};
     std::atomic<double> real_actual_for{0.0};
-    /// How long before a refresh a frame has to be handed over to be shown at it. Grows when a
-    /// frame comes too late for its refresh and shrinks slowly while frames are in time.
-    std::atomic<double> lead{0.008};
-    /// How long the GPU takes to draw the frames that are shown (the highest of late).
-    std::atomic<double> gpu_time{0.0};
+    /// How long before a refresh a frame has to be handed over to be shown at it. Grows a little
+    /// when a frame comes too late for its refresh and shrinks again while frames are in time.
+    std::atomic<double> lead{0.006};
 };
 
 struct ScreenRectVertex {
@@ -309,7 +307,8 @@ private:
     // area goes into one of four slots; the interpolation makes the frame between the copies of
     // the previous frame and this one, which is scaled back up and shown before the real frame.
     static constexpr u32 FG_SLOTS = 4;
-    static constexpr u32 FG_COLORS = 2;
+    // Three: the presentation queue may still read one while the game draws the next.
+    static constexpr u32 FG_COLORS = 3;
     bool fg_ready{};
     bool fg_failed{};
     u32 fg_layout_width{}, fg_layout_height{}; ///< Screen size the pictures were made for
@@ -343,6 +342,7 @@ private:
     id<MTLComputePipelineState> fg_to_ycbcr = nil;   ///< Color picture to the slot's planes
     id<MTLRenderPipelineState> fg_from_ycbcr = nil;  ///< Slot planes onto the screen
     id<MTLSamplerState> fg_sampler = nil;
+    id<MTLCommandQueue> fg_queue = nil; ///< Shows the frames of frame generation
 
 #if AZAHAR_HAS_METALFX
     std::vector<UpscaleJob> upscale_jobs;
@@ -1272,6 +1272,12 @@ fragment float4 from_ycbcr(FullscreenOut in [[stage_in]],
 
 bool RendererMetal::PrepareFrameGenerationResources() {
     id<MTLDevice> device = instance.GetDevice();
+    if (fg_queue == nil) {
+        fg_queue = [device newCommandQueue];
+        if (fg_queue == nil) {
+            return false;
+        }
+    }
     if (fg_to_ycbcr == nil || fg_from_ycbcr == nil) {
         NSError* error = nil;
         id<MTLLibrary> library =
@@ -1419,8 +1425,9 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     // 30 FPS game at full speed), and the step of the display's refreshes.
     const double tick60 = 1.0 / 60.0;
     const double half = std::max(1.0, std::round(interval * 0.5 * 60.0)) * tick60;
-    const double tick = 1.0 / static_cast<double>(std::clamp(GetQualityOptions().display_hz, 60, 240));
-    id<MTLCommandQueue> queue = instance.GetCommandQueue();
+    // A queue of its own: on the emulation's queue the frames would wait behind the drawing of
+    // the game's next frame and miss their refresh.
+    id<MTLCommandQueue> queue = fg_queue;
     id<MTLRenderPipelineState> color_pipeline = present_pipeline;
     id<MTLSamplerState> color_sampler = present_samplers[0];
     id<MTLRenderPipelineState> ycbcr_pipeline = fg_from_ycbcr;
@@ -1514,15 +1521,15 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         // display reports it), the made frame goes half a frame of the game later and the real
         // frame another half later. A frame that can't make its refresh takes the next one.
         const double now = CACurrentMediaTime();
-        const double lead = std::max(timeline->lead.load(std::memory_order_relaxed),
-                                     timeline->gpu_time.load(std::memory_order_relaxed) + 0.003);
-        const double earliest = now + lead;
-        // The first refresh at or after `first` that this frame can still make.
+        const double earliest = now + timeline->lead.load(std::memory_order_relaxed);
+        // The first slot at or after `first` that this frame can still make. Slots are half a
+        // frame of the game apart, which is a refresh of the display at 60 Hz and two at 120 Hz,
+        // so the made and real frames keep alternating evenly when one has to wait.
         const auto refresh = [&](double first) {
             if (first >= earliest) {
                 return first;
             }
-            return first + std::ceil((earliest - first) / tick) * tick;
+            return first + std::ceil((earliest - first) / half) * half;
         };
 
         const double previous_target = timeline->real_target.load(std::memory_order_relaxed);
@@ -1564,7 +1571,7 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         const double guard = on_refresh ? 0.003 : 0.0;
 
         if (made) {
-            const double late_after = made_time + tick * 0.5;
+            const double late_after = made_time + 0.004;
             [drawable_between addPresentedHandler:^(id<MTLDrawable> presented) {
               const double shown = presented.presentedTime;
               RecordPresentedTime(shown);
@@ -1572,9 +1579,9 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
               if (on_refresh && (shown <= 0.0 || shown > late_after)) {
                   // Missed its refresh (or was never shown): hand the frames over earlier.
                   Stats().fg_late.fetch_add(1, std::memory_order_relaxed);
-                  value = std::min(value + 0.0015, 0.025);
+                  value = std::min(value + 0.001, 0.014);
               } else {
-                  value = std::max(value - 0.000004, 0.005);
+                  value = std::max(value - 0.00002, 0.004);
               }
               timeline->lead.store(value, std::memory_order_relaxed);
             }];
@@ -1599,12 +1606,6 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
             }
             timeline->real_target.store(real_time, std::memory_order_relaxed);
         }
-        // How long the GPU takes for these frames, which is part of the lead they need.
-        [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
-          const double took = CACurrentMediaTime() - now;
-          const double known = timeline->gpu_time.load(std::memory_order_relaxed);
-          timeline->gpu_time.store(std::max(took, known - 0.00002), std::memory_order_relaxed);
-        }];
         [buffer commit];
         busy->store(false, std::memory_order_release);
     });
