@@ -8,6 +8,7 @@
 #include <thread>
 #include <cmath>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -46,6 +47,21 @@ namespace Metal {
 namespace {
 
 FrameGeneratorHooks g_fg_hooks;
+
+/// When the frames of frame generation reach the screen. Shared with the callbacks of the
+/// drawables, which can run after the renderer is gone.
+struct FrameTimeline {
+    /// The refresh of the display the last real frame was set to be shown at.
+    std::atomic<double> real_target{0.0};
+    /// When a real frame was shown (the time the display reports), and the target it had.
+    std::atomic<double> real_actual{0.0};
+    std::atomic<double> real_actual_for{0.0};
+    /// How long before a refresh a frame has to be handed over to be shown at it. Grows when a
+    /// frame comes too late for its refresh and shrinks slowly while frames are in time.
+    std::atomic<double> lead{0.008};
+    /// How long the GPU takes to draw the frames that are shown (the highest of late).
+    std::atomic<double> gpu_time{0.0};
+};
 
 struct ScreenRectVertex {
     ScreenRectVertex() = default;
@@ -311,7 +327,7 @@ private:
     std::atomic<u32> fg_failures{0};
     /// When the last real frame is set to reach the screen (CACurrentMediaTime), which spaces the
     /// frames after it evenly. Used by the callbacks that show the frames.
-    std::atomic<double> fg_last_real_time{0.0};
+    std::shared_ptr<FrameTimeline> fg_timeline = std::make_shared<FrameTimeline>();
     u32 fg_swaps{};      ///< SwapBuffers calls (60 per second of emulation)
     u32 fg_last_swaps{}; ///< fg_swaps at the previous new frame
     f32 fg_cadence{1.0f}; ///< Swaps per new frame of the game, smoothed: 2 for a 30 FPS game
@@ -1398,7 +1414,12 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     fg_busy.store(true, std::memory_order_release);
     std::atomic<bool>* busy = &fg_busy;
     std::atomic<u32>* failures = &fg_failures;
-    std::atomic<double>* last_real_time = &fg_last_real_time;
+    const std::shared_ptr<FrameTimeline> timeline = fg_timeline;
+    // Half the time between two frames of the game, in refreshes of a 60 Hz display (one for a
+    // 30 FPS game at full speed), and the step of the display's refreshes.
+    const double tick60 = 1.0 / 60.0;
+    const double half = std::max(1.0, std::round(interval * 0.5 * 60.0)) * tick60;
+    const double tick = 1.0 / static_cast<double>(std::clamp(GetQualityOptions().display_hz, 60, 240));
     id<MTLCommandQueue> queue = instance.GetCommandQueue();
     id<MTLRenderPipelineState> color_pipeline = present_pipeline;
     id<MTLSamplerState> color_sampler = present_samplers[0];
@@ -1487,47 +1508,103 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
             [draw endEncoding];
         }
 
-        // When the frames reach the screen. The made frame goes half a frame of the game after the
-        // previous real frame and the real frame half a frame after it, so the frames are evenly
-        // spaced however long making the frame took. The schedule moves a little earlier with
-        // every frame until making a frame is only just in time, which keeps the delay as small as
-        // the interpolation allows.
+        // When the frames reach the screen. A display shows a frame at its next refresh, so a
+        // frame that is a moment late is a whole refresh late. The frames are therefore set to
+        // refreshes: counted from the refresh the previous real frame was really shown at (the
+        // display reports it), the made frame goes half a frame of the game later and the real
+        // frame another half later. A frame that can't make its refresh takes the next one.
         const double now = CACurrentMediaTime();
-        // A little ahead, the GPU still has to draw the frames.
-        const double soonest = now + 0.004;
-        double previous_real = last_real_time->load(std::memory_order_relaxed);
-        if (previous_real < now - 0.1) {
-            previous_real = 0.0; // After a pause or a stretch without frame generation
-        }
-        double real_time;
-        if (made) {
-            double made_time = previous_real > 0.0 ? previous_real + interval * 0.5 - 0.0003
-                                                   : soonest;
-            made_time = std::max(made_time, soonest);
-            // Never more than a frame of the game behind the game.
-            if (made_time > arrived + interval) {
-                made_time = std::max(soonest, arrived + interval);
+        const double lead = std::max(timeline->lead.load(std::memory_order_relaxed),
+                                     timeline->gpu_time.load(std::memory_order_relaxed) + 0.003);
+        const double earliest = now + lead;
+        // The first refresh at or after `first` that this frame can still make.
+        const auto refresh = [&](double first) {
+            if (first >= earliest) {
+                return first;
             }
-            real_time = made_time + interval * 0.5;
+            return first + std::ceil((earliest - first) / tick) * tick;
+        };
+
+        const double previous_target = timeline->real_target.load(std::memory_order_relaxed);
+        double anchor = previous_target;
+        if (timeline->real_actual_for.load(std::memory_order_relaxed) == previous_target) {
+            const double actual = timeline->real_actual.load(std::memory_order_relaxed);
+            if (actual > 0.0) {
+                anchor = actual;
+            }
+        }
+        if (anchor < now - 0.1 || anchor > now + 0.2) {
+            anchor = 0.0; // After a pause or a stretch without frame generation
+        }
+
+        double made_time = 0.0;
+        double real_time = 0.0;
+        bool on_refresh = anchor > 0.0;
+        if (on_refresh) {
+            if (made) {
+                made_time = refresh(anchor + half);
+                real_time = made_time + half;
+                if (made_time - earliest > half + tick60 * 0.75) {
+                    // Far ahead of the game (after a hitch): leave the made frame out once, which
+                    // takes half a frame of delay away again.
+                    real_time = made_time;
+                    made = false;
+                } else if (made_time - arrived > interval + 3.0 * tick60) {
+                    on_refresh = false; // Not plausible, start over
+                }
+            } else {
+                real_time = refresh(anchor + 2.0 * half);
+            }
+        }
+        if (!on_refresh) {
+            made_time = earliest;
+            real_time = made ? made_time + half : now;
+        }
+        // The display shows a frame at the first refresh at or after the time it is given.
+        const double guard = on_refresh ? 0.003 : 0.0;
+
+        if (made) {
+            const double late_after = made_time + tick * 0.5;
             [drawable_between addPresentedHandler:^(id<MTLDrawable> presented) {
-              RecordPresentedTime(presented.presentedTime);
+              const double shown = presented.presentedTime;
+              RecordPresentedTime(shown);
+              double value = timeline->lead.load(std::memory_order_relaxed);
+              if (on_refresh && (shown <= 0.0 || shown > late_after)) {
+                  // Missed its refresh (or was never shown): hand the frames over earlier.
+                  Stats().fg_late.fetch_add(1, std::memory_order_relaxed);
+                  value = std::min(value + 0.0015, 0.025);
+              } else {
+                  value = std::max(value - 0.000004, 0.005);
+              }
+              timeline->lead.store(value, std::memory_order_relaxed);
             }];
-            [buffer presentDrawable:drawable_between atTime:made_time];
-        } else {
-            // Not before a frame that is already on its way.
-            real_time = std::max(now, previous_real > 0.0 ? previous_real + 0.008 : now);
+            [buffer presentDrawable:drawable_between atTime:made_time - guard];
+        } else if (drawable_between != nil) {
+            // Taken but left out: it goes back to the layer unshown.
+            drawable_between = nil;
         }
         if (drawable_current != nil) {
             [drawable_current addPresentedHandler:^(id<MTLDrawable> presented) {
-              RecordPresentedTime(presented.presentedTime);
+              const double shown = presented.presentedTime;
+              RecordPresentedTime(shown);
+              if (shown > 0.0) {
+                  timeline->real_actual.store(shown, std::memory_order_relaxed);
+                  timeline->real_actual_for.store(real_time, std::memory_order_relaxed);
+              }
             }];
             if (real_time > now) {
-                [buffer presentDrawable:drawable_current atTime:real_time];
+                [buffer presentDrawable:drawable_current atTime:real_time - guard];
             } else {
                 [buffer presentDrawable:drawable_current];
             }
-            last_real_time->store(real_time, std::memory_order_relaxed);
+            timeline->real_target.store(real_time, std::memory_order_relaxed);
         }
+        // How long the GPU takes for these frames, which is part of the lead they need.
+        [buffer addCompletedHandler:^(id<MTLCommandBuffer>) {
+          const double took = CACurrentMediaTime() - now;
+          const double known = timeline->gpu_time.load(std::memory_order_relaxed);
+          timeline->gpu_time.store(std::max(took, known - 0.00002), std::memory_order_relaxed);
+        }];
         [buffer commit];
         busy->store(false, std::memory_order_release);
     });
@@ -1714,6 +1791,7 @@ FrameStats TakeFrameStats() {
     const u32 fg_made = stats.fg_made.exchange(0);
     result.fg_made = static_cast<double>(fg_made);
     result.fg_skipped = static_cast<double>(stats.fg_skipped.exchange(0));
+    result.fg_late = static_cast<double>(stats.fg_late.exchange(0));
     if (fg_made > 0) {
         result.fg_ms = static_cast<double>(fg_ns) / 1e6 / fg_made;
     }

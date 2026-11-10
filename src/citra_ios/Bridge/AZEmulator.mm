@@ -1067,9 +1067,10 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
                          gpu.present_jitter_ms, gpu.present_late);
                 if (gpu.fg_made > 0 || gpu.fg_skipped > 0) {
                     LOG_INFO(Frontend,
-                             "Frame generation: {:.0f} frames made ({:.1f} ms each), {:.0f} game "
-                             "frames dropped because the previous ones were still on their way",
-                             gpu.fg_made, gpu.fg_ms, gpu.fg_skipped);
+                             "Frame generation: {:.0f} frames made ({:.1f} ms each), {:.0f} "
+                             "missed their refresh, {:.0f} game frames dropped because the "
+                             "previous ones were still on their way",
+                             gpu.fg_made, gpu.fg_ms, gpu.fg_late, gpu.fg_skipped);
                 }
             }
         }
