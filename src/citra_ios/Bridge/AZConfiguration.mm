@@ -30,6 +30,7 @@
     config.frameGeneration = 0;
     config.frameGenerationFast = NO;
     config.frameGenerationTopOnly = NO;
+    config.frameGenerationDisplayPaced = NO;
     config.displayRefreshRate = 60;
     config.shaderWaitMs = 2;
     config.stereoMode = 0;

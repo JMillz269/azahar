@@ -421,7 +421,9 @@ struct GraphicsSettingsView: View {
         text += "Generation makes the in-between frames at 3/8 of the screen size instead of half: "
         text += "less work and heat, slightly softer in-between frames. Top Screen Only leaves "
         text += "the bottom screen at the game's own frame rate, which halves the work in most "
-        text += "layouts.\n\n"
+        text += "layouts. Display-Driven Pacing (iOS 17 or later, experimental) lets the display "
+        text += "pick up each frame at its own refresh instead of timing the frames in advance, "
+        text += "which should keep them even at 60 Hz too.\n\n"
         text += "Frame Presentation Skip does not present a frame the game did not draw again, so "
         text += "a 30 FPS game shows 30 frames per second instead of every frame twice at 60. "
         text += "The emulation speed and the audio stay the same. Meant for frame generation and "
@@ -438,6 +440,8 @@ struct GraphicsSettingsView: View {
                 Toggle("Faster Frame Generation", isOn: $settings.frameGenerationFast)
                     .disabled(settings.frameGeneration == 0)
                 Toggle("Top Screen Only", isOn: $settings.frameGenerationTopOnly)
+                    .disabled(settings.frameGeneration == 0)
+                Toggle("Display-Driven Pacing", isOn: $settings.frameGenerationDisplayPaced)
                     .disabled(settings.frameGeneration == 0)
                 .disabled(!FrameGenerator.isSupported)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)

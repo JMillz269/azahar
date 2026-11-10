@@ -245,6 +245,9 @@ final class AppSettings: ObservableObject {
     @Published var frameGenerationTopOnly: Bool {
         didSet { save(frameGenerationTopOnly, "frameGenerationTopOnly") }
     }
+    @Published var frameGenerationDisplayPaced: Bool {
+        didSet { save(frameGenerationDisplayPaced, "frameGenerationDisplayPaced") }
+    }
     @Published var holdFramesForShaders: Bool { didSet { save(holdFramesForShaders, "holdFramesForShaders") } }
     @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
     @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
@@ -393,6 +396,7 @@ final class AppSettings: ObservableObject {
         frameGeneration = min(value("frameGeneration", 0), 1)
         frameGenerationFast = value("frameGenerationFast", false)
         frameGenerationTopOnly = value("frameGenerationTopOnly", false)
+        frameGenerationDisplayPaced = value("frameGenerationDisplayPaced", false)
         shaderWaitMs = value("shaderWaitMs", 2)
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
@@ -516,6 +520,7 @@ final class AppSettings: ObservableObject {
         config.frameGeneration = FrameGenerator.isSupported ? frameGeneration : 0
         config.frameGenerationFast = frameGenerationFast
         config.frameGenerationTopOnly = frameGenerationTopOnly
+        config.frameGenerationDisplayPaced = frameGenerationDisplayPaced
         config.displayRefreshRate = UIScreen.main.maximumFramesPerSecond
         config.shaderWaitMs = shaderWaitMs
         config.framePacing = framePacing

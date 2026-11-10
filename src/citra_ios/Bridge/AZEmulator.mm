@@ -484,6 +484,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     quality.display_hz = static_cast<int>(configuration.displayRefreshRate);
     quality.frame_generation_fast = configuration.frameGenerationFast;
     quality.frame_generation_top_only = configuration.frameGenerationTopOnly;
+    quality.frame_generation_display_paced = configuration.frameGenerationDisplayPaced;
     quality.shader_wait_us = static_cast<u32>(std::clamp<NSInteger>(configuration.shaderWaitMs, 0, 16)) * 1000;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);

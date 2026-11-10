@@ -8,6 +8,9 @@
 #include <thread>
 #include <cmath>
 #include <cstring>
+#include <deque>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -40,6 +43,77 @@
 #endif
 
 MICROPROFILE_DEFINE(Metal_RenderFrame, "Metal", "Render Frame", MP_RGB(128, 128, 64));
+
+namespace Metal {
+
+/// Frames of frame generation waiting for the display (display-driven pacing). The display link
+/// takes the next one at a refresh once the one on screen has been shown for its slot (half a
+/// frame of the game), so the frames follow the display's own refreshes.
+struct DisplayPacer {
+    struct Frame {
+        id<MTLTexture> texture = nil;
+        float width = 0.0f;
+        float height = 0.0f;
+    };
+    std::mutex mutex;
+    std::deque<Frame> waiting;
+    double shown_at = 0.0; ///< Presentation time of the frame on screen, 0 for none
+    double slot = 1.0 / 60.0;
+    id<MTLCommandQueue> command_queue = nil;
+    /// Draws a frame over the whole drawable.
+    std::function<void(id<MTLRenderCommandEncoder>, const Frame&)> draw;
+};
+} // namespace Metal
+
+API_AVAILABLE(ios(17.0), macos(14.0), tvos(17.0))
+@interface AzaharPacerDelegate : NSObject <CAMetalDisplayLinkDelegate> {
+@public
+    std::shared_ptr<Metal::DisplayPacer> pacer;
+}
+@end
+
+@implementation AzaharPacerDelegate
+- (void)metalDisplayLink:(CAMetalDisplayLink*)link needsUpdate:(CAMetalDisplayLinkUpdate*)update {
+    const std::shared_ptr<Metal::DisplayPacer> p = pacer;
+    if (!p) {
+        return;
+    }
+    const double target = update.targetPresentationTimestamp;
+    Metal::DisplayPacer::Frame next;
+    {
+        std::scoped_lock lock{p->mutex};
+        // Behind (the game or the interpolation hitched): keep only the newest pair.
+        while (p->waiting.size() > 2) {
+            p->waiting.pop_front();
+        }
+        const bool due = p->shown_at <= 0.0 || target - p->shown_at >= p->slot - 0.002 ||
+                         target < p->shown_at;
+        if (p->waiting.empty() || !due) {
+            return; // The frame on screen stays for this refresh
+        }
+        next = p->waiting.front();
+        p->waiting.pop_front();
+        p->shown_at = target;
+    }
+    id<CAMetalDrawable> drawable = update.drawable;
+    if (drawable == nil || next.texture == nil) {
+        return;
+    }
+    id<MTLCommandBuffer> buffer = [p->command_queue commandBuffer];
+    MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = drawable.texture;
+    pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> draw = [buffer renderCommandEncoderWithDescriptor:pass];
+    p->draw(draw, next);
+    [draw endEncoding];
+    [drawable addPresentedHandler:^(id<MTLDrawable> presented) {
+      Metal::RecordPresentedTime(presented.presentedTime);
+    }];
+    [buffer presentDrawable:drawable];
+    [buffer commit];
+}
+@end
 
 namespace Metal {
 
@@ -178,6 +252,7 @@ public:
     }
 
     ~RendererMetal() override {
+        StopPacer();
         scheduler.Finish();
         // A made frame may still be on its way to the screen, its callbacks use this renderer.
         for (int i = 0; i < 200 && fg_busy.load(std::memory_order_acquire); i++) {
@@ -293,7 +368,9 @@ private:
     // area goes into one of four slots; the interpolation makes the frame between the copies of
     // the previous frame and this one, which is scaled back up and shown before the real frame.
     static constexpr u32 FG_SLOTS = 4;
-    static constexpr u32 FG_COLORS = 2;
+    // Enough for the frames that wait for the display with display-driven pacing.
+    static constexpr u32 FG_COLORS = 5;
+    static constexpr u32 FG_MADE = 3;
     bool fg_ready{};
     bool fg_failed{};
     u32 fg_layout_width{}, fg_layout_height{}; ///< Screen size the pictures were made for
@@ -319,6 +396,18 @@ private:
     double fg_interval{};
     /// The pictures of the frames in color at full size, shown as the real frames.
     std::array<id<MTLTexture>, FG_COLORS> fg_color{};
+    /// Made frames composed at full size, for display-driven pacing.
+    std::array<id<MTLTexture>, FG_MADE> fg_made{};
+    u32 fg_made_index{};
+    /// Display-driven pacing: a CAMetalDisplayLink on a thread of its own shows the frames.
+    std::shared_ptr<DisplayPacer> fg_pacer;
+    id fg_pacer_link = nil;     ///< CAMetalDisplayLink (iOS 17)
+    id fg_pacer_delegate = nil; ///< AzaharPacerDelegate
+    NSThread* fg_pacer_thread = nil;
+    CAMetalLayer* fg_pacer_layer = nil;
+    int fg_pacer_hz{};
+    bool StartPacer(CAMetalLayer* layer);
+    void StopPacer();
     u32 fg_color_index{};
 #if AZAHAR_HAS_METALFX
     /// Scales the made frame back up to the size of its area on the screen.
@@ -984,6 +1073,10 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
         RenderGenerated(target, layout);
         return;
     }
+    if (allow_upscale && fg_pacer_link != nil) {
+        // Back to frames without frame generation: the layer hands its drawables to us again.
+        StopPacer();
+    }
 
     id<CAMetalDrawable> drawable = nil;
     const auto drawable_start = std::chrono::steady_clock::now();
@@ -1300,6 +1393,12 @@ bool RendererMetal::PrepareFrameGenerationResources() {
             return false;
         }
     }
+    for (u32 i = 0; i < FG_MADE; i++) {
+        fg_made[i] = [device newTextureWithDescriptor:desc];
+        if (fg_made[i] == nil) {
+            return false;
+        }
+    }
 
 #if AZAHAR_HAS_METALFX
     // The made frame is scaled up to its area on the screen with MetalFX, like the real picture
@@ -1400,6 +1499,11 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     std::atomic<u32>* failures = &fg_failures;
     std::atomic<double>* last_real_time = &fg_last_real_time;
     id<MTLCommandQueue> queue = instance.GetCommandQueue();
+    // Display-driven pacing: the frames go to the display link instead of being presented here.
+    const bool paced = GetQualityOptions().frame_generation_display_paced && StartPacer(target);
+    const std::shared_ptr<DisplayPacer> pacer = paced ? fg_pacer : nullptr;
+    fg_made_index = (fg_made_index + 1) % FG_MADE;
+    id<MTLTexture> made_texture = fg_made[fg_made_index];
     id<MTLRenderPipelineState> color_pipeline = present_pipeline;
     id<MTLSamplerState> color_sampler = present_samplers[0];
     id<MTLRenderPipelineState> ycbcr_pipeline = fg_from_ycbcr;
@@ -1436,11 +1540,14 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         };
 
         id<CAMetalDrawable> drawable_between = nil;
-        if (made) {
+        if (made && !paced) {
             @autoreleasepool {
                 drawable_between = [target nextDrawable];
             }
             made = drawable_between != nil;
+        }
+        if (made && paced) {
+            made = made_texture != nil;
         }
         if (made) {
             bool scaled = false;
@@ -1462,7 +1569,8 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
                 }
             }
 #endif
-            id<MTLRenderCommandEncoder> draw = begin(drawable_between.texture);
+            id<MTLRenderCommandEncoder> draw =
+                begin(paced ? made_texture : drawable_between.texture);
             // Around the screens (borders, background) the real frame, over them the made one.
             EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
 #if AZAHAR_HAS_METALFX
@@ -1475,6 +1583,22 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
                 draw_planes(draw, MTLViewport{area_x, area_y, area_width, area_height, 0.0, 1.0});
             }
             [draw endEncoding];
+        }
+
+        if (paced) {
+            // The display link shows them, the made frame first. The composition goes to the GPU
+            // before the frames are handed over, so it is done before the display link draws them.
+            [buffer commit];
+            {
+                std::scoped_lock lock{pacer->mutex};
+                pacer->slot = std::clamp(interval * 0.5, 0.008, 0.05);
+                if (made) {
+                    pacer->waiting.push_back({made_texture, width, height});
+                }
+                pacer->waiting.push_back({current, width, height});
+            }
+            busy->store(false, std::memory_order_release);
+            return;
         }
 
         id<CAMetalDrawable> drawable_current = nil;
@@ -1563,6 +1687,86 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
 
     fg_prev = static_cast<int>(fg_cur);
     fg_cur = (fg_cur + 1) % FG_SLOTS;
+}
+
+bool RendererMetal::StartPacer(CAMetalLayer* layer) {
+    if (@available(iOS 17.0, macOS 14.0, tvOS 17.0, *)) {
+        const int hz = std::clamp(GetQualityOptions().display_hz, 60, 120);
+        if (fg_pacer_link != nil && fg_pacer_layer == layer && fg_pacer_hz == hz) {
+            return true;
+        }
+        StopPacer();
+        if (layer == nil) {
+            return false;
+        }
+        auto pacer = std::make_shared<DisplayPacer>();
+        pacer->command_queue = instance.GetCommandQueue();
+        id<MTLRenderPipelineState> pipeline = present_pipeline;
+        id<MTLSamplerState> sampler = present_samplers[0];
+        pacer->draw = [pipeline, sampler](id<MTLRenderCommandEncoder> encoder,
+                                          const DisplayPacer::Frame& frame) {
+            EncodeFullscreen(encoder, pipeline, sampler, frame.texture, frame.width, frame.height);
+        };
+
+        AzaharPacerDelegate* delegate = [AzaharPacerDelegate new];
+        delegate->pacer = pacer;
+        CAMetalDisplayLink* link = [[CAMetalDisplayLink alloc] initWithMetalLayer:layer];
+        if (link == nil) {
+            return false;
+        }
+        link.delegate = delegate;
+        link.preferredFrameLatency = 2.0f;
+        link.preferredFrameRateRange =
+            CAFrameRateRangeMake(static_cast<float>(hz), static_cast<float>(hz),
+                                 static_cast<float>(hz));
+        // A thread of its own, so the refreshes are not held up by the app's main thread.
+        NSThread* thread = [[NSThread alloc] initWithBlock:^{
+          [link addToRunLoop:NSRunLoop.currentRunLoop forMode:NSDefaultRunLoopMode];
+          while (!NSThread.currentThread.isCancelled) {
+              @autoreleasepool {
+                  [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+              }
+          }
+          [link invalidate];
+        }];
+        thread.name = @"Azahar frame pacing";
+        thread.qualityOfService = NSQualityOfServiceUserInteractive;
+        [thread start];
+
+        fg_pacer = pacer;
+        fg_pacer_link = link;
+        fg_pacer_delegate = delegate;
+        fg_pacer_thread = thread;
+        fg_pacer_layer = layer;
+        fg_pacer_hz = hz;
+        LOG_INFO(Render, "Frame generation: display-driven pacing at {} Hz", hz);
+        return true;
+    }
+    return false;
+}
+
+void RendererMetal::StopPacer() {
+    if (fg_pacer_link == nil) {
+        return;
+    }
+    if (@available(iOS 17.0, macOS 14.0, tvOS 17.0, *)) {
+        CAMetalDisplayLink* link = fg_pacer_link;
+        link.paused = YES;
+    }
+    if (fg_pacer) {
+        std::scoped_lock lock{fg_pacer->mutex};
+        fg_pacer->waiting.clear();
+    }
+    // The thread invalidates the link and ends.
+    [fg_pacer_thread cancel];
+    fg_pacer_thread = nil;
+    fg_pacer_link = nil;
+    fg_pacer_delegate = nil;
+    fg_pacer_layer = nil;
+    fg_pacer.reset();
+    // Let the display link let go of the layer before drawables are taken from it again.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
 void RendererMetal::RenderScreenshot() {
