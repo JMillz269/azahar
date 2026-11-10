@@ -287,6 +287,10 @@ private:
                        bool allow_upscale);
     bool UseFrameGeneration(const Layout::FramebufferLayout& layout);
     void RenderGenerated(CAMetalLayer* target, const Layout::FramebufferLayout& layout);
+    bool RenderPacedPlain(const Layout::FramebufferLayout& layout);
+    /// When frame generation last made a pair of frames: the display link stays a little while
+    /// after, so a short stretch without frame generation does not restart it.
+    std::chrono::steady_clock::time_point fg_last_generated{};
     bool PrepareFrameGenerationResources();
     void RenderScreenshot();
     void DrawScreens(id<MTLRenderCommandEncoder> encoder, const Layout::FramebufferLayout& layout);
@@ -1074,7 +1078,17 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
         return;
     }
     if (allow_upscale && fg_pacer_link != nil) {
-        // Back to frames without frame generation: the layer hands its drawables to us again.
+        // A frame without frame generation. For a short while (a loading screen, a moment at 60
+        // FPS) it goes through the display link too: stopping and restarting the link each time
+        // would hitch. After that, or when frame generation is turned off, the layer hands its
+        // drawables to us again.
+        const QualityOptions& options = GetQualityOptions();
+        const bool keep = options.frame_generation > 0 && options.frame_generation_display_paced &&
+                          std::chrono::steady_clock::now() - fg_last_generated <
+                              std::chrono::seconds(2);
+        if (keep && RenderPacedPlain(layout)) {
+            return;
+        }
         StopPacer();
     }
 
@@ -1270,7 +1284,13 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
     // not fit between the frames of a 60 FPS game. Not while fast forwarding either, where the
     // frames come as fast as those of a 60 FPS game or faster.
     const double limit = Settings::GetFrameLimit();
-    const bool eligible = fg_interval > 0.0 && thirty_fps && limit > 0.0 && limit <= 110.0;
+    // 60 FPS games too ("All Games"): only with display-driven pacing on a 120 Hz display, where a
+    // made frame fits in the 8 ms between the refreshes.
+    const QualityOptions& options = GetQualityOptions();
+    const bool sixty_fps = mode >= 2 && options.frame_generation_display_paced &&
+                           options.display_hz >= 100 && fg_cadence < 1.3f;
+    const bool eligible = fg_interval > 0.0 && (thirty_fps || sixty_fps) && limit > 0.0 &&
+                          limit <= 110.0;
     if (!eligible) {
         // The frame is drawn the usual way and the next one starts over.
         fg_prev = -1;
@@ -1429,6 +1449,7 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         return;
     }
     const double arrived = CACurrentMediaTime();
+    fg_last_generated = std::chrono::steady_clock::now();
 
     fg_color_index = (fg_color_index + 1) % FG_COLORS;
     id<MTLTexture> current = fg_color[fg_color_index];
@@ -1491,7 +1512,7 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     // exact time of the emulated frames when the game holds its speed, the measured one otherwise.
     const double nominal = std::round(fg_cadence) / 59.83 * 100.0 / Settings::GetFrameLimit();
     const double interval =
-        std::clamp(std::abs(fg_interval - nominal) < nominal * 0.05 ? nominal : fg_interval, 0.02,
+        std::clamp(std::abs(fg_interval - nominal) < nominal * 0.05 ? nominal : fg_interval, 0.012,
                    0.1);
 
     fg_busy.store(true, std::memory_order_release);
@@ -1687,6 +1708,48 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
 
     fg_prev = static_cast<int>(fg_cur);
     fg_cur = (fg_cur + 1) % FG_SLOTS;
+}
+
+bool RendererMetal::RenderPacedPlain(const Layout::FramebufferLayout& layout) {
+    if (!fg_pacer || !fg_ready || layout.width != fg_layout_width ||
+        layout.height != fg_layout_height) {
+        return false;
+    }
+    if (fg_busy.load(std::memory_order_acquire)) {
+        // A pair is still being made: this frame would get ahead of it.
+        return true;
+    }
+    fg_prev = -1;
+    fg_color_index = (fg_color_index + 1) % FG_COLORS;
+    id<MTLTexture> current = fg_color[fg_color_index];
+    if (current == nil) {
+        return false;
+    }
+    scheduler.Flush();
+    scheduler.MarkPresentation();
+#if AZAHAR_HAS_METALFX
+    PrepareUpscaling(layout);
+#endif
+    MTLRenderPassDescriptor* desc = [MTLRenderPassDescriptor renderPassDescriptor];
+    desc.colorAttachments[0].texture = current;
+    desc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    desc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    desc.colorAttachments[0].clearColor =
+        MTLClearColorMake(Settings::values.bg_red.GetValue(), Settings::values.bg_green.GetValue(),
+                          Settings::values.bg_blue.GetValue(), 1.0);
+    id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
+    DrawScreens(encoder, layout);
+    scheduler.EndEncoding();
+#if AZAHAR_HAS_METALFX
+    upscale_pass = UpscalePass::Off;
+#endif
+    // Submitted before it is handed over: the display link draws it on the same queue, after.
+    scheduler.Flush();
+    std::scoped_lock lock{fg_pacer->mutex};
+    fg_pacer->slot = 1.0 / 60.0;
+    fg_pacer->waiting.push_back(
+        {current, static_cast<float>(layout.width), static_cast<float>(layout.height)});
+    return true;
 }
 
 bool RendererMetal::StartPacer(CAMetalLayer* layer) {

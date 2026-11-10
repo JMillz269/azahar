@@ -41,10 +41,14 @@ struct GameSettingsView: View {
                                options: Array(0...7)) { SecondaryLayoutOption.title(for: $0) }
                 OverrideToggle("Frame Presentation Skip", value: $overrides.skipDuplicateFrames)
                 OverridePicker("Frame Generation", value: $overrides.frameGeneration,
-                               options: [0, 1]) { $0 == 0 ? "Off" : "On (30 FPS Games)" }
+                               options: [0, 1, 2]) {
+                    ["Off", "30 FPS Games", "All Games (120 Hz)"][$0]
+                }
                 OverrideToggle("Faster Frame Generation", value: $overrides.frameGenerationFast)
                 OverrideToggle("Frame Generation: Top Screen Only",
                                value: $overrides.frameGenerationTopOnly)
+                OverrideToggle("Frame Generation: Display-Driven Pacing",
+                               value: $overrides.frameGenerationDisplayPaced)
                 OverrideToggle("Custom Textures", value: $overrides.customTextures)
                 OverrideToggle("Preload Custom Textures", value: $overrides.preloadTextures)
                 OverrideToggle("Hidden Surface Removal", value: $overrides.hiddenSurfaceRemoval)

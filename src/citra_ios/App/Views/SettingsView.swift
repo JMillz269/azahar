@@ -412,7 +412,7 @@ struct GraphicsSettingsView: View {
     private static var performanceFooter: String {
         var text: String = "Frame Generation makes the frames between the real ones with Apple's "
         text += "frame interpolation, so a 30 FPS game looks like 60. Games that already run "
-        text += "at 60 FPS are left alone: making a frame takes longer than a 60 FPS frame lasts. "
+        text += "at 60 FPS are left alone unless Also 60 FPS Games is on. "
         if !FrameGenerator.isSupported {
             text += "Not available on this device or iOS version. "
         }
@@ -423,7 +423,9 @@ struct GraphicsSettingsView: View {
         text += "the bottom screen at the game's own frame rate, which halves the work in most "
         text += "layouts. Display-Driven Pacing (iOS 17 or later, experimental) lets the display "
         text += "pick up each frame at its own refresh instead of timing the frames in advance, "
-        text += "which should keep them even at 60 Hz too.\n\n"
+        text += "which should keep them even at 60 Hz too. Also 60 FPS Games makes 60 FPS games "
+        text += "show 120 frames per second; it needs Display-Driven Pacing and the display at "
+        text += "120 Hz, adds about 8 ms of delay and twice the heat.\n\n"
         text += "Frame Presentation Skip does not present a frame the game did not draw again, so "
         text += "a 30 FPS game shows 30 frames per second instead of every frame twice at 60. "
         text += "The emulation speed and the audio stay the same. Meant for frame generation and "
@@ -443,6 +445,8 @@ struct GraphicsSettingsView: View {
                     .disabled(settings.frameGeneration == 0)
                 Toggle("Display-Driven Pacing", isOn: $settings.frameGenerationDisplayPaced)
                     .disabled(settings.frameGeneration == 0)
+                Toggle("Also 60 FPS Games (120 Hz)", isOn: $settings.frameGenerationAllGames)
+                    .disabled(settings.frameGeneration == 0 || !settings.frameGenerationDisplayPaced)
                 .disabled(!FrameGenerator.isSupported)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)
             } header: {

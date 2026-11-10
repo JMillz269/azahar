@@ -245,6 +245,9 @@ final class AppSettings: ObservableObject {
     @Published var frameGenerationTopOnly: Bool {
         didSet { save(frameGenerationTopOnly, "frameGenerationTopOnly") }
     }
+    @Published var frameGenerationAllGames: Bool {
+        didSet { save(frameGenerationAllGames, "frameGenerationAllGames") }
+    }
     @Published var frameGenerationDisplayPaced: Bool {
         didSet { save(frameGenerationDisplayPaced, "frameGenerationDisplayPaced") }
     }
@@ -397,6 +400,7 @@ final class AppSettings: ObservableObject {
         frameGenerationFast = value("frameGenerationFast", false)
         frameGenerationTopOnly = value("frameGenerationTopOnly", false)
         frameGenerationDisplayPaced = value("frameGenerationDisplayPaced", false)
+        frameGenerationAllGames = value("frameGenerationAllGames", false)
         shaderWaitMs = value("shaderWaitMs", 2)
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
@@ -517,7 +521,8 @@ final class AppSettings: ObservableObject {
         config.skipDuplicateFrames = skipDuplicateFrames
         config.asyncShaderCompilation = asyncShaders
         config.holdFramesForShaders = holdFramesForShaders
-        config.frameGeneration = FrameGenerator.isSupported ? frameGeneration : 0
+        config.frameGeneration =
+            FrameGenerator.isSupported && frameGeneration > 0 ? (frameGenerationAllGames ? 2 : 1) : 0
         config.frameGenerationFast = frameGenerationFast
         config.frameGenerationTopOnly = frameGenerationTopOnly
         config.frameGenerationDisplayPaced = frameGenerationDisplayPaced
