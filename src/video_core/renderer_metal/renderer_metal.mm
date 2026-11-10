@@ -29,6 +29,8 @@
 #include "video_core/renderer_metal/mtl_utility_shaders.h"
 #include "video_core/renderer_metal/renderer_metal.h"
 
+#import <QuartzCore/QuartzCore.h>
+
 // MetalFX is weakly linked, the spatial scaler needs iOS 16 / macOS 13.
 #if __has_include(<MetalFX/MetalFX.h>)
 #import <MetalFX/MetalFX.h>
@@ -117,18 +119,20 @@ bool MakeScreenVertices(std::array<ScreenRectVertex, 4>& vertices,
     }
 }
 
-/// Draws a texture over the whole target with the present pipeline (no effect, full opacity).
-void EncodeFullscreen(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineState> pipeline,
-                      id<MTLSamplerState> sampler, id<MTLTexture> texture, f32 width, f32 height) {
+/// Draws a texture into a rectangle of the target (in pixels) with the present pipeline, without
+/// an effect and at full opacity. `width` and `height` are the size of the target.
+void EncodeRect(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineState> pipeline,
+                id<MTLSamplerState> sampler, id<MTLTexture> texture, f32 width, f32 height,
+                f32 x, f32 y, f32 w, f32 h) {
     [encoder setRenderPipelineState:pipeline];
     [encoder setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
     [encoder setBlendColorRed:0.0f green:0.0f blue:0.0f alpha:1.0f];
     [encoder setFragmentSamplerState:sampler atIndex:0];
     const std::array<ScreenRectVertex, 4> vertices{{
-        ScreenRectVertex(0.0f, 0.0f, 0.0f, 0.0f),
-        ScreenRectVertex(width, 0.0f, 1.0f, 0.0f),
-        ScreenRectVertex(0.0f, height, 0.0f, 1.0f),
-        ScreenRectVertex(width, height, 1.0f, 1.0f),
+        ScreenRectVertex(x, y, 0.0f, 0.0f),
+        ScreenRectVertex(x + w, y, 1.0f, 0.0f),
+        ScreenRectVertex(x, y + h, 0.0f, 1.0f),
+        ScreenRectVertex(x + w, y + h, 1.0f, 1.0f),
     }};
     const PresentUniforms uniforms = {
         .o_resolution = {width, height, 1.0f / width, 1.0f / height},
@@ -143,6 +147,12 @@ void EncodeFullscreen(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineS
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:texture atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+}
+
+/// Draws a texture over the whole target.
+void EncodeFullscreen(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineState> pipeline,
+                      id<MTLSamplerState> sampler, id<MTLTexture> texture, f32 width, f32 height) {
+    EncodeRect(encoder, pipeline, sampler, texture, width, height, 0.0f, 0.0f, width, height);
 }
 
 #if AZAHAR_HAS_METALFX
@@ -278,37 +288,42 @@ private:
     u64 previous_frame_tick{};
     u32 held_frames{};
 
-    // Frame generation (see FrameGeneratorHooks): the picture of a frame is drawn into one of
-    // four slots, the frame between it and the previous one is made from the two, and both are
-    // shown, the made one first.
+    // Frame generation (see FrameGeneratorHooks). A frame of the game is drawn at full size into
+    // a color picture, which is what is shown as the real frame. A smaller copy of the screens'
+    // area goes into one of four slots; the interpolation makes the frame between the copies of
+    // the previous frame and this one, which is scaled back up and shown before the real frame.
     static constexpr u32 FG_SLOTS = 4;
+    static constexpr u32 FG_COLORS = 2;
     bool fg_ready{};
     bool fg_failed{};
-    u32 fg_layout_width{}, fg_layout_height{}; ///< Screen size the slots were made for
-    u32 fg_width{}, fg_height{};               ///< Size of the color pictures (the screen scaled)
-    /// Part of the color picture that is interpolated: the screens, not the empty space around
-    /// them. In pixels of the color picture; the slots have its size.
-    u32 fg_crop_x{}, fg_crop_y{}, fg_crop_width{}, fg_crop_height{};
-    Common::Rectangle<u32> fg_screens{}; ///< The screens' area the crop was made for
+    u32 fg_layout_width{}, fg_layout_height{}; ///< Screen size the pictures were made for
+    u32 fg_slot_width{}, fg_slot_height{};     ///< Size of the slots (the smaller copies)
+    /// The area of the color picture that is copied into a slot and where the made frame is drawn
+    /// back, in pixels of the screen: the screens, not the empty space around them.
+    f32 fg_area_x{}, fg_area_y{}, fg_area_width{}, fg_area_height{};
+    Common::Rectangle<u32> fg_screens{}; ///< The screens' area the slots were made for
     bool fg_fast{};                      ///< frame_generation_fast the slots were made with
-    f32 fg_scale{1.0f};                        ///< Slot size over screen size
-    /// Scale of the viewport DrawScreens uses, below 1 while drawing into a smaller slot.
-    f32 draw_scale{1.0f};
     u32 fg_cur{};
     int fg_prev{-1};
-    id<MTLSharedEvent> fg_event = nil;
-    u64 fg_event_value{};
     /// A frame is being made: its callbacks show it and the real frame after it.
     std::atomic<bool> fg_busy{false};
     /// Made frames that failed in a row: when the interpolation rejects every frame, stop.
     std::atomic<u32> fg_failures{0};
+    /// When the last real frame is set to reach the screen (CACurrentMediaTime), which spaces the
+    /// frames after it evenly. Used by the callbacks that show the frames.
+    std::atomic<double> fg_last_real_time{0.0};
     u32 fg_swaps{};      ///< SwapBuffers calls (60 per second of emulation)
     u32 fg_last_swaps{}; ///< fg_swaps at the previous new frame
     f32 fg_cadence{1.0f}; ///< Swaps per new frame of the game, smoothed: 2 for a 30 FPS game
     std::chrono::steady_clock::time_point fg_last_frame{};
     double fg_interval{};
-    /// The pictures of the frames in color, at slot size, shown as the real frames.
-    std::array<id<MTLTexture>, FG_SLOTS> fg_color{};
+    /// The pictures of the frames in color at full size, shown as the real frames.
+    std::array<id<MTLTexture>, FG_COLORS> fg_color{};
+    u32 fg_color_index{};
+#if AZAHAR_HAS_METALFX
+    /// Scales the made frame back up to the size of its area on the screen.
+    UpscaleSlot fg_upscale{};
+#endif
     id<MTLComputePipelineState> fg_to_ycbcr = nil;   ///< Color picture to the slot's planes
     id<MTLRenderPipelineState> fg_from_ycbcr = nil;  ///< Slot planes onto the screen
     id<MTLSamplerState> fg_sampler = nil;
@@ -925,14 +940,8 @@ void RendererMetal::DrawScreens(id<MTLRenderCommandEncoder> encoder,
                                                                 : present_pipeline];
     [encoder setFragmentSamplerState:present_samplers[!Settings::values.filter_mode.GetValue()]
                              atIndex:0];
-    // Drawing into a frame generation slot: the slot is a little smaller than the screen.
-    const bool into_slot = draw_scale != 1.0f;
-    [encoder setViewport:MTLViewport{0.0, 0.0,
-                                     into_slot ? static_cast<double>(fg_width)
-                                               : static_cast<double>(layout.width),
-                                     into_slot ? static_cast<double>(fg_height)
-                                               : static_cast<double>(layout.height),
-                                     0.0, 1.0}];
+    [encoder setViewport:MTLViewport{0.0, 0.0, static_cast<double>(layout.width),
+                                     static_cast<double>(layout.height), 0.0, 1.0}];
     SetOpacity(encoder, 1.0f);
 
     if (!Settings::values.swap_screen.GetValue()) {
@@ -1073,8 +1082,8 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         fg_prev = -1;
         fg_ready = false;
         fg_failures.store(0, std::memory_order_relaxed);
-        // Half the size is about a quarter of the work and looks nearly the same for the frame
-        // shown between two real ones; smaller when the interpolation refuses that size.
+        // The interpolation works on a copy at half the size: about a quarter of the work, and
+        // the made frame is scaled back up. Smaller when the interpolation refuses that size.
         const auto round_up = [](u32 value) { return (value + 15u) & ~15u; };
         // The faster setting starts at 3/8 of the size: about 44% fewer pixels than half.
         const std::array<f32, 3> scales = fast ? std::array<f32, 3>{0.375f, 0.25f, 0.0f}
@@ -1083,46 +1092,51 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
             if (scale <= 0.0f) {
                 break;
             }
-            // Video processors work in blocks: sizes in multiples of 16.
-            const u32 width = static_cast<u32>(std::lround(layout.width * scale)) & ~15u;
-            const u32 height = static_cast<u32>(std::lround(layout.height * scale)) & ~15u;
+            // The whole screen at this scale, in multiples of 16 (video processors work in
+            // blocks), rounded down so the area never reaches outside the screen.
+            const u32 width = static_cast<u32>(std::floor(layout.width * scale)) & ~15u;
+            const u32 height = static_cast<u32>(std::floor(layout.height * scale)) & ~15u;
             if (width < 64 || height < 64) {
                 break;
             }
             const f32 sx = static_cast<f32>(width) / static_cast<f32>(layout.width);
             const f32 sy = static_cast<f32>(height) / static_cast<f32>(layout.height);
-            const u32 x0 = static_cast<u32>(std::floor(screens.left * sx));
-            const u32 y0 = static_cast<u32>(std::floor(screens.top * sy));
-            const u32 x1 = static_cast<u32>(std::ceil(screens.right * sx));
-            const u32 y1 = static_cast<u32>(std::ceil(screens.bottom * sy));
-            const u32 crop_width = std::clamp(round_up(x1 - x0), 64u, width);
-            const u32 crop_height = std::clamp(round_up(y1 - y0), 64u, height);
-            if (g_fg_hooks.prepare((__bridge void*)instance.GetDevice(), crop_width,
-                                   crop_height)) {
-                fg_width = width;
-                fg_height = height;
-                fg_crop_width = crop_width;
-                fg_crop_height = crop_height;
-                fg_crop_x = std::min(x0, width - crop_width);
-                fg_crop_y = std::min(y0, height - crop_height);
-                fg_scale = scale;
+            const u32 slot_width = std::clamp(
+                round_up(static_cast<u32>(std::ceil(screens.GetWidth() * sx))), 64u, width);
+            const u32 slot_height = std::clamp(
+                round_up(static_cast<u32>(std::ceil(screens.GetHeight() * sy))), 64u, height);
+            if (g_fg_hooks.prepare((__bridge void*)instance.GetDevice(), slot_width,
+                                   slot_height)) {
+                fg_slot_width = slot_width;
+                fg_slot_height = slot_height;
+                // The slot covers a little more than the screens (the rounding up).
+                fg_area_width = static_cast<f32>(slot_width) / sx;
+                fg_area_height = static_cast<f32>(slot_height) / sy;
+                fg_area_x = std::clamp(static_cast<f32>(screens.left), 0.0f,
+                                       std::max(0.0f, layout.width - fg_area_width));
+                fg_area_y = std::clamp(static_cast<f32>(screens.top), 0.0f,
+                                       std::max(0.0f, layout.height - fg_area_height));
                 fg_ready = PrepareFrameGenerationResources();
                 if (!fg_ready) {
                     break;
                 }
+                const char* scaling = ", stretched with plain filtering";
+#if AZAHAR_HAS_METALFX
+                if (fg_upscale.scaler != nil) {
+                    scaling = ", scaled up with MetalFX";
+                }
+#endif
                 LOG_INFO(Render,
-                         "Frame generation ready: {}x{} frames (the screens' area of {}x{}) for a "
-                         "{}x{} screen",
-                         crop_width, crop_height, width, height, layout.width, layout.height);
+                         "Frame generation ready: {}x{} frames for an area of {:.0f}x{:.0f} of a "
+                         "{}x{} screen{}",
+                         slot_width, slot_height, fg_area_width, fg_area_height, layout.width,
+                         layout.height, scaling);
                 break;
             }
-            LOG_INFO(Render, "Frame generation is not available for {}x{} frames", crop_width,
-                     crop_height);
+            LOG_INFO(Render, "Frame generation is not available for {}x{} frames", slot_width,
+                     slot_height);
         }
         fg_failed = !fg_ready;
-        if (fg_ready && fg_event == nil) {
-            fg_event = [instance.GetDevice() newSharedEvent];
-        }
         if (!fg_ready) {
             LOG_WARNING(Render, "Frame generation is not available for this screen size");
         }
@@ -1134,7 +1148,7 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         fg_failed = true;
         fg_prev = -1;
     }
-    if (!fg_ready || fg_event == nil) {
+    if (!fg_ready) {
         return false;
     }
 
@@ -1160,8 +1174,10 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
     fg_cadence = fg_cadence * 0.8f + static_cast<f32>(std::min(swaps, 4u)) * 0.2f;
     const bool thirty_fps = fg_cadence >= 1.7f;
     // Only games that draw at 30 FPS: making a frame takes over 10 ms on an A18 Pro, which does
-    // not fit between the frames of a 60 FPS game.
-    const bool eligible = fg_interval > 0.0 && thirty_fps;
+    // not fit between the frames of a 60 FPS game. Not while fast forwarding either, where the
+    // frames come as fast as those of a 60 FPS game or faster.
+    const double limit = Settings::GetFrameLimit();
+    const bool eligible = fg_interval > 0.0 && thirty_fps && limit > 0.0 && limit <= 110.0;
     if (!eligible) {
         // The frame is drawn the usual way and the next one starts over.
         fg_prev = -1;
@@ -1177,19 +1193,32 @@ constexpr const char* kFrameGenerationShaders = R"(
 #include <metal_stdlib>
 using namespace metal;
 
-kernel void to_ycbcr(texture2d<float, access::read> color [[texture(0)]],
+// The area of the color picture that is copied, in its pixels.
+struct ConvertArea {
+    float2 origin;
+    float2 size;
+};
+
+// Copies the area into the planes, which are smaller: every pixel of the planes is a filtered
+// sample of the picture.
+kernel void to_ycbcr(texture2d<float> color [[texture(0)]],
                      texture2d<float, access::write> luma [[texture(1)]],
                      texture2d<float, access::write> chroma [[texture(2)]],
-                     constant uint2& origin [[buffer(0)]],
+                     constant ConvertArea& area [[buffer(0)]],
                      uint2 gid [[thread_position_in_grid]]) {
     if (gid.x >= chroma.get_width() || gid.y >= chroma.get_height()) {
         return;
     }
+    constexpr sampler smp(filter::linear, address::clamp_to_edge);
+    const float2 luma_size = float2(luma.get_width(), luma.get_height());
+    const float2 color_size = float2(color.get_width(), color.get_height());
     float2 cbcr = float2(0.0);
     for (uint dy = 0; dy < 2; ++dy) {
         for (uint dx = 0; dx < 2; ++dx) {
             const uint2 p = gid * 2 + uint2(dx, dy);
-            const float3 c = color.read(p + origin).rgb;
+            const float2 uv =
+                (area.origin + (float2(p) + 0.5) / luma_size * area.size) / color_size;
+            const float3 c = color.sample(smp, uv, level(0.0)).rgb;
             const float y = dot(c, float3(0.2126, 0.7152, 0.0722));
             luma.write(float4((16.0 + 219.0 * y) / 255.0), p);
             cbcr += float2((c.b - y) / 1.8556, (c.r - y) / 1.5748);
@@ -1260,17 +1289,33 @@ bool RendererMetal::PrepareFrameGenerationResources() {
 
     MTLTextureDescriptor* desc =
         [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                           width:fg_width
-                                                          height:fg_height
+                                                           width:fg_layout_width
+                                                          height:fg_layout_height
                                                        mipmapped:NO];
     desc.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
     desc.storageMode = MTLStorageModePrivate;
-    for (u32 i = 0; i < FG_SLOTS; i++) {
+    for (u32 i = 0; i < FG_COLORS; i++) {
         fg_color[i] = [device newTextureWithDescriptor:desc];
         if (fg_color[i] == nil) {
             return false;
         }
     }
+
+#if AZAHAR_HAS_METALFX
+    // The made frame is scaled up to its area on the screen with MetalFX, like the real picture
+    // can be. Without it (not supported, or refused) it is stretched with plain filtering.
+    fg_upscale = UpscaleSlot{};
+    if (MetalFXSupported(device)) {
+        UpscaleJob job;
+        job.in_width = fg_slot_width;
+        job.in_height = fg_slot_height;
+        job.out_width = static_cast<u32>(std::lround(fg_area_width));
+        job.out_height = static_cast<u32>(std::lround(fg_area_height));
+        if (!EnsureUpscaleSlot(fg_upscale, job)) {
+            fg_upscale = UpscaleSlot{};
+        }
+    }
+#endif
     return true;
 }
 
@@ -1284,8 +1329,10 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         fg_prev = -1;
         return;
     }
+    const double arrived = CACurrentMediaTime();
 
-    id<MTLTexture> current = fg_color[fg_cur];
+    fg_color_index = (fg_color_index + 1) % FG_COLORS;
+    id<MTLTexture> current = fg_color[fg_color_index];
     id<MTLTexture> current_luma = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur, 0);
     id<MTLTexture> current_chroma = (__bridge id<MTLTexture>)g_fg_hooks.texture(fg_cur, 1);
     if (current == nil || current_luma == nil || current_chroma == nil) {
@@ -1293,6 +1340,7 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         return;
     }
 
+    // The frame of the game at full size, drawn exactly as it is without frame generation.
     scheduler.Flush();
     scheduler.MarkPresentation();
 #if AZAHAR_HAS_METALFX
@@ -1305,12 +1353,9 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     desc.colorAttachments[0].clearColor =
         MTLClearColorMake(Settings::values.bg_red.GetValue(), Settings::values.bg_green.GetValue(),
                           Settings::values.bg_blue.GetValue(), 1.0);
-    // The slot can be smaller than the screen: the screens are drawn scaled down into it.
-    draw_scale = fg_scale;
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
-    draw_scale = 1.0f;
 #if AZAHAR_HAS_METALFX
     upscale_pass = UpscalePass::Off;
 #endif
@@ -1322,89 +1367,166 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     id<MTLTexture> between_luma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 0);
     id<MTLTexture> between_chroma = (__bridge id<MTLTexture>)g_fg_hooks.texture(destination, 1);
 
-    // The picture in the planes the interpolation reads.
+    // The smaller copy of the screens' area, in the planes the interpolation reads.
     {
         id<MTLComputeCommandEncoder> convert = [scheduler.CommandBuffer() computeCommandEncoder];
         [convert setComputePipelineState:fg_to_ycbcr];
         [convert setTexture:current atIndex:0];
         [convert setTexture:current_luma atIndex:1];
         [convert setTexture:current_chroma atIndex:2];
-        const std::array<u32, 2> origin{fg_crop_x, fg_crop_y};
-        [convert setBytes:origin.data() length:sizeof(origin) atIndex:0];
+        const std::array<f32, 4> area{fg_area_x, fg_area_y, fg_area_width, fg_area_height};
+        [convert setBytes:area.data() length:sizeof(area) atIndex:0];
         const MTLSize group = MTLSizeMake(8, 8, 1);
         const MTLSize groups =
-            MTLSizeMake((fg_crop_width / 2 + 7) / 8, (fg_crop_height / 2 + 7) / 8, 1);
+            MTLSizeMake((fg_slot_width / 2 + 7) / 8, (fg_slot_height / 2 + 7) / 8, 1);
         [convert dispatchThreadgroups:groups threadsPerThreadgroup:group];
         [convert endEncoding];
     }
 
     const f32 width = static_cast<f32>(layout.width);
     const f32 height = static_cast<f32>(layout.height);
-    // Where the made frame goes on the screen.
-    const f32 to_screen_x = width / static_cast<f32>(fg_width);
-    const f32 to_screen_y = height / static_cast<f32>(fg_height);
-    const MTLViewport crop_viewport{fg_crop_x * to_screen_x, fg_crop_y * to_screen_y,
-                                    fg_crop_width * to_screen_x, fg_crop_height * to_screen_y,
-                                    0.0, 1.0};
-    // The real frame follows the made one after half the time between the game's frames.
-    const double half = std::clamp(fg_interval * 0.5, 0.008, 0.05) * 0.96;
+    const f32 area_x = fg_area_x, area_y = fg_area_y;
+    const f32 area_width = fg_area_width, area_height = fg_area_height;
+
+    // The time between two frames of the game, which the frames on screen are spaced by: the
+    // exact time of the emulated frames when the game holds its speed, the measured one otherwise.
+    const double nominal = std::round(fg_cadence) / 59.83 * 100.0 / Settings::GetFrameLimit();
+    const double interval =
+        std::clamp(std::abs(fg_interval - nominal) < nominal * 0.05 ? nominal : fg_interval, 0.02,
+                   0.1);
 
     fg_busy.store(true, std::memory_order_release);
     std::atomic<bool>* busy = &fg_busy;
     std::atomic<u32>* failures = &fg_failures;
+    std::atomic<double>* last_real_time = &fg_last_real_time;
     id<MTLCommandQueue> queue = instance.GetCommandQueue();
     id<MTLRenderPipelineState> color_pipeline = present_pipeline;
     id<MTLSamplerState> color_sampler = present_samplers[0];
     id<MTLRenderPipelineState> ycbcr_pipeline = fg_from_ycbcr;
     id<MTLSamplerState> ycbcr_sampler = fg_sampler;
     const auto interpolate = g_fg_hooks.interpolate;
+#if AZAHAR_HAS_METALFX
+    id<MTLFXSpatialScaler> scaler = fg_upscale.scaler;
+    id<MTLTexture> scaler_input = fg_upscale.input;
+    id<MTLTexture> scaler_output = fg_upscale.output;
+    const u32 scaler_width = fg_upscale.in_width;
+    const u32 scaler_height = fg_upscale.in_height;
+#endif
 
     // Shows the made frame (when there is one) and the real one. Runs on a callback thread, which
     // is where the waits for drawables happen, not on the emulation thread.
     const auto show = std::make_shared<std::function<void(bool)>>([=](bool made) {
         made = made && between_luma != nil && between_chroma != nil;
         id<MTLCommandBuffer> buffer = [queue commandBuffer];
-        const auto begin = [&](id<CAMetalDrawable> to) {
+        const auto begin = [&](id<MTLTexture> to) {
             MTLRenderPassDescriptor* pass = [MTLRenderPassDescriptor renderPassDescriptor];
-            pass.colorAttachments[0].texture = to.texture;
+            pass.colorAttachments[0].texture = to;
             pass.colorAttachments[0].loadAction = MTLLoadActionDontCare;
             pass.colorAttachments[0].storeAction = MTLStoreActionStore;
             return [buffer renderCommandEncoderWithDescriptor:pass];
         };
+        // The planes of the made frame as a color picture over the whole target or viewport.
+        const auto draw_planes = [&](id<MTLRenderCommandEncoder> draw, MTLViewport viewport) {
+            [draw setRenderPipelineState:ycbcr_pipeline];
+            [draw setViewport:viewport];
+            [draw setFragmentTexture:between_luma atIndex:0];
+            [draw setFragmentTexture:between_chroma atIndex:1];
+            [draw setFragmentSamplerState:ycbcr_sampler atIndex:0];
+            [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+        };
+
+        id<CAMetalDrawable> drawable_between = nil;
         if (made) {
-            id<CAMetalDrawable> drawable_between = nil;
             @autoreleasepool {
                 drawable_between = [target nextDrawable];
             }
-            if (drawable_between != nil) {
-                id<MTLRenderCommandEncoder> draw = begin(drawable_between);
-                // Around the screens (borders, background) the real frame, over them the made one.
-                EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
-                [draw setRenderPipelineState:ycbcr_pipeline];
-                [draw setViewport:crop_viewport];
-                [draw setFragmentTexture:between_luma atIndex:0];
-                [draw setFragmentTexture:between_chroma atIndex:1];
-                [draw setFragmentSamplerState:ycbcr_sampler atIndex:0];
-                [draw drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-                [draw endEncoding];
-                [buffer presentDrawable:drawable_between];
-            } else {
-                made = false;
-            }
+            made = drawable_between != nil;
         }
+        if (made) {
+            bool scaled = false;
+#if AZAHAR_HAS_METALFX
+            if (scaler != nil) {
+                if (@available(iOS 16.0, macOS 13.0, *)) {
+                    // The made frame in color at its own size, then scaled up by MetalFX.
+                    id<MTLRenderCommandEncoder> convert = begin(scaler_input);
+                    draw_planes(convert,
+                                MTLViewport{0.0, 0.0, static_cast<double>(scaler_width),
+                                            static_cast<double>(scaler_height), 0.0, 1.0});
+                    [convert endEncoding];
+                    scaler.colorTexture = scaler_input;
+                    scaler.outputTexture = scaler_output;
+                    scaler.inputContentWidth = scaler_width;
+                    scaler.inputContentHeight = scaler_height;
+                    [scaler encodeToCommandBuffer:buffer];
+                    scaled = true;
+                }
+            }
+#endif
+            id<MTLRenderCommandEncoder> draw = begin(drawable_between.texture);
+            // Around the screens (borders, background) the real frame, over them the made one.
+            EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
+#if AZAHAR_HAS_METALFX
+            if (scaled) {
+                EncodeRect(draw, color_pipeline, color_sampler, scaler_output, width, height,
+                           area_x, area_y, area_width, area_height);
+            }
+#endif
+            if (!scaled) {
+                draw_planes(draw, MTLViewport{area_x, area_y, area_width, area_height, 0.0, 1.0});
+            }
+            [draw endEncoding];
+        }
+
         id<CAMetalDrawable> drawable_current = nil;
         @autoreleasepool {
             drawable_current = [target nextDrawable];
         }
         if (drawable_current != nil) {
-            id<MTLRenderCommandEncoder> draw = begin(drawable_current);
+            id<MTLRenderCommandEncoder> draw = begin(drawable_current.texture);
             EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
             [draw endEncoding];
-            if (made) {
-                [buffer presentDrawable:drawable_current afterMinimumDuration:half];
+        }
+
+        // When the frames reach the screen. The made frame goes half a frame of the game after the
+        // previous real frame and the real frame half a frame after it, so the frames are evenly
+        // spaced however long making the frame took. The schedule moves a little earlier with
+        // every frame until making a frame is only just in time, which keeps the delay as small as
+        // the interpolation allows.
+        const double now = CACurrentMediaTime();
+        // A little ahead, the GPU still has to draw the frames.
+        const double soonest = now + 0.004;
+        double previous_real = last_real_time->load(std::memory_order_relaxed);
+        if (previous_real < now - 0.1) {
+            previous_real = 0.0; // After a pause or a stretch without frame generation
+        }
+        double real_time;
+        if (made) {
+            double made_time = previous_real > 0.0 ? previous_real + interval * 0.5 - 0.0003
+                                                   : soonest;
+            made_time = std::max(made_time, soonest);
+            // Never more than a frame of the game behind the game.
+            if (made_time > arrived + interval) {
+                made_time = std::max(soonest, arrived + interval);
+            }
+            real_time = made_time + interval * 0.5;
+            [drawable_between addPresentedHandler:^(id<MTLDrawable> presented) {
+              RecordPresentedTime(presented.presentedTime);
+            }];
+            [buffer presentDrawable:drawable_between atTime:made_time];
+        } else {
+            // Not before a frame that is already on its way.
+            real_time = std::max(now, previous_real > 0.0 ? previous_real + 0.008 : now);
+        }
+        if (drawable_current != nil) {
+            [drawable_current addPresentedHandler:^(id<MTLDrawable> presented) {
+              RecordPresentedTime(presented.presentedTime);
+            }];
+            if (real_time > now) {
+                [buffer presentDrawable:drawable_current atTime:real_time];
             } else {
                 [buffer presentDrawable:drawable_current];
             }
+            last_real_time->store(real_time, std::memory_order_relaxed);
         }
         [buffer commit];
         busy->store(false, std::memory_order_release);

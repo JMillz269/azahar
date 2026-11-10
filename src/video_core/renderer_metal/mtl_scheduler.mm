@@ -423,6 +423,30 @@ void Scheduler::EndEncoding() {
     }
 }
 
+void RecordPresentedTime(double now) {
+    if (now <= 0.0) {
+        return; // The frame was dropped
+    }
+    const double last = g_last_presented.exchange(now, std::memory_order_relaxed);
+    if (last <= 0.0 || now <= last) {
+        return;
+    }
+    const double interval = now - last;
+    if (interval > 0.25) {
+        return; // A pause or a menu, not a pacing problem
+    }
+    GpuStats& stats = Stats();
+    const u64 us = static_cast<u64>(interval * 1e6);
+    stats.present_intervals.fetch_add(1, std::memory_order_relaxed);
+    stats.present_interval_us.fetch_add(us, std::memory_order_relaxed);
+    stats.present_interval_sq_us.fetch_add(us * us, std::memory_order_relaxed);
+    // Compared with the frame time of the moment, which changes with fast forward.
+    const double limit_now = Settings::GetFrameLimit();
+    if (limit_now > 0.0 && interval > kFramePeriod * 100.0 / limit_now * 1.4) {
+        stats.present_late.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
 void Scheduler::PresentDrawable(id<CAMetalDrawable> drawable, bool measure) {
     pending_drawables.push_back({drawable, measure});
 }
@@ -474,28 +498,7 @@ void Scheduler::Flush() {
         }
         if (pending.measure) {
             [pending.drawable addPresentedHandler:^(id<MTLDrawable> presented) {
-              const double now = presented.presentedTime;
-              if (now <= 0.0) {
-                  return; // The frame was dropped
-              }
-              const double last = g_last_presented.exchange(now, std::memory_order_relaxed);
-              if (last <= 0.0 || now <= last) {
-                  return;
-              }
-              const double interval = now - last;
-              if (interval > 0.25) {
-                  return; // A pause or a menu, not a pacing problem
-              }
-              GpuStats& stats = Stats();
-              const u64 us = static_cast<u64>(interval * 1e6);
-              stats.present_intervals.fetch_add(1, std::memory_order_relaxed);
-              stats.present_interval_us.fetch_add(us, std::memory_order_relaxed);
-              stats.present_interval_sq_us.fetch_add(us * us, std::memory_order_relaxed);
-              // Compared with the frame time of the moment, which changes with fast forward.
-              const double limit_now = Settings::GetFrameLimit();
-              if (limit_now > 0.0 && interval > kFramePeriod * 100.0 / limit_now * 1.4) {
-                  stats.present_late.fetch_add(1, std::memory_order_relaxed);
-              }
+              RecordPresentedTime(presented.presentedTime);
             }];
         }
     }

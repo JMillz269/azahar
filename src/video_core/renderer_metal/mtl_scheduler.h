@@ -41,6 +41,10 @@ struct GpuStats {
     std::atomic<u32> fg_skipped{}; ///< Frames not made because the previous one was not done yet
 };
 
+/// Counts a frame of the main display that reached the screen at this time (the presentedTime
+/// of its drawable), for the statistics of the intervals between frames.
+void RecordPresentedTime(double time);
+
 /// Turns even frame pacing on or off, see Scheduler::PresentDrawable.
 void SetFramePacing(bool enabled);
 
