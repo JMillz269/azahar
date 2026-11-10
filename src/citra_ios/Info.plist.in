@@ -71,6 +71,12 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.games</string>
+    <key>GCSupportsGameMode</key>
+    <true/>
+    <key>LSSupportsGameMode</key>
+    <true/>
     <key>GCSupportsControllerUserInteraction</key>
     <true/>
     <key>GCSupportedGameControllers</key>
