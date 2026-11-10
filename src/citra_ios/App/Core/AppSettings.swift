@@ -516,9 +516,7 @@ final class AppSettings: ObservableObject {
         config.frameGeneration = FrameGenerator.isSupported ? frameGeneration : 0
         config.frameGenerationFast = frameGenerationFast
         config.frameGenerationTopOnly = frameGenerationTopOnly
-        // What the display runs at: 60 Hz when that is asked for, otherwise what it can do.
-        config.displayRefreshRate = refreshRate == .sixty
-            ? 60 : UIScreen.main.maximumFramesPerSecond
+        config.displayRefreshRate = UIScreen.main.maximumFramesPerSecond
         config.shaderWaitMs = shaderWaitMs
         config.framePacing = framePacing
         config.fastShaderMath = fastShaderMath
