@@ -58,8 +58,23 @@ struct FrameTimeline {
     std::atomic<double> real_actual_for{0.0};
     /// How long before a refresh a frame has to be handed over to be shown at it. Grows a little
     /// when a frame comes too late for its refresh and shrinks again while frames are in time.
-    std::atomic<double> lead{0.006};
+    std::atomic<double> lead{0.008};
 };
+
+/// Learns how far ahead of its refresh a frame has to be handed over. A display at 60 Hz needs
+/// about a refresh more than one at 120 Hz (the compositor works a refresh ahead), so it is not
+/// fixed: a frame that misses its refresh adds 2 ms, frames in time take it back slowly.
+void AdjustLead(FrameTimeline& timeline, bool missed) {
+    double value = timeline.lead.load(std::memory_order_relaxed);
+    if (missed) {
+        Stats().fg_late.fetch_add(1, std::memory_order_relaxed);
+        value = std::min(value + 0.002, 0.040);
+    } else {
+        value = std::max(value - 0.00003, 0.004);
+    }
+    timeline.lead.store(value, std::memory_order_relaxed);
+    Stats().fg_lead_us.store(static_cast<u32>(value * 1e6), std::memory_order_relaxed);
+}
 
 struct ScreenRectVertex {
     ScreenRectVertex() = default;
@@ -1575,15 +1590,7 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
             [drawable_between addPresentedHandler:^(id<MTLDrawable> presented) {
               const double shown = presented.presentedTime;
               RecordPresentedTime(shown);
-              double value = timeline->lead.load(std::memory_order_relaxed);
-              if (on_refresh && (shown <= 0.0 || shown > late_after)) {
-                  // Missed its refresh (or was never shown): hand the frames over earlier.
-                  Stats().fg_late.fetch_add(1, std::memory_order_relaxed);
-                  value = std::min(value + 0.001, 0.014);
-              } else {
-                  value = std::max(value - 0.00002, 0.004);
-              }
-              timeline->lead.store(value, std::memory_order_relaxed);
+              AdjustLead(*timeline, on_refresh && (shown <= 0.0 || shown > late_after));
             }];
             [buffer presentDrawable:drawable_between atTime:made_time - guard];
         } else if (drawable_between != nil) {
@@ -1591,9 +1598,14 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
             drawable_between = nil;
         }
         if (drawable_current != nil) {
+            const double real_late_after = real_time + 0.004;
+            const bool real_on_refresh = on_refresh && real_time > now;
             [drawable_current addPresentedHandler:^(id<MTLDrawable> presented) {
               const double shown = presented.presentedTime;
               RecordPresentedTime(shown);
+              if (real_on_refresh) {
+                  AdjustLead(*timeline, shown <= 0.0 || shown > real_late_after);
+              }
               if (shown > 0.0) {
                   timeline->real_actual.store(shown, std::memory_order_relaxed);
                   timeline->real_actual_for.store(real_time, std::memory_order_relaxed);
@@ -1793,6 +1805,7 @@ FrameStats TakeFrameStats() {
     result.fg_made = static_cast<double>(fg_made);
     result.fg_skipped = static_cast<double>(stats.fg_skipped.exchange(0));
     result.fg_late = static_cast<double>(stats.fg_late.exchange(0));
+    result.fg_lead_ms = static_cast<double>(stats.fg_lead_us.load()) / 1000.0;
     if (fg_made > 0) {
         result.fg_ms = static_cast<double>(fg_ns) / 1e6 / fg_made;
     }

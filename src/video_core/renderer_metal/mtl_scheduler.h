@@ -39,6 +39,7 @@ struct GpuStats {
     std::atomic<u64> fg_ns{};      ///< GPU time of making frames (frame generation)
     std::atomic<u32> fg_made{};    ///< Frames made
     std::atomic<u32> fg_skipped{}; ///< Frames not made because the previous one was not done yet
+    std::atomic<u32> fg_lead_us{}; ///< How far ahead of their refresh frames are handed over
     std::atomic<u32> fg_late{};    ///< Made frames that missed the refresh they were set to
 };
 
