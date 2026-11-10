@@ -1190,14 +1190,11 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         fg_ready = false;
         fg_failures.store(0, std::memory_order_relaxed);
         // The interpolation works on a copy of the chosen size (half the size is about a quarter
-        // of the work), and the made frame is scaled back up. Smaller when the interpolation
-        // refuses that size.
+        // of the work), and the made frame is scaled back up. Only the chosen size: when the
+        // interpolation refuses it, frame generation stays off rather than picking another size.
         const auto round_up = [](u32 value) { return (value + 15u) & ~15u; };
         constexpr std::array<f32, 4> all_scales{1.0f, 0.5f, 0.375f, 0.25f};
-        std::array<f32, 4> scales{};
-        for (int i = size, n = 0; i < 4; i++) {
-            scales[n++] = all_scales[i];
-        }
+        const std::array<f32, 1> scales{all_scales[size]};
         for (const f32 scale : scales) {
             if (scale <= 0.0f) {
                 break;
@@ -1243,8 +1240,10 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
                          layout.height, scaling);
                 break;
             }
-            LOG_INFO(Render, "Frame generation is not available for {}x{} frames", slot_width,
-                     slot_height);
+            LOG_WARNING(Render,
+                        "Frame generation is off: the interpolation does not take {}x{} frames "
+                        "(the chosen size); a smaller Frame Generation Size may work",
+                        slot_width, slot_height);
         }
         fg_failed = !fg_ready;
         if (!fg_ready) {
