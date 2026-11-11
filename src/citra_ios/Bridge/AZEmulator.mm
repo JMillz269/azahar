@@ -1069,7 +1069,7 @@ const char* ThermalStateName() {
             for (const std::string& line : Metal::TakeReadbackSummary(4)) {
                 LOG_INFO(Frontend, "Readback {}", line);
             }
-            for (const std::string& line : Metal::TakeRenderPassSummary(8)) {
+            for (const std::string& line : Metal::TakeRenderPassSummary(16)) {
                 LOG_INFO(Frontend, "Render passes (per second): {}", line);
             }
             if (gpu.frames > 0) {
@@ -1082,12 +1082,13 @@ const char* ThermalStateName() {
                          "{:.1f} ms in {:.1f} stalls, {:.0f} draws, {:.1f} skipped, {:.1f} render passes, "
                          "{:.1f} blit passes, {:.1f} feedback copies, drawable wait {:.1f} ms "
                          "per frame; frames on screen every {:.2f} ms (spread {:.2f} ms), {:.0f} late, "
-                         "device {}{}",
+                         "emulation thread CPU {:.1f} ms per frame (worst {:.1f} ms), device {}{}",
                          _speed.load(), _fps.load(), gpu.gpu_ms, gpu.present_ms, gpu.stall_ms,
                          gpu.stalls,
                          gpu.draws, gpu.skipped, gpu.render_passes, gpu.blit_passes,
                          gpu.feedback_copies, gpu.drawable_ms, gpu.present_interval_ms,
-                         gpu.present_jitter_ms, gpu.present_late, ThermalStateName(),
+                         gpu.present_jitter_ms, gpu.present_late, gpu.cpu_ms, gpu.cpu_max_ms,
+                         ThermalStateName(),
                          NSProcessInfo.processInfo.lowPowerModeEnabled ? ", low power mode" : "");
                 if (gpu.fg_made > 0 || gpu.fg_skipped > 0) {
                     LOG_INFO(Frontend,
