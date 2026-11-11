@@ -444,9 +444,11 @@ struct GraphicsSettingsView: View {
         text += "the bottom screen at the game's own frame rate, which halves the work in most "
         text += "layouts. Display-Driven Pacing (iOS 17 or later, experimental) lets the display "
         text += "pick up each frame at its own refresh instead of timing the frames in advance, "
-        text += "which should keep them even at 60 Hz too. Also 60 FPS Games makes 60 FPS games "
-        text += "show 120 frames per second; it needs Display-Driven Pacing and the display at "
-        text += "120 Hz, adds about 8 ms of delay and twice the heat.\n\n"
+        text += "which should keep them even at 60 Hz too. GPU Chaining hands the interpolation to the GPU to start as soon as the picture "
+        text += "is ready, instead of the CPU starting it, which can make the timing steadier "
+        text += "(or change nothing). If it makes frames flash or look wrong, turn it off. "
+        text += "Also 60 FPS Games shows 120 frames per second; it needs Display-Driven Pacing "
+        text += "and the display at 120 Hz, adds about 8 ms of delay and twice the heat.\n\n"
         text += "Frame Presentation Skip does not present a frame the game did not draw again, so "
         text += "a 30 FPS game shows 30 frames per second instead of every frame twice at 60. "
         text += "The emulation speed and the audio stay the same. Meant for frame generation and "
@@ -470,6 +472,8 @@ struct GraphicsSettingsView: View {
                 Toggle("Top Screen Only", isOn: $settings.frameGenerationTopOnly)
                     .disabled(settings.frameGeneration == 0)
                 Toggle("Display-Driven Pacing", isOn: $settings.frameGenerationDisplayPaced)
+                    .disabled(settings.frameGeneration == 0)
+                Toggle("GPU Chaining (Experimental)", isOn: $settings.frameGenerationGpuChain)
                     .disabled(settings.frameGeneration == 0)
                 Toggle("Also 60 FPS Games (120 Hz)", isOn: $settings.frameGenerationAllGames)
                     .disabled(settings.frameGeneration == 0 || !settings.frameGenerationDisplayPaced)

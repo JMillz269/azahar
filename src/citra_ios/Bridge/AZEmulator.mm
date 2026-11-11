@@ -318,6 +318,13 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
                                      done(made);
                                    }] == YES;
     };
+    hooks.interpolate_on_gpu = [generator](u32 previous, u32 current, u32 destination,
+                                           void* buffer) {
+        return [generator interpolateFromSlot:previous
+                                       toSlot:current
+                                     intoSlot:destination
+                                commandBuffer:(__bridge id<MTLCommandBuffer>)buffer] == YES;
+    };
     Metal::SetFrameGeneratorHooks(std::move(hooks));
 }
 
@@ -488,6 +495,7 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     quality.frame_generation_size = static_cast<int>(configuration.frameGenerationSize);
     quality.frame_generation_top_only = configuration.frameGenerationTopOnly;
     quality.frame_generation_display_paced = configuration.frameGenerationDisplayPaced;
+    quality.frame_generation_gpu_chain = configuration.frameGenerationGpuChain;
     quality.shader_wait_us = static_cast<u32>(std::clamp<NSInteger>(configuration.shaderWaitMs, 0, 16)) * 1000;
     quality.max_anisotropy = static_cast<int>(configuration.anisotropy);
     Metal::SetQualityOptions(quality);

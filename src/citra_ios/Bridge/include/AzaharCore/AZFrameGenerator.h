@@ -31,6 +31,14 @@ NS_ASSUME_NONNULL_BEGIN
                  completion:(void (^)(BOOL made))completion
     NS_SWIFT_NAME(interpolate(from:to:into:completion:));
 
+/// The same, encoded into `commandBuffer` (which the renderer commits, after the command buffer with
+/// the picture) instead of being started. Returns NO when it could not be encoded.
+- (BOOL)interpolateFromSlot:(NSInteger)previous
+                     toSlot:(NSInteger)current
+                   intoSlot:(NSInteger)destination
+              commandBuffer:(id<MTLCommandBuffer>)commandBuffer
+    NS_SWIFT_NAME(interpolate(from:to:into:commandBuffer:));
+
 @end
 
 NS_ASSUME_NONNULL_END

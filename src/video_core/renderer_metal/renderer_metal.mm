@@ -404,6 +404,9 @@ private:
     std::array<id<MTLTexture>, FG_MADE> fg_made{};
     u32 fg_made_index{};
     /// Display-driven pacing: a CAMetalDisplayLink on a thread of its own shows the frames.
+    /// Orders the command buffers of the picture and of the interpolation (GPU chaining).
+    id<MTLEvent> fg_event = nil;
+    u64 fg_event_value{};
     std::shared_ptr<DisplayPacer> fg_pacer;
     id fg_pacer_link = nil;     ///< CAMetalDisplayLink (iOS 17)
     id fg_pacer_delegate = nil; ///< AzaharPacerDelegate
@@ -1421,6 +1424,9 @@ bool RendererMetal::PrepareFrameGenerationResources() {
             return false;
         }
     }
+    if (fg_event == nil) {
+        fg_event = [device newEvent];
+    }
 
 #if AZAHAR_HAS_METALFX
     // The made frame is scaled up to its area on the screen with MetalFX, like the real picture
@@ -1678,6 +1684,41 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         [buffer commit];
         busy->store(false, std::memory_order_release);
     });
+
+    // Chained on the GPU: the command buffer with the picture signals an event, and a second one
+    // that waits for it has the interpolation encoded into it. The CPU does not have to start the
+    // interpolation when the picture is done, it only hears when the made frame is ready.
+    const bool chained = make_between && GetQualityOptions().frame_generation_gpu_chain &&
+                         g_fg_hooks.interpolate_on_gpu && fg_event != nil;
+    if (chained) {
+        const u64 drawn = ++fg_event_value;
+        [scheduler.CommandBuffer() encodeSignalEvent:fg_event value:drawn];
+        scheduler.Flush();
+        id<MTLCommandBuffer> make = [queue commandBuffer];
+        [make encodeWaitForEvent:fg_event value:drawn];
+        const bool encoded = g_fg_hooks.interpolate_on_gpu(previous, source, destination,
+                                                           (__bridge void*)make);
+        const auto start = std::chrono::steady_clock::now();
+        [make addCompletedHandler:^(id<MTLCommandBuffer> finished) {
+          const bool ok = encoded && finished.status == MTLCommandBufferStatusCompleted;
+          if (ok) {
+              const auto took = std::chrono::steady_clock::now() - start;
+              Stats().fg_ns.fetch_add(
+                  static_cast<u64>(
+                      std::chrono::duration_cast<std::chrono::nanoseconds>(took).count()),
+                  std::memory_order_relaxed);
+              Stats().fg_made.fetch_add(1, std::memory_order_relaxed);
+              failures->store(0, std::memory_order_relaxed);
+          } else {
+              failures->fetch_add(1, std::memory_order_relaxed);
+          }
+          (*show)(ok);
+        }];
+        [make commit];
+        fg_prev = static_cast<int>(fg_cur);
+        fg_cur = (fg_cur + 1) % FG_SLOTS;
+        return;
+    }
 
     // Once the GPU has the picture in the planes, the interpolation makes the frame between the
     // previous one and this one; without a previous frame only this one is shown.

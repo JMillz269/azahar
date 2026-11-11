@@ -26,6 +26,7 @@ struct GameOverrides: Codable, Equatable {
     var frameGenerationSize: Int?
     var frameGenerationTopOnly: Bool?
     var frameGenerationDisplayPaced: Bool?
+    var frameGenerationGpuChain: Bool?
     var shaderWaitMs: Int?
     var disableRightEyeRender: Bool?
     var integerScaling: Bool?
@@ -82,6 +83,7 @@ struct GameOverrides: Codable, Equatable {
         if let frameGenerationFast { config.frameGenerationSize = frameGenerationFast ? 2 : 1 }
         if let frameGenerationSize { config.frameGenerationSize = frameGenerationSize }
         if let frameGenerationTopOnly { config.frameGenerationTopOnly = frameGenerationTopOnly }
+        if let frameGenerationGpuChain { config.frameGenerationGpuChain = frameGenerationGpuChain }
         if let frameGenerationDisplayPaced {
             config.frameGenerationDisplayPaced = frameGenerationDisplayPaced
         }
