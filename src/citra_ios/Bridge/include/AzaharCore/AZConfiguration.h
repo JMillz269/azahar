@@ -60,6 +60,11 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL fastLighting;
 /// Texture combiners in half precision (applies to the next game).
 @property(nonatomic) BOOL fastColor;
+/// Fast versions of the math functions in fragment shaders (rsqrt, normalize, pow, ...), without
+/// the assumptions about NaN and infinity that Fast Shader Math makes (iOS 18).
+@property(nonatomic) BOOL fastMathFunctions;
+/// The vertex color goes from the vertex to the fragment shader in half precision.
+@property(nonatomic) BOOL halfInterpolants;
 /// Depth mapped in the vertex shader so the GPU's hidden surface removal works (next game).
 @property(nonatomic) BOOL hiddenSurfaceRemoval;
 /// GPU memory compression of textures: 0 off, 1 lossless, 2 lossy (next game).

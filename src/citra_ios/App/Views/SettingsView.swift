@@ -191,6 +191,8 @@ struct GraphicsSettingsView: View {
                 Toggle("Fast Shader Math", isOn: $settings.fastShaderMath)
                 Toggle("Fast Lighting Math", isOn: $settings.fastLighting)
                 Toggle("Fast Color Math", isOn: $settings.fastColor)
+                Toggle("Fast Math Functions", isOn: $settings.fastMathFunctions)
+                Toggle("Half Precision Colors Between Stages", isOn: $settings.halfInterpolants)
                 Toggle("Fast Depth Readback", isOn: $settings.fastDepthReadback)
                 Toggle("Disable Right Eye Render", isOn: $settings.disableRightEyeRender)
                 Toggle("Hidden Surface Removal", isOn: $settings.hiddenSurfaceRemoval)
@@ -206,6 +208,11 @@ struct GraphicsSettingsView: View {
                      + "Fast Shader Math can cause small graphical differences in some games. "
                      + "Fast Lighting Math computes lighting in half precision, which helps games "
                      + "with a lot of lighting (Luigi's Mansion) and can shift highlights slightly. "
+                     + "Fast Math Functions uses faster versions of functions like normalize and "
+                     + "pow (iOS 18), without the NaN assumptions of Fast Shader Math; it is "
+                     + "ignored while Fast Shader Math is on. Half Precision Colors Between "
+                     + "Stages passes the vertex color to the pixel shader as half precision, "
+                     + "which saves a little bandwidth. Both apply when a game starts. "
                      + "Fast Color Math does the color combiners in half precision, the same "
                      + "8-bit result in practice. Hidden Surface Removal lets the GPU skip "
                      + "pixels hidden behind others (not for games using W-buffering). Texture "

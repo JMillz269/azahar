@@ -233,7 +233,7 @@ std::string RandomVertexShader(std::mt19937& rng, int index) {
         attribute.map_w.Assign(static_cast<Pica::RasterizerRegs::VSOutputAttributes::Semantic>(pick()));
     }
 
-    return MSL::GenerateVertexShader(*setup, config, index % 3 != 0, index % 4 != 0);
+    return MSL::GenerateVertexShader(*setup, config, index % 3 != 0, index % 4 != 0, index % 5 < 2);
 }
 
 } // Anonymous namespace
@@ -259,6 +259,8 @@ int main(int argc, char** argv) {
 
     Write(out_dir, "vs_trivial.metal", MSL::GenerateTrivialVertexShader(false));
     Write(out_dir, "vs_trivial_clip.metal", MSL::GenerateTrivialVertexShader(true));
+    Write(out_dir, "vs_trivial_half.metal", MSL::GenerateTrivialVertexShader(false, true));
+    Write(out_dir, "vs_trivial_clip_half.metal", MSL::GenerateTrivialVertexShader(true, true));
 
     // Random register states exercise most of the generator branches.
     std::mt19937 rng{1234};
@@ -284,6 +286,7 @@ int main(int argc, char** argv) {
         metal_config.fast_lighting = (i / 2) % 2 != 0;
         metal_config.fast_color = (i % 4) >= 2;
         metal_config.half_luts = metal_config.fast_lighting;
+        metal_config.half_interpolants = (i % 5) < 2;
         metal_config.vertex_depth = metal_config.has_depth_attachment && (i % 6) < 3;
 
         Write(out_dir, "fs_random_" + std::to_string(i) + ".metal",

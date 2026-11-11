@@ -23,6 +23,8 @@
     config.fastShaderMath = NO;
     config.fastLighting = NO;
     config.fastColor = NO;
+    config.fastMathFunctions = NO;
+    config.halfInterpolants = NO;
     config.hiddenSurfaceRemoval = NO;
     config.textureCompression = 0;
     config.fastDepthReadback = NO;

@@ -91,6 +91,11 @@ struct QualityOptions {
     bool vertex_depth = false;
     /// Texture combiners in half precision.
     bool fast_color = false;
+    /// Fast versions of the math functions in fragment shaders, without fast math's assumptions
+    /// about NaN and infinity (iOS 18).
+    bool fast_functions = false;
+    /// The vertex color goes from the vertex to the fragment stage in half precision.
+    bool half_interpolants = false;
     TextureCompression texture_compression = TextureCompression::Off;
     /// Small depth areas the CPU reads every frame get the previous frame's values instead of
     /// waiting for the GPU (Mario Kart 7's sun glare check).

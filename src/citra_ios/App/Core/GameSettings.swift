@@ -14,6 +14,8 @@ struct GameOverrides: Codable, Equatable {
     var fastShaderMath: Bool?
     var fastLighting: Bool?
     var fastColor: Bool?
+    var fastMathFunctions: Bool?
+    var halfInterpolants: Bool?
     var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
     var asyncShaders: Bool?
@@ -66,6 +68,8 @@ struct GameOverrides: Codable, Equatable {
         if let fastShaderMath { config.fastShaderMath = fastShaderMath }
         if let fastLighting { config.fastLighting = fastLighting }
         if let fastColor { config.fastColor = fastColor }
+        if let fastMathFunctions { config.fastMathFunctions = fastMathFunctions }
+        if let halfInterpolants { config.halfInterpolants = halfInterpolants }
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }
         if let asyncShaders { config.asyncShaderCompilation = asyncShaders }

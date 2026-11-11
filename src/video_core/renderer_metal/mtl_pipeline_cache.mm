@@ -90,7 +90,7 @@ struct PipelineCache::Pipeline {
 
 PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* vertex_descriptor_)
     : instance{instance_}, vertex_descriptor{vertex_descriptor_} {
-    const auto make_options = [](bool fast_math) {
+    const auto make_options = [](bool fast_math, bool fast_functions) {
         MTLCompileOptions* options = [MTLCompileOptions new];
         if (@available(iOS 16.0, macOS 13.0, *)) {
             options.languageVersion = MTLLanguageVersion2_4;
@@ -105,17 +105,32 @@ PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* ver
         } else {
             options.fastMathEnabled = fast_math;
         }
+        // Faster versions of the math functions (rsqrt, normalize, pow, ...) without the
+        // assumptions about NaN and infinity that fast math makes.
+        if (fast_functions && !fast_math) {
+            if (@available(iOS 18.0, macOS 15.0, *)) {
+                options.mathFloatingPointFunctions = MTLMathFloatingPointFunctionsFast;
+            }
+        }
         return options;
     };
     // Vertex positions must stay exact, only fragment shaders may opt into fast math.
-    compile_options = make_options(false);
-    fragment_compile_options = make_options(GetQualityOptions().fast_math);
+    compile_options = make_options(false, false);
+    fragment_compile_options =
+        make_options(GetQualityOptions().fast_math, GetQualityOptions().fast_functions);
+    if (GetQualityOptions().fast_functions && !GetQualityOptions().fast_math) {
+        LOG_INFO(Render, "Fragment shaders use the fast math functions");
+    }
+    if (GetQualityOptions().half_interpolants) {
+        LOG_INFO(Render, "Vertex colors are passed to the fragment shaders in half precision");
+    }
     if (GetQualityOptions().fast_math) {
         LOG_INFO(Render, "Fragment shaders are compiled with fast math");
     }
 
     trivial_vertex_shader =
-        MakeShader(0, true, MSL::GenerateTrivialVertexShader(GetProfile().has_clip_planes));
+        MakeShader(0, true, MSL::GenerateTrivialVertexShader(GetProfile().has_clip_planes,
+                                         GetQualityOptions().half_interpolants));
     CompileShader(*trivial_vertex_shader);
     ASSERT_MSG(!trivial_vertex_shader->failed, "Failed to compile the Metal vertex shader");
 
@@ -212,6 +227,7 @@ PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInt
     metal_config.vertex_depth = UsesVertexDepth(regs, has_depth_attachment);
     metal_config.fast_color = GetQualityOptions().fast_color;
     metal_config.half_luts = GetQualityOptions().fast_lighting;
+    metal_config.half_interpolants = GetQualityOptions().half_interpolants;
     if (metal_config.fast_lighting) {
         hash = Common::HashCombine(hash, 0xFA57'1164'7000'0001ULL);
     }
@@ -223,6 +239,9 @@ PipelineCache::ShaderHandle PipelineCache::UseFragmentShader(const Pica::RegsInt
     }
     if (metal_config.half_luts) {
         hash = Common::HashCombine(hash, 0x4A1F'0000'0000'0004ULL);
+    }
+    if (metal_config.half_interpolants) {
+        hash = Common::HashCombine(hash, 0x4A1F'1177'0000'0005ULL);
     }
     hash = hash == 0 ? 1 : hash;
     if (const auto it = fragment_shaders.find(hash); it != fragment_shaders.end()) {
@@ -241,8 +260,10 @@ PipelineCache::ShaderHandle PipelineCache::UseVertexShader(const Pica::RegsInter
     const PicaVSConfig config{regs, setup};
     const bool use_clip_planes = GetProfile().has_clip_planes;
     const bool sanitize_mul = GetProfile().enable_accurate_mul;
+    const bool half_interpolants = GetQualityOptions().half_interpolants;
     u64 hash = Common::HashCombine(config.Hash(), static_cast<u64>(use_clip_planes),
-                                   static_cast<u64>(sanitize_mul));
+                                   static_cast<u64>(sanitize_mul),
+                                   static_cast<u64>(half_interpolants));
     hash = hash == 0 ? 1 : hash;
     if (const auto it = vertex_shaders.find(hash); it != vertex_shaders.end()) {
         const ShaderHandle& shader = it->second;
@@ -250,7 +271,7 @@ PipelineCache::ShaderHandle PipelineCache::UseVertexShader(const Pica::RegsInter
         return shader->failed.load(std::memory_order_relaxed) ? nullptr : shader;
     }
 
-    std::string source = MSL::GenerateVertexShader(setup, config, use_clip_planes, sanitize_mul);
+    std::string source = MSL::GenerateVertexShader(setup, config, use_clip_planes, sanitize_mul, half_interpolants);
     auto shader = MakeShader(hash, true, std::move(source));
     if (shader->source.empty()) {
         LOG_INFO(Render, "Vertex shader {:016x} cannot be translated, using the CPU for it",
@@ -494,7 +515,10 @@ void PipelineCache::OpenDiskCache(u64 title_id_) {
         .magic = CACHE_MAGIC,
         .version = CACHE_VERSION,
         .build_hash = BuildHash(),
-        .profile_hash = ProfileHash(GetProfile()),
+        .profile_hash = Common::HashCombine(
+            ProfileHash(GetProfile()),
+            static_cast<u64>(GetQualityOptions().fast_math) |
+                static_cast<u64>(GetQualityOptions().fast_functions) << 1),
     };
 
     // Reuse the file when it was written by this build with the same profile, otherwise start over.

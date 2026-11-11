@@ -475,6 +475,8 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
     quality.fast_math = configuration.fastShaderMath;
     quality.fast_lighting = configuration.fastLighting;
     quality.fast_color = configuration.fastColor;
+    quality.fast_functions = configuration.fastMathFunctions;
+    quality.half_interpolants = configuration.halfInterpolants;
     quality.vertex_depth = configuration.hiddenSurfaceRemoval;
     quality.texture_compression = static_cast<Metal::TextureCompression>(
         std::clamp<NSInteger>(configuration.textureCompression, 0, 2));

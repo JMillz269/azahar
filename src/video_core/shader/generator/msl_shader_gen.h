@@ -91,6 +91,9 @@ struct MetalFSConfig {
     /// The lighting and fog lookup tables (FS_BUFFER_LUT_LF) hold half2 instead of float2
     /// entries. Set for every shader while fast lighting is on, the buffer is shared.
     bool half_luts = false;
+    /// The vertex color goes from the vertex to the fragment stage as half4. The vertex shaders
+    /// are generated with the same setting.
+    bool half_interpolants = false;
 };
 
 /// Depth mapping done in the vertex shader instead of the fragment shader. Writing [[depth]] in a
@@ -162,10 +165,11 @@ static_assert(sizeof(VSVertexLayout) == 544, "VSVertexLayout must match the MSL 
  * if the program cannot be translated, in which case the draw must use the software path.
  */
 std::string GenerateVertexShader(const Pica::ShaderSetup& setup, const PicaVSConfig& config,
-                                 bool use_clip_planes, bool sanitize_mul);
+                                 bool use_clip_planes, bool sanitize_mul,
+                                 bool half_interpolants = false);
 
 /// Returns the vertex shader used by the software (CPU) vertex processing path.
-std::string GenerateTrivialVertexShader(bool use_clip_planes);
+std::string GenerateTrivialVertexShader(bool use_clip_planes, bool half_interpolants = false);
 
 /**
  * Generates the MSL fragment shader program source code for the current Pica state.

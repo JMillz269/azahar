@@ -255,6 +255,8 @@ final class AppSettings: ObservableObject {
     @Published var holdFramesForShaders: Bool { didSet { save(holdFramesForShaders, "holdFramesForShaders") } }
     @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
     @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
+    @Published var fastMathFunctions: Bool { didSet { save(fastMathFunctions, "fastMathFunctions") } }
+    @Published var halfInterpolants: Bool { didSet { save(halfInterpolants, "halfInterpolants") } }
     @Published var fastDepthReadback: Bool { didSet { save(fastDepthReadback, "fastDepthReadback") } }
     @Published var hiddenSurfaceRemoval: Bool {
         didSet { save(hiddenSurfaceRemoval, "hiddenSurfaceRemoval") }
@@ -407,6 +409,8 @@ final class AppSettings: ObservableObject {
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
         fastColor = value("fastColor", false)
+        fastMathFunctions = value("fastMathFunctions", false)
+        halfInterpolants = value("halfInterpolants", false)
         fastDepthReadback = value("fastDepthReadback", false)
         hiddenSurfaceRemoval = value("hiddenSurfaceRemoval", false)
         textureCompression = TextureCompressionOption(rawValue: value("textureCompression", 0)) ?? .off
@@ -534,6 +538,8 @@ final class AppSettings: ObservableObject {
         config.fastShaderMath = fastShaderMath
         config.fastLighting = fastLighting
         config.fastColor = fastColor
+        config.fastMathFunctions = fastMathFunctions
+        config.halfInterpolants = halfInterpolants
         config.fastDepthReadback = fastDepthReadback
         config.hiddenSurfaceRemoval = hiddenSurfaceRemoval
         config.textureCompression = textureCompression.rawValue

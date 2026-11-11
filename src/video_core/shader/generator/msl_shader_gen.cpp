@@ -130,11 +130,21 @@ struct FSUniforms {
 };
 )";
 
+// The color passed from the vertex to the fragment stage: half precision with the fast
+// interpolants option (it is a 0 to 1 value that ends up as 8 bits).
+constexpr std::string_view InterpColorDef = R"(
+#ifdef HALF_INTERPOLANTS
+typedef half4 interp_color_t;
+#else
+typedef float4 interp_color_t;
+#endif
+)";
+
 // Interface between the vertex and fragment stages. Members are matched by their user() name.
 constexpr std::string_view VSOutputDef = R"(
 struct VSOutput {
     float4 position [[position, invariant]];
-    float4 primary_color [[user(primary_color)]];
+    interp_color_t primary_color [[user(primary_color)]];
     float2 texcoord0 [[user(texcoord0)]];
     float2 texcoord1 [[user(texcoord1)]];
     float2 texcoord2 [[user(texcoord2)]];
@@ -150,7 +160,7 @@ struct VSOutput {
 constexpr std::string_view FSInputDef = R"(
 struct FSInput {
     float4 position [[position]];
-    float4 primary_color [[user(primary_color)]];
+    interp_color_t primary_color [[user(primary_color)]];
     float2 texcoord0 [[user(texcoord0)]];
     float2 texcoord1 [[user(texcoord1)]];
     float2 texcoord2 [[user(texcoord2)]];
@@ -210,7 +220,11 @@ public:
 #ifdef ENABLE_FREECAM
         out += "#define ENABLE_FREECAM 1\n";
 #endif
+        if (metal.half_interpolants) {
+            out += "#define HALF_INTERPOLANTS 1\n";
+        }
         out += FSUniformDef;
+        out += InterpColorDef;
         out += FSInputDef;
         DefineOutput();
         DefineConstants();
@@ -389,7 +403,9 @@ constant int proctex_noise_table2[16] = {10,2,15,8,0,7,4,5,5,13,2,6,13,9,3,14};
             std::string arg = name;
             if (name == "frag_coord") {
                 arg = "in.position";
-            } else if (name == "primary_color" || name == "texcoord0" || name == "texcoord1" ||
+            } else if (name == "primary_color") {
+                arg = "float4(in.primary_color)";
+            } else if (name == "texcoord0" || name == "texcoord1" ||
                        name == "texcoord2" || name == "texcoord0_w" || name == "normquat" ||
                        name == "view") {
                 arg = "in." + name;
@@ -1916,7 +1932,7 @@ private:
 
 } // Anonymous namespace
 
-std::string GenerateTrivialVertexShader(bool use_clip_planes) {
+std::string GenerateTrivialVertexShader(bool use_clip_planes, bool half_interpolants) {
     std::string out;
     out += CommonHeader;
 #ifdef ENABLE_FREECAM
@@ -1925,7 +1941,11 @@ std::string GenerateTrivialVertexShader(bool use_clip_planes) {
     if (use_clip_planes) {
         out += "#define USE_CLIP_PLANES 1\n";
     }
+    if (half_interpolants) {
+        out += "#define HALF_INTERPOLANTS 1\n";
+    }
     out += VSUniformDef;
+    out += InterpColorDef;
     out += VSOutputDef;
     out += VSSanitizeDef;
 
@@ -1947,7 +1967,7 @@ struct VSInput {
 vertex VSOutput {}(VSInput in [[stage_in]], constant VSUniforms& vs [[buffer({})]],
                     constant VSDepth& vs_depth [[buffer({})]]) {{
     VSOutput out;
-    out.primary_color = in.color;
+    out.primary_color = interp_color_t(in.color);
     out.texcoord0 = in.texcoord0;
     out.texcoord1 = in.texcoord1;
     out.texcoord2 = in.texcoord2;
@@ -2078,7 +2098,7 @@ static uint FetchVertexIndex(constant VertexLayout& layout, device const uchar* 
 } // Anonymous namespace
 
 std::string GenerateVertexShader(const Pica::ShaderSetup& setup, const PicaVSConfig& config,
-                                 bool use_clip_planes, bool sanitize_mul) {
+                                 bool use_clip_planes, bool sanitize_mul, bool half_interpolants) {
     using VSOutputAttributes = Pica::RasterizerRegs::VSOutputAttributes;
     const auto& state = config.state;
 
@@ -2111,7 +2131,11 @@ std::string GenerateVertexShader(const Pica::ShaderSetup& setup, const PicaVSCon
     if (use_clip_planes) {
         out += "#define USE_CLIP_PLANES 1\n";
     }
+    if (half_interpolants) {
+        out += "#define HALF_INTERPOLANTS 1\n";
+    }
     out += VSUniformDef;
+    out += InterpColorDef;
     out += VSOutputDef;
     out += VSSanitizeDef;
     out += VSHardwareDefs;
@@ -2229,7 +2253,7 @@ vertex VSOutput {}(uint vid [[vertex_id]], constant VSUniforms& vs [[buffer({})]
                        sh_vec("float4", {VSOutputAttributes::COLOR_R, VSOutputAttributes::COLOR_G,
                                          VSOutputAttributes::COLOR_B,
                                          VSOutputAttributes::COLOR_A}));
-    out += "    out.primary_color = min(abs(vtx_color), float4(1.0));\n";
+    out += "    out.primary_color = interp_color_t(min(abs(vtx_color), float4(1.0)));\n";
     out += fmt::format("    out.texcoord0 = {};\n",
                        sh_vec("float2", {VSOutputAttributes::TEXCOORD0_U,
                                          VSOutputAttributes::TEXCOORD0_V}));
