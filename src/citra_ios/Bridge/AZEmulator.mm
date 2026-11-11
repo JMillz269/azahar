@@ -250,6 +250,23 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
 
 } // Anonymous namespace
 
+namespace {
+/// The thermal state of the device, which says whether the GPU is being slowed down.
+const char* ThermalStateName() {
+    switch (NSProcessInfo.processInfo.thermalState) {
+    case NSProcessInfoThermalStateNominal:
+        return "cool";
+    case NSProcessInfoThermalStateFair:
+        return "warm (fair)";
+    case NSProcessInfoThermalStateSerious:
+        return "hot (serious, throttled)";
+    case NSProcessInfoThermalStateCritical:
+        return "very hot (critical, throttled)";
+    }
+    return "unknown";
+}
+} // namespace
+
 @implementation AZEmulator {
     std::unique_ptr<EmuWindow_iOS> _window;
     std::thread _thread;
@@ -1064,12 +1081,14 @@ std::array<float, 8> DefaultCustomLayout(bool portrait, double width, double hei
                          "Speed {:.0f}%, {:.1f} fps: GPU {:.1f} ms (presenting {:.1f}), CPU waited "
                          "{:.1f} ms in {:.1f} stalls, {:.0f} draws, {:.1f} skipped, {:.1f} render passes, "
                          "{:.1f} blit passes, {:.1f} feedback copies, drawable wait {:.1f} ms "
-                         "per frame; frames on screen every {:.2f} ms (spread {:.2f} ms), {:.0f} late",
+                         "per frame; frames on screen every {:.2f} ms (spread {:.2f} ms), {:.0f} late, "
+                         "device {}{}",
                          _speed.load(), _fps.load(), gpu.gpu_ms, gpu.present_ms, gpu.stall_ms,
                          gpu.stalls,
                          gpu.draws, gpu.skipped, gpu.render_passes, gpu.blit_passes,
                          gpu.feedback_copies, gpu.drawable_ms, gpu.present_interval_ms,
-                         gpu.present_jitter_ms, gpu.present_late);
+                         gpu.present_jitter_ms, gpu.present_late, ThermalStateName(),
+                         NSProcessInfo.processInfo.lowPowerModeEnabled ? ", low power mode" : "");
                 if (gpu.fg_made > 0 || gpu.fg_skipped > 0) {
                     LOG_INFO(Frontend,
                              "Frame generation: {:.0f} frames made ({:.1f} ms each), {:.0f} game "
