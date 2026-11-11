@@ -105,9 +105,10 @@ PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* ver
         } else {
             options.fastMathEnabled = fast_math;
         }
-        // Faster versions of the math functions (rsqrt, normalize, pow, ...) without the
-        // assumptions about NaN and infinity that fast math makes.
-        if (fast_functions && !fast_math) {
+        // Faster versions of the math functions (rsqrt, normalize, pow, ...), which do not need
+        // the assumptions about NaN and infinity that fast math makes. Set whatever the math
+        // mode is, so the two options work together.
+        if (fast_functions) {
             if (@available(iOS 18.0, macOS 15.0, *)) {
                 options.mathFloatingPointFunctions = MTLMathFloatingPointFunctionsFast;
             }
@@ -118,8 +119,9 @@ PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* ver
     compile_options = make_options(false, false);
     fragment_compile_options =
         make_options(GetQualityOptions().fast_math, GetQualityOptions().fast_functions);
-    if (GetQualityOptions().fast_functions && !GetQualityOptions().fast_math) {
-        LOG_INFO(Render, "Fragment shaders use the fast math functions");
+    if (GetQualityOptions().fast_functions) {
+        LOG_INFO(Render, "Fragment shaders use the fast math functions{}",
+                 GetQualityOptions().fast_math ? " (together with fast math)" : "");
     }
     if (GetQualityOptions().half_interpolants) {
         LOG_INFO(Render, "Vertex colors are passed to the fragment shaders in half precision");
