@@ -96,6 +96,9 @@ struct QualityOptions {
     bool fast_functions = false;
     /// The vertex color goes from the vertex to the fragment stage in half precision.
     bool half_interpolants = false;
+    /// The stream buffers the CPU writes and the GPU reads are not tracked by Metal (they track
+    /// their own reuse), which saves CPU time at every draw.
+    bool untracked_buffers = false;
     TextureCompression texture_compression = TextureCompression::Off;
     /// Small depth areas the CPU reads every frame get the previous frame's values instead of
     /// waiting for the GPU (Mario Kart 7's sun glare check).

@@ -46,6 +46,7 @@ struct GameSettingsView: View {
                 OverrideToggle("Fast Color Math", value: $overrides.fastColor)
                 OverrideToggle("Fast Math Functions", value: $overrides.fastMathFunctions)
                 OverrideToggle("Half Precision Colors Between Stages", value: $overrides.halfInterpolants)
+                OverrideToggle("Untracked Stream Buffers", value: $overrides.untrackedBuffers)
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
                 OverrideToggle("Async Shader Compilation", value: $overrides.asyncShaders)

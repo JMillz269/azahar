@@ -151,6 +151,35 @@ struct GraphicsSettingsView: View {
     @State private var postShaders = PostShaders.availableNames()
     @State private var clearedShaderCache = false
 
+    /// Built in steps: one long concatenation is too much for the type checker.
+    private static var enhancementsFooter: String {
+        var text = ""
+        text += "Texture filters smooth the textures of games when Internal Resolution is above "
+        text += "1x (xBRZ and MMPX suit pixel art, Bicubic and ScaleForce are gentler). "
+        text += "Lower anisotropic filtering and Fast Shader Math make games run faster. "
+        text += "Fast Shader Math can cause small graphical differences in some games. "
+        text += "Fast Lighting Math computes lighting in half precision, which helps games "
+        text += "with a lot of lighting (Luigi's Mansion) and can shift highlights slightly. "
+        text += "Fast Math Functions uses faster versions of functions like normalize and "
+        text += "pow (iOS 18), without the NaN assumptions of Fast Shader Math; it is "
+        text += "ignored while Fast Shader Math is on. Half Precision Colors Between "
+        text += "Stages passes the vertex color to the pixel shader as half precision, "
+        text += "which saves a little bandwidth. Untracked Stream Buffers stops Metal "
+        text += "from tracking the buffers the emulator already keeps in order itself, "
+        text += "which saves CPU time in games with many draws (turn it off if a game "
+        text += "flickers). They apply when a game starts. "
+        text += "Fast Color Math does the color combiners in half precision, the same "
+        text += "8-bit result in practice. Hidden Surface Removal lets the GPU skip "
+        text += "pixels hidden behind others (not for games using W-buffering). Texture "
+        text += "Compression saves GPU memory bandwidth: Lossless looks identical, Lossy "
+        text += "(A15 and later) saves more with a tiny loss of quality. "
+        text += "Fast Depth Readback answers the small depth checks some games do every "
+        text += "frame (Mario Kart 7's sun glare) with the previous frame's values instead "
+        text += "of waiting for the GPU. "
+        text += "All of these apply the next time a game starts."
+        return text
+    }
+
     @ViewBuilder private var rendererSections: some View {
             Section {
                 LabeledContent("Renderer", value: "Metal")
@@ -193,6 +222,7 @@ struct GraphicsSettingsView: View {
                 Toggle("Fast Color Math", isOn: $settings.fastColor)
                 Toggle("Fast Math Functions", isOn: $settings.fastMathFunctions)
                 Toggle("Half Precision Colors Between Stages", isOn: $settings.halfInterpolants)
+                Toggle("Untracked Stream Buffers", isOn: $settings.untrackedBuffers)
                 Toggle("Fast Depth Readback", isOn: $settings.fastDepthReadback)
                 Toggle("Disable Right Eye Render", isOn: $settings.disableRightEyeRender)
                 Toggle("Hidden Surface Removal", isOn: $settings.hiddenSurfaceRemoval)
@@ -202,26 +232,7 @@ struct GraphicsSettingsView: View {
             } header: {
                 Text("Enhancements")
             } footer: {
-                Text("Texture filters smooth the textures of games when Internal Resolution is above "
-                     + "1x (xBRZ and MMPX suit pixel art, Bicubic and ScaleForce are gentler). "
-                     + "Lower anisotropic filtering and Fast Shader Math make games run faster. "
-                     + "Fast Shader Math can cause small graphical differences in some games. "
-                     + "Fast Lighting Math computes lighting in half precision, which helps games "
-                     + "with a lot of lighting (Luigi's Mansion) and can shift highlights slightly. "
-                     + "Fast Math Functions uses faster versions of functions like normalize and "
-                     + "pow (iOS 18), without the NaN assumptions of Fast Shader Math; it is "
-                     + "ignored while Fast Shader Math is on. Half Precision Colors Between "
-                     + "Stages passes the vertex color to the pixel shader as half precision, "
-                     + "which saves a little bandwidth. Both apply when a game starts. "
-                     + "Fast Color Math does the color combiners in half precision, the same "
-                     + "8-bit result in practice. Hidden Surface Removal lets the GPU skip "
-                     + "pixels hidden behind others (not for games using W-buffering). Texture "
-                     + "Compression saves GPU memory bandwidth: Lossless looks identical, Lossy "
-                     + "(A15 and later) saves more with a tiny loss of quality. "
-                     + "Fast Depth Readback answers the small depth checks some games do every "
-                     + "frame (Mario Kart 7's sun glare) with the previous frame's values instead "
-                     + "of waiting for the GPU. "
-                     + "All of these apply the next time a game starts.")
+                Text(verbatim: Self.enhancementsFooter)
             }
 
             Section {

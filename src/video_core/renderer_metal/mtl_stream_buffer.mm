@@ -8,6 +8,7 @@
 #include "video_core/renderer_metal/mtl_instance.h"
 #include "video_core/renderer_metal/mtl_scheduler.h"
 #include "video_core/renderer_metal/mtl_stream_buffer.h"
+#include "video_core/renderer_metal/renderer_metal.h"
 
 namespace Metal {
 
@@ -19,9 +20,16 @@ constexpr std::size_t WATCHES_RESERVE_CHUNK = 0x1000;
 StreamBuffer::StreamBuffer(const Instance& instance, Scheduler& scheduler_, u64 size,
                            std::string_view label, bool readback)
     : scheduler{scheduler_}, buffer_size{size} {
-    const MTLResourceOptions options =
+    MTLResourceOptions options =
         MTLResourceStorageModeShared |
         (readback ? MTLResourceCPUCacheModeDefaultCache : MTLResourceCPUCacheModeWriteCombined);
+    // Buffers the CPU only writes to and the GPU only reads from: the watches below already keep
+    // the CPU from overwriting what the GPU still reads, so Metal does not have to track them
+    // too (that costs CPU time at every draw). The buffers the CPU reads from stay tracked.
+    if (!readback && GetQualityOptions().untracked_buffers) {
+        options |= MTLResourceHazardTrackingModeUntracked;
+        LOG_INFO(Render, "Metal stream buffer '{}' is not hazard tracked", label);
+    }
     buffer = [instance.GetDevice() newBufferWithLength:size options:options];
     ASSERT_MSG(buffer, "Failed to allocate Metal stream buffer of {} KiB", size / 1024);
     SetLabel(buffer, label);

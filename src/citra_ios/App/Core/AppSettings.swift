@@ -257,6 +257,7 @@ final class AppSettings: ObservableObject {
     @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
     @Published var fastMathFunctions: Bool { didSet { save(fastMathFunctions, "fastMathFunctions") } }
     @Published var halfInterpolants: Bool { didSet { save(halfInterpolants, "halfInterpolants") } }
+    @Published var untrackedBuffers: Bool { didSet { save(untrackedBuffers, "untrackedBuffers") } }
     @Published var fastDepthReadback: Bool { didSet { save(fastDepthReadback, "fastDepthReadback") } }
     @Published var hiddenSurfaceRemoval: Bool {
         didSet { save(hiddenSurfaceRemoval, "hiddenSurfaceRemoval") }
@@ -411,6 +412,7 @@ final class AppSettings: ObservableObject {
         fastColor = value("fastColor", false)
         fastMathFunctions = value("fastMathFunctions", false)
         halfInterpolants = value("halfInterpolants", false)
+        untrackedBuffers = value("untrackedBuffers", false)
         fastDepthReadback = value("fastDepthReadback", false)
         hiddenSurfaceRemoval = value("hiddenSurfaceRemoval", false)
         textureCompression = TextureCompressionOption(rawValue: value("textureCompression", 0)) ?? .off
@@ -540,6 +542,7 @@ final class AppSettings: ObservableObject {
         config.fastColor = fastColor
         config.fastMathFunctions = fastMathFunctions
         config.halfInterpolants = halfInterpolants
+        config.untrackedBuffers = untrackedBuffers
         config.fastDepthReadback = fastDepthReadback
         config.hiddenSurfaceRemoval = hiddenSurfaceRemoval
         config.textureCompression = textureCompression.rawValue
