@@ -6,7 +6,6 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
-#include <time.h>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -876,7 +875,6 @@ void RendererMetal::PrepareUpscaling(const Layout::FramebufferLayout& layout) {
         desc.colorAttachments[0].texture = slot.input;
         desc.colorAttachments[0].loadAction = MTLLoadActionDontCare;
         desc.colorAttachments[0].storeAction = MTLStoreActionStore;
-        scheduler.SetPassLabel("metalfx input");
         id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
         const float width = static_cast<float>(job.in_width);
         const float height = static_cast<float>(job.in_height);
@@ -1126,7 +1124,6 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
         MTLClearColorMake(Settings::values.bg_red.GetValue(), Settings::values.bg_green.GetValue(),
                           Settings::values.bg_blue.GetValue(), 1.0);
 
-    scheduler.SetPassLabel("present");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
@@ -1478,7 +1475,6 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     desc.colorAttachments[0].clearColor =
         MTLClearColorMake(Settings::values.bg_red.GetValue(), Settings::values.bg_green.GetValue(),
                           Settings::values.bg_blue.GetValue(), 1.0);
-    scheduler.SetPassLabel("frame generation picture");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
@@ -1743,7 +1739,6 @@ bool RendererMetal::RenderPacedPlain(const Layout::FramebufferLayout& layout) {
     desc.colorAttachments[0].clearColor =
         MTLClearColorMake(Settings::values.bg_red.GetValue(), Settings::values.bg_green.GetValue(),
                           Settings::values.bg_blue.GetValue(), 1.0);
-    scheduler.SetPassLabel("frame generation picture (plain)");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
@@ -1872,7 +1867,6 @@ void RendererMetal::RenderScreenshot() {
     desc.colorAttachments[0].storeAction = MTLStoreActionStore;
     desc.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
 
-    scheduler.SetPassLabel("screenshot");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     DrawScreens(encoder, layout);
     scheduler.EndEncoding();
@@ -1906,23 +1900,6 @@ void RendererMetal::LimitFramesAheadOfGpu() {
 void RendererMetal::SwapBuffers() {
     MICROPROFILE_SCOPE(Metal_RenderFrame);
     system.perf_stats->StartSwap();
-
-    // The CPU time this thread used since the previous frame: the emulation (the game's CPU
-    // code, the GPU commands, the renderer) without the time it sleeps or waits.
-    {
-        thread_local u64 last_cpu_ns = 0;
-        const u64 now_ns = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID);
-        if (last_cpu_ns != 0 && now_ns > last_cpu_ns && now_ns - last_cpu_ns < 200'000'000) {
-            const u64 used = now_ns - last_cpu_ns;
-            GpuStats& stats = Stats();
-            stats.cpu_ns.fetch_add(used, std::memory_order_relaxed);
-            stats.cpu_frames.fetch_add(1, std::memory_order_relaxed);
-            u64 worst = stats.cpu_max_ns.load(std::memory_order_relaxed);
-            while (used > worst && !stats.cpu_max_ns.compare_exchange_weak(worst, used)) {
-            }
-        }
-        last_cpu_ns = now_ns;
-    }
 
     const Layout::FramebufferLayout& layout = render_window.GetFramebufferLayout();
     PrepareRendertarget();
@@ -1988,12 +1965,6 @@ FrameStats TakeFrameStats() {
     GpuStats& stats = Stats();
     FrameStats result;
     result.frames = stats.frames.exchange(0);
-    const u64 cpu_ns = stats.cpu_ns.exchange(0);
-    const u32 cpu_frames = stats.cpu_frames.exchange(0);
-    result.cpu_max_ms = static_cast<double>(stats.cpu_max_ns.exchange(0)) / 1e6;
-    if (cpu_frames > 0) {
-        result.cpu_ms = static_cast<double>(cpu_ns) / 1e6 / cpu_frames;
-    }
     const u64 gpu_ns = stats.gpu_ns.exchange(0);
     const u64 present_ns = stats.present_ns.exchange(0);
     const u64 stall_ns = stats.stall_ns.exchange(0);

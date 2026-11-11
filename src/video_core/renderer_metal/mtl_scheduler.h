@@ -39,9 +39,6 @@ struct GpuStats {
     std::atomic<u64> fg_ns{};      ///< GPU time of making frames (frame generation)
     std::atomic<u32> fg_made{};    ///< Frames made
     std::atomic<u32> fg_skipped{}; ///< Frames not made because the previous one was not done yet
-    std::atomic<u64> cpu_ns{};     ///< CPU time of the emulation thread between presented frames
-    std::atomic<u64> cpu_max_ns{}; ///< The longest of those since the last report
-    std::atomic<u32> cpu_frames{};
 };
 
 /// Counts a frame of the main display that reached the screen at this time (the presentedTime
@@ -159,13 +156,6 @@ public:
     void ClearDepthStencil(id<MTLTexture> texture, u32 level, bool stencil, double depth,
                            u32 stencil_value);
 
-    /// Names the next utility pass (BeginRendering with a descriptor) in the render pass
-    /// statistics, so they say what asked for it. Utility passes draw their own quad, which is not
-    /// counted as a draw of the game.
-    void SetPassLabel(const char* label) {
-        pass_label = label;
-    }
-
     /// Counts a draw in the active render pass, for the render pass statistics.
     void NoteDraw() {
         pass_draws++;
@@ -263,7 +253,6 @@ private:
     std::string pass_key;
     u64 pass_bytes{};
     u32 pass_draws{};
-    const char* pass_label = nullptr;
     bool pass_open{};
     bool last_pass_was_target{};
     RenderTarget last_pass_target{};

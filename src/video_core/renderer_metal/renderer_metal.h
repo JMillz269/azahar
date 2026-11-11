@@ -145,8 +145,6 @@ struct FrameStats {
     double fg_made = 0.0;    ///< Frames made in the interval
     double fg_skipped = 0.0; ///< Frames not made because the previous one was still being made
     double present_late = 0.0;        ///< Frames shown clearly later than the frame time, per second
-    double cpu_ms = 0.0;     ///< Emulation thread CPU time per frame (without waiting)
-    double cpu_max_ms = 0.0; ///< The longest frame of those
     u32 frames = 0;
 };
 FrameStats TakeFrameStats();

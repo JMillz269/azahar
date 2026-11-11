@@ -254,7 +254,6 @@ void BlitHelper::BlitColor(id<MTLTexture> src, u32 src_level, u32 src_slice,
     desc.colorAttachments[0].loadAction = MTLLoadActionLoad;
     desc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
-    scheduler.SetPassLabel("blit color (scale or copy)");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     [encoder setRenderPipelineState:pipeline];
     SetupRect(encoder, dst, dst_level, dst_rect, src_rect, src_width, src_height, 0.0f, {}, 0.0f);
@@ -303,7 +302,6 @@ bool BlitHelper::FilterColor(id<MTLTexture> src, const Common::Rectangle<u32>& s
     desc.colorAttachments[0].loadAction = MTLLoadActionLoad;
     desc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
-    scheduler.SetPassLabel("texture filter (xBRZ ...)");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     [encoder setRenderPipelineState:pipeline];
     // The resolution scale travels in BlitParams::lod (used by xBRZ).
@@ -349,7 +347,6 @@ void BlitHelper::BlitDepthStencil(id<MTLTexture> src, id<MTLTexture> src_stencil
         desc.stencilAttachment.storeAction = MTLStoreActionStore;
     }
 
-    scheduler.SetPassLabel("blit depth");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     [encoder setRenderPipelineState:pipeline];
     [encoder setDepthStencilState:copy_stencil ? depth_stencil_write_state : depth_write_state];
@@ -378,7 +375,6 @@ void BlitHelper::ClearColor(id<MTLTexture> texture, u32 level, u32 slice,
     desc.colorAttachments[0].loadAction = MTLLoadActionLoad;
     desc.colorAttachments[0].storeAction = MTLStoreActionStore;
 
-    scheduler.SetPassLabel("partial clear color");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     [encoder setRenderPipelineState:pipeline];
     SetupRect(encoder, texture, level, rect, rect, 1, 1, 0.0f, color, 0.0f);
@@ -407,7 +403,6 @@ void BlitHelper::ClearDepthStencil(id<MTLTexture> texture, u32 level, bool has_s
         desc.stencilAttachment.storeAction = MTLStoreActionStore;
     }
 
-    scheduler.SetPassLabel("partial clear depth");
     id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
     [encoder setRenderPipelineState:pipeline];
     [encoder setDepthStencilState:has_stencil ? depth_stencil_write_state : depth_write_state];
@@ -488,7 +483,6 @@ bool TextureRuntime::Reinterpret(Surface& source, Surface& dest,
         const Common::Rectangle<u32> dst_rect{
             copy.dst_offset.x, copy.dst_offset.y + copy.extent.height,
             copy.dst_offset.x + copy.extent.width, copy.dst_offset.y};
-        scheduler.SetPassLabel("depth to color copy");
         id<MTLRenderCommandEncoder> encoder = scheduler.BeginRendering(desc);
         [encoder setRenderPipelineState:pipeline];
         // Reuse the blit parameter setup, then override the source offset.

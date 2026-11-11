@@ -144,13 +144,10 @@ void Scheduler::BeginPassStats(u32 width, u32 height, bool color, bool depth, bo
     if (attachments.empty()) {
         attachments = "no attachments";
     }
-    // A utility pass is named by what asked for it and always draws its quad.
-    const char* label = game ? nullptr : (pass_label != nullptr ? pass_label : "utility");
-    pass_label = nullptr;
-    pass_key = fmt::format("{} {}x{} {}", game ? "game" : label, width, height, attachments);
+    pass_key = fmt::format("{} {}x{} {}", game ? "game" : "utility", width, height, attachments);
     // Every attachment is loaded at the start and stored at the end (rough: 4 bytes a pixel).
     pass_bytes = static_cast<u64>(width) * height * ((color ? 4 : 0) + (depth ? 4 : 0)) * 2;
-    pass_draws = game ? 0 : 1;
+    pass_draws = 0;
     pass_open = true;
 
     std::scoped_lock lock{g_pass_mutex};
