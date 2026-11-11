@@ -75,10 +75,6 @@ struct FrameGeneratorHooks {
     std::function<bool(u32 previous, u32 current, u32 destination,
                        std::function<void(bool made)> done)>
         interpolate;
-    /// Encodes the same work into a command buffer (id<MTLCommandBuffer>) instead of starting it.
-    /// Returns false when it could not be encoded.
-    std::function<bool(u32 previous, u32 current, u32 destination, void* command_buffer)>
-        interpolate_on_gpu;
 };
 void SetFrameGeneratorHooks(FrameGeneratorHooks hooks);
 
@@ -121,9 +117,6 @@ struct QualityOptions {
     bool frame_generation_top_only = false;
     /// Frames of frame generation are shown by a display link at the display's refreshes.
     bool frame_generation_display_paced = false;
-    /// The interpolation is encoded into a command buffer that waits for the picture on the GPU,
-    /// instead of being started by the CPU when the picture is done.
-    bool frame_generation_gpu_chain = false;
     /// Highest refresh rate of the display, frame generation for 60 FPS games needs 100 or more.
     int display_hz = 60;
     /// How long (microseconds) a draw waits for its shader to build before it is skipped.

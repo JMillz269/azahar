@@ -157,33 +157,15 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
         return start(from: previous, to: current, into: destination, completion: completion)
     }
 
-    /// The same work encoded into a command buffer, which the renderer commits after the one with
-    /// the picture. Nothing tells us here when it fails, the renderer sees the command buffer.
-    func interpolate(from previous: Int, to current: Int, into destination: Int,
-                     commandBuffer: MTLCommandBuffer) -> Bool {
-        guard #available(iOS 26.0, *) else { return false }
-        return encode(from: previous, to: current, into: destination, commandBuffer: commandBuffer)
-    }
-
     @available(iOS 26.0, *)
-    private func encode(from previous: Int, to current: Int, into destination: Int,
-                        commandBuffer: MTLCommandBuffer) -> Bool {
-        guard let parameters = makeParameters(from: previous, to: current, into: destination),
-              let processor = processor as? VTFrameProcessor
-        else { return false }
-        processor.process(with: commandBuffer, parameters: parameters)
-        return true
-    }
-
-    /// The frames and parameters of one interpolation; the frames get increasing times and the
-    /// made frame sits halfway between its neighbours.
-    @available(iOS 26.0, *)
-    private func makeParameters(from previous: Int, to current: Int, into destination: Int)
-        -> VTLowLatencyFrameInterpolationParameters?
-    {
-        guard slots.indices.contains(previous), slots.indices.contains(current),
+    private func start(from previous: Int, to current: Int, into destination: Int,
+                       completion: @escaping (Bool) -> Void) -> Bool {
+        guard let processor = processor as? VTFrameProcessor,
+              slots.indices.contains(previous), slots.indices.contains(current),
               slots.indices.contains(destination)
-        else { return nil }
+        else { return false }
+
+        // The frames get increasing times, the made frame sits halfway between its neighbours.
         frameCounter += 1
         let n = frameCounter
         guard let previousFrame = VTFrameProcessorFrame(
@@ -194,18 +176,10 @@ final class FrameGenerator: NSObject, AZFrameGenerating {
                 presentationTimeStamp: CMTime(value: 2 * n, timescale: 60)),
               let destinationFrame = VTFrameProcessorFrame(
                 buffer: slots[destination].buffer,
-                presentationTimeStamp: CMTime(value: 2 * n - 1, timescale: 60))
-        else { return nil }
-        return VTLowLatencyFrameInterpolationParameters(
-            sourceFrame: sourceFrame, previousFrame: previousFrame,
-            interpolationPhase: [0.5], destinationFrames: [destinationFrame])
-    }
-
-    @available(iOS 26.0, *)
-    private func start(from previous: Int, to current: Int, into destination: Int,
-                       completion: @escaping (Bool) -> Void) -> Bool {
-        guard let processor = processor as? VTFrameProcessor,
-              let parameters = makeParameters(from: previous, to: current, into: destination)
+                presentationTimeStamp: CMTime(value: 2 * n - 1, timescale: 60)),
+              let parameters = VTLowLatencyFrameInterpolationParameters(
+                sourceFrame: sourceFrame, previousFrame: previousFrame,
+                interpolationPhase: [0.5], destinationFrames: [destinationFrame])
         else { return false }
 
         // The interpolation does not run on the renderer's GPU queue: wait for it to be done

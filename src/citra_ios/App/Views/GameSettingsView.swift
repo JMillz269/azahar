@@ -68,8 +68,6 @@ struct GameSettingsView: View {
                                value: $overrides.frameGenerationTopOnly)
                 OverrideToggle("Frame Generation: Display-Driven Pacing",
                                value: $overrides.frameGenerationDisplayPaced)
-                OverrideToggle("Frame Generation: GPU Chaining",
-                               value: $overrides.frameGenerationGpuChain)
                 OverrideToggle("Custom Textures", value: $overrides.customTextures)
                 OverrideToggle("Preload Custom Textures", value: $overrides.preloadTextures)
                 OverrideToggle("Hidden Surface Removal", value: $overrides.hiddenSurfaceRemoval)
