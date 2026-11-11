@@ -167,7 +167,11 @@ struct GraphicsSettingsView: View {
         text += "which saves a little bandwidth. Untracked Stream Buffers stops Metal "
         text += "from tracking the buffers the emulator already keeps in order itself, "
         text += "which saves CPU time in games with many draws (turn it off if a game "
-        text += "flickers). They apply when a game starts. "
+        text += "flickers). Texture Pool keeps the textures of surfaces a game stopped using "
+        text += "(up to 192 MB) and gives them to the next surface of the same size and "
+        text += "format, instead of creating new ones, which helps games that stream a lot of "
+        text += "assets (turn it off if a game shows leftover pictures). They apply when a "
+        text += "game starts. "
         text += "Fast Color Math does the color combiners in half precision, the same "
         text += "8-bit result in practice. Hidden Surface Removal lets the GPU skip "
         text += "pixels hidden behind others (not for games using W-buffering). Texture "
@@ -223,6 +227,7 @@ struct GraphicsSettingsView: View {
                 Toggle("Fast Math Functions", isOn: $settings.fastMathFunctions)
                 Toggle("Half Precision Colors Between Stages", isOn: $settings.halfInterpolants)
                 Toggle("Untracked Stream Buffers", isOn: $settings.untrackedBuffers)
+                Toggle("Texture Pool", isOn: $settings.texturePool)
                 Toggle("Fast Depth Readback", isOn: $settings.fastDepthReadback)
                 Toggle("Disable Right Eye Render", isOn: $settings.disableRightEyeRender)
                 Toggle("Hidden Surface Removal", isOn: $settings.hiddenSurfaceRemoval)

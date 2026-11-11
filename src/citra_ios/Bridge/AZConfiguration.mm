@@ -26,6 +26,7 @@
     config.fastMathFunctions = NO;
     config.halfInterpolants = NO;
     config.untrackedBuffers = NO;
+    config.texturePool = NO;
     config.hiddenSurfaceRemoval = NO;
     config.textureCompression = 0;
     config.fastDepthReadback = NO;

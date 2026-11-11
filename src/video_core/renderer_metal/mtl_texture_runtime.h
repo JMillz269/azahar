@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <mutex>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -96,6 +97,70 @@ private:
  * Provides texture manipulation functions to the rasterizer cache
  * Separating this into a class makes it easier to abstract graphics API code
  */
+/**
+ * Keeps the textures of surfaces that were dropped (the cache's garbage collector removes the
+ * surfaces a game stopped using) so the next surface of the same size, format and usage takes one
+ * of them instead of asking Metal for a new texture. Creating a texture costs time and memory
+ * churn, and games that stream assets create them in bursts.
+ *
+ * A reused texture still has the old surface's pixels. Surfaces start out with nothing valid, the
+ * cache uploads or copies into a region before it is used, so that does not show; it can only
+ * make a game that reads pixels it never wrote see leftovers instead of zeros.
+ */
+class TexturePool {
+public:
+    struct Key {
+        u32 type{};
+        u32 format{};
+        u32 width{};
+        u32 height{};
+        u32 levels{};
+        u64 usage{};
+        bool operator==(const Key&) const = default;
+    };
+
+    explicit TexturePool(bool enabled_) : enabled{enabled_} {}
+
+    /// A texture for the key, nil when the pool has none.
+    id<MTLTexture> Acquire(const Key& key);
+
+    /// Takes a texture a surface let go of. Returns without keeping it when the pool is full of
+    /// more recent ones.
+    void Release(id<MTLTexture> texture);
+
+    /// Drops the textures nobody asked for in a while. Called once per frame.
+    void Tick();
+
+    bool Enabled() const noexcept {
+        return enabled;
+    }
+
+    static Key KeyOf(MTLTextureDescriptor* desc);
+
+private:
+    struct Entry {
+        Key key;
+        id<MTLTexture> texture = nil;
+        u64 size = 0;
+        u64 last_used = 0;
+    };
+
+    bool enabled;
+    std::mutex mutex;
+    std::vector<Entry> entries;
+    u64 total_size{};
+    u64 frame{};
+    u64 reused{};
+    u64 created{};
+    u64 dropped{};
+
+public:
+    /// Counted for the statistics line.
+    void CountCreated() noexcept {
+        ++created;
+    }
+};
+
 class TextureRuntime {
     friend class Surface;
 
@@ -113,6 +178,15 @@ public:
 
     BlitHelper& GetBlitHelper() {
         return blit_helper;
+    }
+
+    TexturePool& GetTexturePool() {
+        return texture_pool;
+    }
+
+    /// Once per frame.
+    void TickFrame() {
+        texture_pool.Tick();
     }
 
     bool SupportsCustomFormat(VideoCore::CustomPixelFormat pixel_format) const {
@@ -159,6 +233,7 @@ private:
     const Instance& instance;
     Scheduler& scheduler;
     BlitHelper blit_helper;
+    TexturePool texture_pool;
     StreamBuffer upload_buffer;
     StreamBuffer download_buffer;
 

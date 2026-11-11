@@ -95,6 +95,7 @@ MTLVertexDescriptor* RasterizerMetal::MakeVertexDescriptor() {
 
 void RasterizerMetal::TickFrame() {
     res_cache.TickFrame();
+    runtime.TickFrame();
     pipeline_cache.TickFrame();
 }
 

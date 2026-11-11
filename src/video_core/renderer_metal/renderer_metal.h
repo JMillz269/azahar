@@ -99,6 +99,8 @@ struct QualityOptions {
     /// The stream buffers the CPU writes and the GPU reads are not tracked by Metal (they track
     /// their own reuse), which saves CPU time at every draw.
     bool untracked_buffers = false;
+    /// Textures of dropped surfaces are kept and reused by the next surfaces of the same kind.
+    bool texture_pool = false;
     TextureCompression texture_compression = TextureCompression::Off;
     /// Small depth areas the CPU reads every frame get the previous frame's values instead of
     /// waiting for the GPU (Mario Kart 7's sun glare check).

@@ -418,6 +418,7 @@ void BlitHelper::ClearDepthStencil(id<MTLTexture> texture, u32 level, bool has_s
 
 TextureRuntime::TextureRuntime(const Instance& instance_, Scheduler& scheduler_)
     : instance{instance_}, scheduler{scheduler_}, blit_helper{instance_, scheduler_},
+      texture_pool{GetQualityOptions().texture_pool},
       upload_buffer{instance_, scheduler_, UPLOAD_BUFFER_SIZE, "Upload buffer"},
       download_buffer{instance_, scheduler_, DOWNLOAD_BUFFER_SIZE, "Download buffer", true} {}
 
@@ -640,6 +641,104 @@ void TextureRuntime::GenerateMipmaps(Surface& surface) {
 }
 
 // ===========================================================================================
+// TexturePool
+// ===========================================================================================
+
+namespace {
+/// How much the pool may hold, and for how many frames a texture nobody asked for stays.
+constexpr u64 POOL_MAX_BYTES = 192ull * 1024 * 1024;
+constexpr u64 POOL_MAX_AGE_FRAMES = 600;
+} // namespace
+
+TexturePool::Key TexturePool::KeyOf(MTLTextureDescriptor* desc) {
+    return Key{
+        .type = static_cast<u32>(desc.textureType),
+        .format = static_cast<u32>(desc.pixelFormat),
+        .width = static_cast<u32>(desc.width),
+        .height = static_cast<u32>(desc.height),
+        .levels = static_cast<u32>(desc.mipmapLevelCount),
+        .usage = static_cast<u64>(desc.usage),
+    };
+}
+
+id<MTLTexture> TexturePool::Acquire(const Key& key) {
+    std::scoped_lock lock{mutex};
+    for (std::size_t i = 0; i < entries.size(); i++) {
+        if (entries[i].key == key) {
+            id<MTLTexture> texture = entries[i].texture;
+            total_size -= entries[i].size;
+            entries[i] = std::move(entries.back());
+            entries.pop_back();
+            ++reused;
+            return texture;
+        }
+    }
+    return nil;
+}
+
+void TexturePool::Release(id<MTLTexture> texture) {
+    if (texture == nil) {
+        return;
+    }
+    // Only plain private 2D textures: views and shared textures belong to someone else.
+    if (texture.storageMode != MTLStorageModePrivate || texture.parentTexture != nil ||
+        texture.textureType == MTLTextureTypeCube) {
+        return;
+    }
+    Entry entry;
+    entry.key = Key{
+        .type = static_cast<u32>(texture.textureType),
+        .format = static_cast<u32>(texture.pixelFormat),
+        .width = static_cast<u32>(texture.width),
+        .height = static_cast<u32>(texture.height),
+        .levels = static_cast<u32>(texture.mipmapLevelCount),
+        .usage = static_cast<u64>(texture.usage),
+    };
+    entry.texture = texture;
+    entry.size = texture.allocatedSize;
+    std::scoped_lock lock{mutex};
+    entry.last_used = frame;
+    if (entry.size > POOL_MAX_BYTES / 4) {
+        return; // A very large texture is not worth keeping
+    }
+    // Make room by letting the oldest go.
+    while (total_size + entry.size > POOL_MAX_BYTES && !entries.empty()) {
+        auto oldest = std::min_element(entries.begin(), entries.end(),
+                                       [](const Entry& a, const Entry& b) {
+                                           return a.last_used < b.last_used;
+                                       });
+        total_size -= oldest->size;
+        ++dropped;
+        *oldest = std::move(entries.back());
+        entries.pop_back();
+    }
+    total_size += entry.size;
+    entries.push_back(std::move(entry));
+}
+
+void TexturePool::Tick() {
+    std::scoped_lock lock{mutex};
+    ++frame;
+    for (std::size_t i = 0; i < entries.size();) {
+        if (frame - entries[i].last_used > POOL_MAX_AGE_FRAMES) {
+            total_size -= entries[i].size;
+            ++dropped;
+            entries[i] = std::move(entries.back());
+            entries.pop_back();
+        } else {
+            ++i;
+        }
+    }
+    if (frame % 300 == 0 && (reused + created + dropped) > 0) {
+        LOG_INFO(Render,
+                 "Texture pool: {} kept ({:.1f} MiB), {} textures reused, {} created, {} let go "
+                 "since the start",
+                 entries.size(), static_cast<double>(total_size) / (1024.0 * 1024.0), reused,
+                 created, dropped);
+    }
+}
+
+// ===========================================================================================
 // Surface
 // ===========================================================================================
 
@@ -686,7 +785,19 @@ Surface::Surface(TextureRuntime& runtime_, const VideoCore::SurfaceBase& surface
     SyncHandle();
 }
 
-Surface::~Surface() = default;
+Surface::~Surface() {
+    // Views keep their texture alive, they go first. The textures go back to the pool.
+    storage_view = nil;
+    stencil_view = nil;
+    if (runtime != nullptr && runtime->GetTexturePool().Enabled()) {
+        for (auto& texture : textures) {
+            if (texture != nil) {
+                runtime->GetTexturePool().Release(texture);
+                texture = nil;
+            }
+        }
+    }
+}
 
 id<MTLTexture> Surface::CreateTexture(u32 tex_width, u32 tex_height, MTLPixelFormat format,
                                       std::string_view label, bool full_usage) const {
@@ -733,6 +844,13 @@ id<MTLTexture> Surface::CreateTexture(u32 tex_width, u32 tex_height, MTLPixelFor
     }
     desc.usage = usage;
 
+    TexturePool& pool = runtime->GetTexturePool();
+    if (pool.Enabled()) {
+        if (id<MTLTexture> reused = pool.Acquire(TexturePool::KeyOf(desc))) {
+            return reused;
+        }
+    }
+    pool.CountCreated();
     id<MTLTexture> texture = [instance->GetDevice() newTextureWithDescriptor:desc];
     ASSERT_MSG(texture, "Failed to create {}x{} texture for {}", tex_width, tex_height,
                VideoCore::PixelFormatAsString(pixel_format));
