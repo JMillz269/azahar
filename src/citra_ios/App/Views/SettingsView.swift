@@ -72,11 +72,11 @@ struct GeneralSettingsView: View {
                     LabeledContent("CPU Clock", value: "\(settings.cpuClockPercentage)%")
                 }
             } header: {
-                Text("CPU")
-            } footer: {
-                Text("JIT recompilation requires the app to be launched with JIT enabled, for "
-                     + "example through StikDebug or a debugger. Without JIT the much slower "
-                     + "interpreter is used.")
+                InfoHeader("CPU") {
+                    Text("JIT recompilation requires the app to be launched with JIT enabled, for "
+                         + "example through StikDebug or a debugger. Without JIT the much slower "
+                         + "interpreter is used.")
+                }
             }
 
             Section {
@@ -92,11 +92,11 @@ struct GeneralSettingsView: View {
                 }
                 Toggle("Hold to Fast Forward (Controller)", isOn: $settings.fastForwardHold)
             } header: {
-                Text("Speed")
-            } footer: {
-                Text("Fast Forward is in the game menu, and on a controller button in Controls › "
-                     + "Controller Mapping. With Hold on, the controller button only fast-forwards "
-                     + "while it is held.")
+                InfoHeader("Speed") {
+                    Text("Fast Forward is in the game menu, and on a controller button in Controls › "
+                         + "Controller Mapping. With Hold on, the controller button only fast-forwards "
+                         + "while it is held.")
+                }
             }
 
             Section("Library") {
@@ -132,14 +132,14 @@ struct GeneralSettingsView: View {
                     FileLocations.showInFiles(FileLocations.romsDirectory)
                 }
             } header: {
-                Text("Compression")
-            } footer: {
-                Text("Compressed games (.zcci, .zcxi, .z3dsx and .zcia) are smaller and play the "
-                     + "same. They are written to the games folder (Files › ROMs). Compress the "
-                     + "Games… picks files to compress, the originals you pick are left where "
-                     + "they are; the library button compresses the games in the games folder "
-                     + "and removes their originals unless Keep Original Files is on. A .zcia "
-                     + "installs like a .cia. Encrypted and bundled games cannot be compressed.")
+                InfoHeader("Compression") {
+                    Text("Compressed games (.zcci, .zcxi, .z3dsx and .zcia) are smaller and play the "
+                         + "same. They are written to the games folder (Files › ROMs). Compress the "
+                         + "Games… picks files to compress, the originals you pick are left where "
+                         + "they are; the library button compresses the games in the games folder "
+                         + "and removes their originals unless Keep Original Files is on. A .zcia "
+                         + "installs like a .cia. Encrypted and bundled games cannot be compressed.")
+                }
             }
         }
         .navigationTitle("General")
@@ -189,13 +189,13 @@ struct GraphicsSettingsView: View {
                 Toggle("Shader JIT", isOn: $settings.shaderJIT)
                     .disabled(!AZEmulator.isJITAvailable)
             } header: {
-                Text("Renderer")
-            } footer: {
-                Text("Azahar renders natively with Metal. Hardware Shaders run the game's vertex "
-                     + "shaders on the GPU. Draws that can't be translated, and games that use "
-                     + "geometry shaders, still run on the CPU, where the shader JIT speeds them "
-                     + "up. Accurate Multiplication fixes graphical glitches in some games at a "
-                     + "small GPU cost.")
+                InfoHeader("Renderer") {
+                    Text("Azahar renders natively with Metal. Hardware Shaders run the game's vertex "
+                         + "shaders on the GPU. Draws that can't be translated, and games that use "
+                         + "geometry shaders, still run on the CPU, where the shader JIT speeds them "
+                         + "up. Accurate Multiplication fixes graphical glitches in some games at a "
+                         + "small GPU cost.")
+                }
             }
 
             Section {
@@ -230,9 +230,9 @@ struct GraphicsSettingsView: View {
                     ForEach(TextureCompressionOption.allCases) { Text($0.title).tag($0) }
                 }
             } header: {
-                Text("Enhancements")
-            } footer: {
-                Text(verbatim: Self.enhancementsFooter)
+                InfoHeader("Enhancements") {
+                    Text(verbatim: Self.enhancementsFooter)
+                }
             }
 
             Section {
@@ -244,14 +244,14 @@ struct GraphicsSettingsView: View {
                 }
                 .disabled(!settings.useExternalDisplay)
             } header: {
-                Text("External Display")
-            } footer: {
-                Text("With a TV or AirPlay display connected, the default shows the top screen on "
-                     + "it and this device the bottom screen with the controls. The other choices "
-                     + "give the display the screen layout you pick while this device keeps its "
-                     + "own layout. Takes effect when a game starts. "
-                     + "Running inside another app (such as LiveContainer) may stop iOS from "
-                     + "offering the display to Azahar.")
+                InfoHeader("External Display") {
+                    Text("With a TV or AirPlay display connected, the default shows the top screen on "
+                         + "it and this device the bottom screen with the controls. The other choices "
+                         + "give the display the screen layout you pick while this device keeps its "
+                         + "own layout. Takes effect when a game starts. "
+                         + "Running inside another app (such as LiveContainer) may stop iOS from "
+                         + "offering the display to Azahar.")
+                }
             }
     }
 
@@ -264,13 +264,13 @@ struct GraphicsSettingsView: View {
                     .disabled(!settings.customTextures)
                 Toggle("Dump Textures", isOn: $settings.dumpTextures)
             } header: {
-                Text("Texture Packs")
-            } footer: {
-                Text("Custom Textures replaces the textures of a game with the images in Files › "
-                     + "Azahar › load › textures › the game's title ID. Preloading loads them all "
-                     + "when the game starts (more memory, no stutter). Dump Textures saves the "
-                     + "textures a game uses to Files › Azahar › dump › textures, to make a pack. "
-                     + "Applies the next time a game starts.")
+                InfoHeader("Texture Packs") {
+                    Text("Custom Textures replaces the textures of a game with the images in Files › "
+                         + "Azahar › load › textures › the game's title ID. Preloading loads them all "
+                         + "when the game starts (more memory, no stutter). Dump Textures saves the "
+                         + "textures a game uses to Files › Azahar › dump › textures, to make a pack. "
+                         + "Applies the next time a game starts.")
+                }
             }
 
             Section {
@@ -281,11 +281,11 @@ struct GraphicsSettingsView: View {
                     ForEach(CameraSource.allCases) { Text($0.title).tag($0) }
                 }
             } header: {
-                Text("Cameras")
-            } footer: {
-                Text("Choose which camera of this device a camera of the 3DS shows. Off shows a "
-                     + "black picture. The first time a game uses a camera, iOS asks for "
-                     + "permission. Applies the next time a game starts.")
+                InfoHeader("Cameras") {
+                    Text("Choose which camera of this device a camera of the 3DS shows. Off shows a "
+                         + "black picture. The first time a game uses a camera, iOS asks for "
+                         + "permission. Applies the next time a game starts.")
+                }
             }
 
             Section {
@@ -324,11 +324,11 @@ struct GraphicsSettingsView: View {
                             value: $settings.cardboardYShift, in: -100...100, step: 5)
                 }
             } header: {
-                Text("3D")
-            } footer: {
-                Text("Anaglyph needs red/cyan glasses. Interlaced shows the eyes on alternate rows "
-                     + "of the screen. Side by Side and Cardboard VR show one picture per eye, for "
-                     + "a headset or glasses holder (landscape). These modes don't use MetalFX.")
+                InfoHeader("3D") {
+                    Text("Anaglyph needs red/cyan glasses. Interlaced shows the eyes on alternate rows "
+                         + "of the screen. Side by Side and Cardboard VR show one picture per eye, for "
+                         + "a headset or glasses holder (landscape). These modes don't use MetalFX.")
+                }
             }
 
             Section {
@@ -337,15 +337,15 @@ struct GraphicsSettingsView: View {
                 }
                 .disabled(!AZEmulator.isUpscalingSupported)
             } header: {
-                Text("MetalFX")
-            } footer: {
-                if AZEmulator.isUpscalingSupported {
-                    Text("MetalFX Spatial scales each screen up to the size it is shown at with "
-                         + "Apple's GPU upscaler, which looks sharper than plain filtering and "
-                         + "lets you use a lower Internal Resolution (1x or 2x) for the same "
-                         + "picture. It applies to the next frame, you do not need to restart.")
-                } else {
-                    Text("MetalFX is not available on this device.")
+                InfoHeader("MetalFX") {
+                    if AZEmulator.isUpscalingSupported {
+                        Text("MetalFX Spatial scales each screen up to the size it is shown at with "
+                             + "Apple's GPU upscaler, which looks sharper than plain filtering and "
+                             + "lets you use a lower Internal Resolution (1x or 2x) for the same "
+                             + "picture. It applies to the next frame, you do not need to restart.")
+                    } else {
+                        Text("MetalFX is not available on this device.")
+                    }
                 }
             }
     }
@@ -367,12 +367,12 @@ struct GraphicsSettingsView: View {
                     FileLocations.showInFiles(FileLocations.postShadersDirectory)
                 }
             } header: {
-                Text("Post-Processing")
-            } footer: {
-                Text("An effect is applied to the finished screens. A custom shader replaces it: "
-                     + "put a .metal file with a post_effect function in Files › Azahar › shaders "
-                     + "› post (Example.metal shows how). A shader that does not compile is "
-                     + "ignored, the log tells why. Applies when a game starts.")
+                InfoHeader("Post-Processing") {
+                    Text("An effect is applied to the finished screens. A custom shader replaces it: "
+                         + "put a .metal file with a post_effect function in Files › Azahar › shaders "
+                         + "› post (Example.metal shows how). A shader that does not compile is "
+                         + "ignored, the log tells why. Applies when a game starts.")
+                }
             }
 
             Section {
@@ -381,16 +381,16 @@ struct GraphicsSettingsView: View {
                     ForEach(RefreshRateOption.allCases) { Text($0.title).tag($0) }
                 }
             } header: {
-                Text("Smoothness")
-            } footer: {
-                Text("Frame Pacing shows each frame for the same amount of time, which makes motion "
-                     + "look smoother, most on displays that refresh faster than the game. It does "
-                     + "not apply while fast-forwarding. Display Refresh Rate asks ProMotion displays to run at "
-                     + "60 Hz (saves power, one refresh per game frame) or up to 120 Hz; games run "
-                     + "at 60 frames per second either way. iOS may ignore the request, especially "
-                     + "when the app runs inside another app. The performance overlay's Pace value is "
-                     + "how much the time between frames varies (lower is smoother). Applies "
-                     + "when a game starts.")
+                InfoHeader("Smoothness") {
+                    Text("Frame Pacing shows each frame for the same amount of time, which makes motion "
+                         + "look smoother, most on displays that refresh faster than the game. It does "
+                         + "not apply while fast-forwarding. Display Refresh Rate asks ProMotion displays to run at "
+                         + "60 Hz (saves power, one refresh per game frame) or up to 120 Hz; games run "
+                         + "at 60 frames per second either way. iOS may ignore the request, especially "
+                         + "when the app runs inside another app. The performance overlay's Pace value is "
+                         + "how much the time between frames varies (lower is smoother). Applies "
+                         + "when a game starts.")
+                }
             }
 
             Section {
@@ -407,18 +407,18 @@ struct GraphicsSettingsView: View {
                     clearedShaderCache = FileLocations.clearShaderCache()
                 }
             } header: {
-                Text("Shaders")
-            } footer: {
-                Text("Async Shader Compilation builds new shaders in the background instead of "
-                     + "pausing the game, an object may be missing for a moment instead. Hold "
-                     + "Frame keeps showing the previous frame (up to three in a row) while a "
-                     + "shader is still building, so nothing flickers; the picture repeats "
-                     + "for a moment instead. Wait for Shaders lets a draw wait a few milliseconds "
-                     + "for its shader first (at most four times that per frame), which avoids "
-                     + "most skipped draws for a tiny hitch. Only frames with a hole in the "
-                     + "screen-sized picture are held. The disk "
-                     + "shader cache remembers the shaders of each game and builds them while it "
-                     + "boots, so they don't need to be built again during play.")
+                InfoHeader("Shaders") {
+                    Text("Async Shader Compilation builds new shaders in the background instead of "
+                         + "pausing the game, an object may be missing for a moment instead. Hold "
+                         + "Frame keeps showing the previous frame (up to three in a row) while a "
+                         + "shader is still building, so nothing flickers; the picture repeats "
+                         + "for a moment instead. Wait for Shaders lets a draw wait a few milliseconds "
+                         + "for its shader first (at most four times that per frame), which avoids "
+                         + "most skipped draws for a tiny hitch. Only frames with a hole in the "
+                         + "screen-sized picture are held. The disk "
+                         + "shader cache remembers the shaders of each game and builds them while it "
+                         + "boots, so they don't need to be built again during play.")
+                }
             }
             .alert("Shader Cache Cleared", isPresented: $clearedShaderCache) {
                 Button("OK", role: .cancel) {}
@@ -476,9 +476,9 @@ struct GraphicsSettingsView: View {
                 .disabled(!FrameGenerator.isSupported)
                 Toggle("Show Performance Overlay", isOn: $settings.showPerformanceOverlay)
             } header: {
-                Text("Performance")
-            } footer: {
-                Text(verbatim: Self.performanceFooter)
+                InfoHeader("Performance") {
+                    Text(verbatim: Self.performanceFooter)
+                }
             }
     }
 
@@ -505,10 +505,10 @@ struct LayoutSettingsView: View {
                     ForEach(ScreenLayout.allCases) { Text($0.title).tag($0) }
                 }
             } header: {
-                Text("Landscape")
-            } footer: {
-                if settings.layout == .custom {
-                    Text("Place the screens with Edit Screen Layout in the menu while a game runs.")
+                InfoHeader("Landscape") {
+                    if settings.layout == .custom {
+                        Text("Place the screens with Edit Screen Layout in the menu while a game runs.")
+                    }
                 }
             }
             Section {
@@ -516,10 +516,10 @@ struct LayoutSettingsView: View {
                     ForEach(PortraitScreenLayout.allCases) { Text($0.title).tag($0) }
                 }
             } header: {
-                Text("Portrait")
-            } footer: {
-                if settings.portraitLayout == .custom {
-                    Text("Place the screens with Edit Screen Layout in the menu while a game runs.")
+                InfoHeader("Portrait") {
+                    if settings.portraitLayout == .custom {
+                        Text("Place the screens with Edit Screen Layout in the menu while a game runs.")
+                    }
                 }
             }
             Section {
@@ -536,10 +536,14 @@ struct LayoutSettingsView: View {
                         ForEach(SmallScreenPlacement.allCases) { Text($0.title).tag($0) }
                     }
                 }
-            } footer: {
-                Text("Upright Screens turns the screens on their side. Screen Gap applies to the "
-                     + "layouts that have a gap, the large screen options to the Large Screen "
-                     + "layout.")
+            } header: {
+                InfoHeader {
+                    EmptyView()
+                } info: {
+                    Text("Upright Screens turns the screens on their side. Screen Gap applies to the "
+                         + "layouts that have a gap, the large screen options to the Large Screen "
+                         + "layout.")
+                }
             }
             Section {
                 Toggle("Integer Scaling", isOn: $settings.integerScaling)
@@ -566,11 +570,11 @@ struct LayoutSettingsView: View {
                             value: $settings.bottomPaddingV, in: 0...400, step: 10)
                 }
             } header: {
-                Text("Shape")
-            } footer: {
-                Text("Aspect Ratio changes the shape the screens are drawn in. Stretching fills the "
-                     + "window with a screen apart from the padding, in pixels. Applies to the "
-                     + "layouts that do not place the screens by hand.")
+                InfoHeader("Shape") {
+                    Text("Aspect Ratio changes the shape the screens are drawn in. Stretching fills the "
+                         + "window with a screen apart from the padding, in pixels. Applies to the "
+                         + "layouts that do not place the screens by hand.")
+                }
             }
             Section {
                 ForEach(settings.layoutPresets) { preset in
@@ -586,17 +590,21 @@ struct LayoutSettingsView: View {
                     savingPreset = true
                 }
             } header: {
-                Text("Saved Layouts")
-            } footer: {
-                Text("Tap a saved layout to use it, swipe to delete one. In a game, Next Screen "
-                     + "Layout in the menu (or a controller shortcut) cycles through them, and "
-                     + "Save Screen Layout saves what you set up with Edit Screen Layout.")
+                InfoHeader("Saved Layouts") {
+                    Text("Tap a saved layout to use it, swipe to delete one. In a game, Next Screen "
+                         + "Layout in the menu (or a controller shortcut) cycles through them, and "
+                         + "Save Screen Layout saves what you set up with Edit Screen Layout.")
+                }
             }
             Section {
                 Toggle("Respect Notch", isOn: $settings.respectNotch)
-            } footer: {
-                Text("Keeps the screens clear of the notch, the Dynamic Island and the rounded "
-                     + "corners. Turn it off to draw the game edge to edge.")
+            } header: {
+                InfoHeader {
+                    EmptyView()
+                } info: {
+                    Text("Keeps the screens clear of the notch, the Dynamic Island and the rounded "
+                         + "corners. Turn it off to draw the game edge to edge.")
+                }
             }
         }
         .navigationTitle("Layout")
@@ -628,17 +636,21 @@ struct AudioSettingsView: View {
                 }
                 Toggle("Realtime Audio", isOn: $settings.realtimeAudio)
                 Toggle("Use Microphone", isOn: $settings.useMicrophone)
-            } footer: {
-                Text("Audio stretching reduces stuttering when the emulation runs below full speed. "
-                     + "HLE is the fast built-in audio. LLE runs the console's own audio "
-                     + "processor, which is more accurate for games with audio glitches but "
-                     + "slower (the multithreaded form runs it on its own thread) and needs the "
-                     + "console's system files. Realtime Audio keeps the sound at its normal speed while a game runs "
-                     + "slower than full speed, where it would slow down with the game; it can "
-                     + "drift out of step with the picture in games that sync to it. Use "
-                     + "Microphone lets games listen to the microphone of this device (it asks "
-                     + "for permission when a game starts). Without it games hear static noise. "
-                     + "Applies when a game starts.")
+            } header: {
+                InfoHeader {
+                    EmptyView()
+                } info: {
+                    Text("Audio stretching reduces stuttering when the emulation runs below full speed. "
+                         + "HLE is the fast built-in audio. LLE runs the console's own audio "
+                         + "processor, which is more accurate for games with audio glitches but "
+                         + "slower (the multithreaded form runs it on its own thread) and needs the "
+                         + "console's system files. Realtime Audio keeps the sound at its normal speed while a game runs "
+                         + "slower than full speed, where it would slow down with the game; it can "
+                         + "drift out of step with the picture in games that sync to it. Use "
+                         + "Microphone lets games listen to the microphone of this device (it asks "
+                         + "for permission when a game starts). Without it games hear static noise. "
+                         + "Applies when a game starts.")
+                }
             }
         }
         .navigationTitle("Audio")
@@ -657,11 +669,15 @@ struct SystemSettingsView: View {
                 Picker("Region", selection: $settings.region) {
                     ForEach(ConsoleRegion.allCases) { Text($0.title).tag($0) }
                 }
-            } footer: {
-                Text("System settings take effect the next time a game is started. Leave Region on "
-                     + "Auto-select unless a game needs a specific one: a region that does not "
-                     + "match the game (for example USA with a European copy) can stop it from "
-                     + "booting.")
+            } header: {
+                InfoHeader {
+                    EmptyView()
+                } info: {
+                    Text("System settings take effect the next time a game is started. Leave Region on "
+                         + "Auto-select unless a game needs a specific one: a region that does not "
+                         + "match the game (for example USA with a European copy) can stop it from "
+                         + "booting.")
+                }
             }
 
             Section {
@@ -681,38 +697,38 @@ struct SystemSettingsView: View {
                         value: $settings.stepsPerHour, in: 0...20000, step: 100)
                 Toggle("Region-Free Patch", isOn: $settings.regionFreePatch)
             } header: {
-                Text("Console")
-            } footer: {
-                Text("A fixed clock starts every game at the time above (useful for games that "
-                     + "depend on the date). Without a fixed battery the console reports this "
-                     + "device's battery. Steps per Hour feeds games that count steps (the "
-                     + "Play Coins). The region-free patch lets a game run on a console of "
-                     + "another region.")
+                InfoHeader("Console") {
+                    Text("A fixed clock starts every game at the time above (useful for games that "
+                         + "depend on the date). Without a fixed battery the console reports this "
+                         + "device's battery. Steps per Hour feeds games that count steps (the "
+                         + "Play Coins). The region-free patch lets a game run on a console of "
+                         + "another region.")
+                }
             }
 
             Section {
                 Toggle("Deterministic Async Operations", isOn: $settings.deterministicAsync)
                 Toggle("Simulate Headphones Plugged In", isOn: $settings.simulateHeadphones)
             } header: {
-                Text("Compatibility")
-            } footer: {
-                Text("Deterministic Async Operations runs file and install operations that "
-                     + "normally finish in the background at a fixed time and order, which helps "
-                     + "netplay and movies stay in sync and can fix games that break on the "
-                     + "timing. Simulate Headphones makes the console report headphones plugged "
-                     + "in, which some games use to pick their audio mix.")
+                InfoHeader("Compatibility") {
+                    Text("Deterministic Async Operations runs file and install operations that "
+                         + "normally finish in the background at a fixed time and order, which helps "
+                         + "netplay and movies stay in sync and can fix games that break on the "
+                         + "timing. Simulate Headphones makes the console report headphones plugged "
+                         + "in, which some games use to pick their audio mix.")
+                }
             }
 
             Section {
                 Toggle("Built-in Game Hacks", isOn: $settings.gameHacksEnabled)
             } header: {
-                Text("Game Hacks")
-            } footer: {
-                Text("The core knows games that need a workaround (accurate shader math for Ocarina "
-                     + "of Time 3D, no right-eye skipping for the Luigi's Mansion games) and "
-                     + "applies it by itself. Turn this off to run every game without them. A "
-                     + "single game can decide each workaround for itself in its Game Settings "
-                     + "under Game Hacks.")
+                InfoHeader("Game Hacks") {
+                    Text("The core knows games that need a workaround (accurate shader math for Ocarina "
+                         + "of Time 3D, no right-eye skipping for the Luigi's Mansion games) and "
+                         + "applies it by itself. Turn this off to run every game without them. A "
+                         + "single game can decide each workaround for itself in its Game Settings "
+                         + "under Game Hacks.")
+                }
             }
 
             Section {
@@ -724,26 +740,26 @@ struct SystemSettingsView: View {
                     FileLocations.showInFiles(FileLocations.pluginsDirectory)
                 }
             } header: {
-                Text("Plugins")
-            } footer: {
-                Text("LLE Applets runs the console's own system applets (the Mii maker and the "
-                     + "like) instead of the built-in ones; it needs the system files of a real "
-                     + "console. Loads Luma-style 3GX plugins for games. Put a plugin in the folder of the "
-                     + "game's title ID (Files › Azahar › sdmc › luma › plugins › 0004000000XXXXXX "
-                     + "› plugin.3gx) or name it default.3gx in plugins. Applies when a game "
-                     + "starts.")
+                InfoHeader("Plugins") {
+                    Text("LLE Applets runs the console's own system applets (the Mii maker and the "
+                         + "like) instead of the built-in ones; it needs the system files of a real "
+                         + "console. Loads Luma-style 3GX plugins for games. Put a plugin in the folder of the "
+                         + "game's title ID (Files › Azahar › sdmc › luma › plugins › 0004000000XXXXXX "
+                         + "› plugin.3gx) or name it default.3gx in plugins. Applies when a game "
+                         + "starts.")
+                }
             }
 
             Section {
                 Toggle("Nintendo Network Support", isOn: $settings.onlineModules)
                 NavigationLink("Online Play Guide") { OnlinePlayGuideView() }
             } header: {
-                Text("Online Play")
-            } footer: {
-                Text("Runs the console's own online system modules (network, certificates, "
-                     + "friends) instead of the built-in ones, which online games need. It needs "
-                     + "the system files of a real console and a replacement for Nintendo's "
-                     + "servers. See the guide. Applies when a game starts.")
+                InfoHeader("Online Play") {
+                    Text("Runs the console's own online system modules (network, certificates, "
+                         + "friends) instead of the built-in ones, which online games need. It needs "
+                         + "the system files of a real console and a replacement for Nintendo's "
+                         + "servers. See the guide. Applies when a game starts.")
+                }
             }
 
             Section {
@@ -762,21 +778,25 @@ struct SystemSettingsView: View {
                     }
                 }
             } header: {
-                Text("Storage")
-            } footer: {
-                Text("A chosen folder holds the console's nand and SD card (as the folders nand "
-                     + "and sdmc inside it) instead of Files › Azahar. Existing data is not moved. "
-                     + "Apps that run inside another app (LiveContainer) may not be allowed to "
-                     + "use a folder outside their own; the Azahar folder is used then. Applies "
-                     + "when a game starts.")
+                InfoHeader("Storage") {
+                    Text("A chosen folder holds the console's nand and SD card (as the folders nand "
+                         + "and sdmc inside it) instead of Files › Azahar. Existing data is not moved. "
+                         + "Apps that run inside another app (LiveContainer) may not be allowed to "
+                         + "use a folder outside their own; the Azahar folder is used then. Applies "
+                         + "when a game starts.")
+                }
             }
 
             Section {
                 LabeledContent("Data Folder", value: "Files › Azahar")
                 LabeledContent("Games Folder", value: "Files › ROMs")
-            } footer: {
-                Text("System files, saves and the virtual SD card live in the Azahar folder of "
-                     + "the app's documents, accessible from the Files app.")
+            } header: {
+                InfoHeader {
+                    EmptyView()
+                } info: {
+                    Text("System files, saves and the virtual SD card live in the Azahar folder of "
+                         + "the app's documents, accessible from the Files app.")
+                }
             }
         }
         .navigationTitle("System")
@@ -804,15 +824,19 @@ struct ControlsSettingsView: View {
                     confirmingLayoutReset = true
                 }
             } header: {
-                Text("On-Screen Controller")
-            } footer: {
-                Text("While playing, open the menu and choose Edit Controller Layout to move and "
-                     + "resize the buttons.")
+                InfoHeader("On-Screen Controller") {
+                    Text("While playing, open the menu and choose Edit Controller Layout to move and "
+                         + "resize the buttons.")
+                }
             }
             Section {
                 Toggle("Motion Controls", isOn: $settings.useMotion)
-            } footer: {
-                Text("Uses the gyroscope and accelerometer for games that use motion controls.")
+            } header: {
+                InfoHeader {
+                    EmptyView()
+                } info: {
+                    Text("Uses the gyroscope and accelerometer for games that use motion controls.")
+                }
             }
             Section {
                 NavigationLink("Controller Mapping") { ControllerMappingView() }
@@ -870,10 +894,10 @@ struct AboutView: View {
                     Label("Share Log", systemImage: "square.and.arrow.up")
                 }
             } header: {
-                Text("Diagnostics")
-            } footer: {
-                Text("Shares the start and the end of the log and the last crash report, so the "
-                     + "file stays small even when the full log is huge.")
+                InfoHeader("Diagnostics") {
+                    Text("Shares the start and the end of the log and the last crash report, so the "
+                         + "file stays small even when the full log is huge.")
+                }
             }
             Section {
                 Text("Azahar is an open-source Nintendo 3DS emulator based on Citra. This iOS "
@@ -975,11 +999,11 @@ struct ConsoleProfileView: View {
                 }
                 Stepper("Play Coins: \(playCoins)", value: $playCoins, in: 0...300)
             } header: {
-                Text("Console")
-            } footer: {
-                Text("These are the settings of the emulated console, which games read. A country "
-                     + "that does not belong to the console's region can stop some games from "
-                     + "starting.")
+                InfoHeader("Console") {
+                    Text("These are the settings of the emulated console, which games read. A country "
+                         + "that does not belong to the console's region can stop some games from "
+                         + "starting.")
+                }
             }
 
             Section {
@@ -1019,5 +1043,82 @@ struct ConsoleProfileView: View {
         } message: {
             Text("The profile can only be changed while no game runs.")
         }
+    }
+}
+
+
+/// The header of a section with a small (i) button that opens what the settings of the section do,
+/// which keeps long explanations off the list itself.
+struct InfoHeader<Title: View, Info: View>: View {
+    private let titleText: String?
+    private let title: Title
+    private let info: Info
+    @State private var showing = false
+
+    init(@ViewBuilder title: () -> Title, @ViewBuilder info: () -> Info) {
+        self.titleText = nil
+        self.title = title()
+        self.info = info()
+    }
+
+    var body: some View {
+        HStack {
+            title
+            Spacer(minLength: 8)
+            Button {
+                showing = true
+            } label: {
+                Image(systemName: "info.circle")
+                    .imageScale(.medium)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("About these settings")
+        }
+        .sheet(isPresented: $showing) {
+            InfoSheet(title: titleText ?? "About These Settings") { info }
+        }
+    }
+}
+
+extension InfoHeader where Title == Text {
+    init(_ title: String, @ViewBuilder info: () -> Info) {
+        self.titleText = title
+        self.title = Text(title)
+        self.info = info()
+    }
+}
+
+extension InfoHeader where Title == EmptyView {
+    init(@ViewBuilder info: () -> Info) {
+        self.titleText = nil
+        self.title = EmptyView()
+        self.info = info()
+    }
+}
+
+/// What a section's settings do, in a sheet.
+private struct InfoSheet<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                content()
+                    .font(.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

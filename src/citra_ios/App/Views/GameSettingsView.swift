@@ -128,10 +128,10 @@ struct GameSettingsView: View {
                     ConsoleRegion(rawValue: $0)?.title ?? "\($0)"
                 }
             } header: {
-                Text("System")
-            } footer: {
-                Text("Rows set to Default follow the global settings. Changes apply the next time "
-                     + "the game starts.")
+                InfoHeader("System") {
+                    Text("Rows set to Default follow the global settings. Changes apply the next time "
+                         + "the game starts.")
+                }
             }
 
             Section {
@@ -153,10 +153,10 @@ struct GameSettingsView: View {
                     }
                 }
             } header: {
-                Text("Game Hacks")
-            } footer: {
-                Text(GameHack.allCases.map { "\($0.title): \($0.details)" }
-                        .joined(separator: "\n\n"))
+                InfoHeader("Game Hacks") {
+                    Text(GameHack.allCases.map { "\($0.title): \($0.details)" }
+                            .joined(separator: "\n\n"))
+                }
             }
 
             Section {
@@ -165,10 +165,10 @@ struct GameSettingsView: View {
                     ForEach(profiles) { Text($0.name).tag(String?.some($0.id)) }
                 }
             } header: {
-                Text("Controller")
-            } footer: {
-                Text("Uses a saved controller profile for this game. Create profiles in "
-                     + "Settings › Controller Mapping.")
+                InfoHeader("Controller") {
+                    Text("Uses a saved controller profile for this game. Create profiles in "
+                         + "Settings › Controller Mapping.")
+                }
             }
 
             Section {

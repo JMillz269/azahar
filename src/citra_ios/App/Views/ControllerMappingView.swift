@@ -92,20 +92,24 @@ struct ControllerMappingView: View {
                     }
                 }
             } header: {
-                Text("Profiles")
-            } footer: {
-                Text("Keep several mappings, for example one per controller. Changes below are "
-                     + "saved into the chosen profile. A game can use its own profile in its Game "
-                     + "Settings.")
+                InfoHeader("Profiles") {
+                    Text("Keep several mappings, for example one per controller. Changes below are "
+                         + "saved into the chosen profile. A game can use its own profile in its Game "
+                         + "Settings.")
+                }
             }
 
             Section {
                 Toggle("Control the App With the Controller", isOn: $settings.controllerNavigation)
-            } footer: {
-                Text("The D-pad or left stick moves through the menus, A presses, B goes back "
-                     + "and L/R (or the triggers) switch between Games and Settings. The right stick "
-                     + "scrolls a page. Left and right change a slider. Works outside "
-                     + "games and in the pause menu.")
+            } header: {
+                InfoHeader {
+                    EmptyView()
+                } info: {
+                    Text("The D-pad or left stick moves through the menus, A presses, B goes back "
+                         + "and L/R (or the triggers) switch between Games and Settings. The right stick "
+                         + "scrolls a page. Left and right change a slider. Works outside "
+                         + "games and in the pause menu.")
+                }
             }
 
             Section {
@@ -116,10 +120,10 @@ struct ControllerMappingView: View {
                     }
                 }
             } header: {
-                Text("3DS Buttons")
-            } footer: {
-                Text("Tap a button, then press the button of your controller that should do it. "
-                     + "A button that was already in use swaps places.")
+                InfoHeader("3DS Buttons") {
+                    Text("Tap a button, then press the button of your controller that should do it. "
+                         + "A button that was already in use swaps places.")
+                }
             }
 
             Section("Sticks") {
@@ -144,11 +148,11 @@ struct ControllerMappingView: View {
                     }
                 }
             } header: {
-                Text("Touch Screen")
-            } footer: {
-                Text("A stick of the controller moves a cursor over the bottom screen. Give a "
-                     + "controller button to Touch Screen Tap in the shortcuts below to tap with "
-                     + "it. The stick no longer drives the circle pad or the C-stick.")
+                InfoHeader("Touch Screen") {
+                    Text("A stick of the controller moves a cursor over the bottom screen. Give a "
+                         + "controller button to Touch Screen Tap in the shortcuts below to tap with "
+                         + "it. The stick no longer drives the circle pad or the C-stick.")
+                }
             }
 
             Section {
@@ -163,10 +167,10 @@ struct ControllerMappingView: View {
                     }
                 }
             } header: {
-                Text("Shortcuts")
-            } footer: {
-                Text("A shortcut uses a controller button instead of a 3DS button. Swipe left to "
-                     + "clear one.")
+                InfoHeader("Shortcuts") {
+                    Text("A shortcut uses a controller button instead of a 3DS button. Swipe left to "
+                         + "clear one.")
+                }
             }
 
             Section {
