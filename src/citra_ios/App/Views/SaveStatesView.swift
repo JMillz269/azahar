@@ -71,8 +71,27 @@ struct SaveStatesView: View {
         }
     }
 
+    /// The picture kept with a state, or a placeholder for one saved before pictures were kept.
+    @ViewBuilder
+    private func thumbnail(of state: AZSaveStateSlot?) -> some View {
+        Group {
+            if let path = state?.thumbnailPath, let image = UIImage(contentsOfFile: path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(systemName: state == nil ? "tray" : "photo")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 48, height: 58)
+        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
     private func row(for slot: Int) -> some View {
         HStack {
+            thumbnail(of: slots[slot])
             VStack(alignment: .leading, spacing: 2) {
                 Text(slot == 0 ? "Quick Slot" : "Slot \(slot)")
                     .foregroundStyle(.primary)

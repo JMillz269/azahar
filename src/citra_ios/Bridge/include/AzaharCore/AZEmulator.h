@@ -82,6 +82,9 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 @property(nonatomic, readonly) NSDate* date;
 /// False when the state was made by another build and can't be loaded.
 @property(nonatomic, readonly) BOOL isLoadable;
+/// A small picture of the game when the state was saved (a JPEG file), nil for states saved
+/// before pictures were kept.
+@property(nonatomic, readonly, nullable) NSString* thumbnailPath;
 @end
 
 /// A cheat of the running title.

@@ -56,15 +56,24 @@
     NSInteger _slot;
     NSDate* _date;
     BOOL _loadable;
+    NSString* _thumbnailPath;
 }
 
-- (instancetype)initWithSlot:(NSInteger)slot date:(NSDate*)date loadable:(BOOL)loadable {
+- (instancetype)initWithSlot:(NSInteger)slot
+                        date:(NSDate*)date
+                    loadable:(BOOL)loadable
+               thumbnailPath:(NSString*)thumbnailPath {
     if ((self = [super init])) {
         _slot = slot;
         _date = date;
         _loadable = loadable;
+        _thumbnailPath = thumbnailPath;
     }
     return self;
+}
+
+- (NSString*)thumbnailPath {
+    return _thumbnailPath;
 }
 
 - (NSInteger)slot {
@@ -427,23 +436,103 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
 
 // MARK: Save states
 
+namespace {
+/// Where the picture of a save state is kept, next to the state itself.
+std::string StateThumbnailPath(u64 program_id, u64 movie_id, u32 slot) {
+    const std::string directory = FileUtil::GetUserPath(FileUtil::UserPath::StatesDir);
+    if (movie_id != 0) {
+        return fmt::format("{}{:016X}.movie{:016X}.{:02d}.jpg", directory, program_id, movie_id,
+                           slot);
+    }
+    return fmt::format("{}{:016X}.{:02d}.jpg", directory, program_id, slot);
+}
+
+/// Takes a picture of the screens as they are now and writes it, small, as a JPEG.
+void SaveStateThumbnail(const std::string& path) {
+    Core::System& system = Core::System::GetInstance();
+    auto& renderer = system.GPU().Renderer();
+    const auto layout = Layout::FrameLayoutFromResolutionScale(renderer.GetResolutionScaleFactor());
+    const u32 width = layout.width;
+    const u32 height = layout.height;
+    if (width == 0 || height == 0) {
+        return;
+    }
+    auto pixels = std::make_shared<std::vector<u8>>(static_cast<std::size_t>(width) * height * 4);
+    renderer.RequestScreenshot(
+        pixels->data(),
+        [pixels, width, height, path](bool) {
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+              CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+              CGDataProviderRef provider =
+                  CGDataProviderCreateWithData(nullptr, pixels->data(), pixels->size(), nullptr);
+              // The renderer writes BGRA bytes.
+              CGImageRef full = CGImageCreate(
+                  width, height, 8, 32, static_cast<std::size_t>(width) * 4, color_space,
+                  kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst, provider, nullptr,
+                  false, kCGRenderingIntentDefault);
+              if (full != nullptr) {
+                  // Small: the longer side is 240 points.
+                  const double scale = std::min(1.0, 240.0 / std::max(width, height));
+                  const std::size_t target_width = std::max<std::size_t>(
+                      1, static_cast<std::size_t>(std::lround(width * scale)));
+                  const std::size_t target_height = std::max<std::size_t>(
+                      1, static_cast<std::size_t>(std::lround(height * scale)));
+                  CGContextRef context = CGBitmapContextCreate(
+                      nullptr, target_width, target_height, 8, 0, color_space,
+                      kCGImageAlphaNoneSkipLast);
+                  if (context != nullptr) {
+                      CGContextSetInterpolationQuality(context, kCGInterpolationHigh);
+                      CGContextDrawImage(context, CGRectMake(0, 0, target_width, target_height),
+                                         full);
+                      CGImageRef small = CGBitmapContextCreateImage(context);
+                      if (small != nullptr) {
+                          NSURL* url = [NSURL fileURLWithPath:ToNSString(path)];
+                          CGImageDestinationRef destination = CGImageDestinationCreateWithURL(
+                              (__bridge CFURLRef)url, CFSTR("public.jpeg"), 1, nullptr);
+                          if (destination != nullptr) {
+                              NSDictionary* options = @{
+                                  (__bridge NSString*)kCGImageDestinationLossyCompressionQuality :
+                                      @0.75
+                              };
+                              CGImageDestinationAddImage(destination, small,
+                                                         (__bridge CFDictionaryRef)options);
+                              CGImageDestinationFinalize(destination);
+                              CFRelease(destination);
+                          }
+                          CGImageRelease(small);
+                      }
+                      CGContextRelease(context);
+                  }
+                  CGImageRelease(full);
+              }
+              CGDataProviderRelease(provider);
+              CGColorSpaceRelease(color_space);
+            });
+        },
+        layout);
+}
+} // namespace
+
 - (NSArray<AZSaveStateSlot*>*)saveStateSlots {
     const u64 program_id = RunningProgramId();
     if (program_id == 0) {
         return @[];
     }
-    const auto states = Core::ListSaveStates(
-        program_id, Core::System::GetInstance().Movie().GetCurrentMovieID());
+    const u64 movie_id = Core::System::GetInstance().Movie().GetCurrentMovieID();
+    const auto states = Core::ListSaveStates(program_id, movie_id);
     NSMutableArray<AZSaveStateSlot*>* slots = [NSMutableArray array];
     for (const auto& state : states) {
         if (state.slot >= Core::SaveStateSlotCount) {
             continue;
         }
         const bool loadable = state.status != Core::SaveStateInfo::ValidationStatus::BuildMismatch;
+        const std::string thumbnail = StateThumbnailPath(program_id, movie_id, state.slot);
+        NSString* thumbnail_path = FileUtil::Exists(thumbnail) ? ToNSString(thumbnail) : nil;
         [slots addObject:[[AZSaveStateSlot alloc]
                              initWithSlot:state.slot
                                      date:[NSDate dateWithTimeIntervalSince1970:state.time]
-                                 loadable:loadable]];
+                                 loadable:loadable
+                            thumbnailPath:thumbnail_path]];
     }
     [slots sortUsingComparator:^NSComparisonResult(AZSaveStateSlot* a, AZSaveStateSlot* b) {
       return [b.date compare:a.date];
@@ -455,8 +544,14 @@ std::shared_ptr<Cheats::CheatBase> MakeCheat(AZCheat* cheat) {
     if (RunningProgramId() == 0 || slot < 0 || slot >= Core::SaveStateSlotCount) {
         return NO;
     }
-    return Core::System::GetInstance().SendSignal(Core::System::Signal::Save,
-                                                  static_cast<u32>(slot));
+    const bool requested = Core::System::GetInstance().SendSignal(Core::System::Signal::Save,
+                                                                  static_cast<u32>(slot));
+    if (requested) {
+        SaveStateThumbnail(StateThumbnailPath(
+            RunningProgramId(), Core::System::GetInstance().Movie().GetCurrentMovieID(),
+            static_cast<u32>(slot)));
+    }
+    return requested;
 }
 
 - (BOOL)loadStateFromSlot:(NSInteger)slot {
