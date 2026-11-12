@@ -24,6 +24,7 @@ struct EmulationView: View {
     @State private var showingAmiibo = false
     @State private var showingMultiplayer = false
     @State private var showingMovies = false
+    @State private var showingGameSettings = false
     @State private var savingLayout = false
     @State private var layoutName = ""
     @State private var editingScreens = false
@@ -199,6 +200,7 @@ struct EmulationView: View {
             Button("Amiibo…") { showingAmiibo = true }
             Button("Multiplayer…") { showingMultiplayer = true }
             Button("Movies…") { showingMovies = true }
+            Button("Game Settings…") { showingGameSettings = true }
             Button(session.isFastForwarding ? "Normal Speed" : "Fast Forward") {
                 session.toggleFastForward()
             }
@@ -234,6 +236,18 @@ struct EmulationView: View {
         .sheet(isPresented: $showingMovies) {
             if let game = session.currentGame {
                 MoviesView(game: game)
+            }
+        }
+        .sheet(isPresented: $showingGameSettings) {
+            if let game = session.currentGame {
+                NavigationStack {
+                    GameSettingsView(game: game) { session.apply(settings: settings) }
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showingGameSettings = false }
+                            }
+                        }
+                }
             }
         }
         .sheet(item: $session.miiRequest) { request in
@@ -296,7 +310,7 @@ extension EmulationView {
     /// multiplayer room is not part of it: the others in the room keep playing.
     fileprivate var menuVisible: Bool {
         showingMenu || showingSaveStates || showingLoadStates || showingCheats || showingAmiibo
-            || showingMovies || editingLayout
+            || showingMovies || showingGameSettings || editingLayout
     }
 
     /// Pauses the game while the menu is up and runs it again when it is gone.

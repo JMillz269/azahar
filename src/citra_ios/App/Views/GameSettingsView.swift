@@ -7,6 +7,9 @@ import SwiftUI
 /// The settings of one game. Every row can use the global setting or replace it for this game.
 struct GameSettingsView: View {
     let game: Game
+    /// Called after a row changed, which the game menu uses to apply the change to the running
+    /// game right away.
+    var onChange: (() -> Void)?
     @ObservedObject private var store = GameOverridesStore.shared
     @State private var overrides = GameOverrides()
     private var profiles: [ControllerProfile] { ControllerMappingStore.loadProfiles() }
@@ -130,8 +133,11 @@ struct GameSettingsView: View {
                 }
             } header: {
                 InfoHeader("System") {
-                    Text("Rows set to Default follow the global settings. Changes apply the next time "
-                         + "the game starts.")
+                    Text("Rows set to Default follow the global settings. Opened from the game menu, "
+                         + "changes apply to the running game right away where that is possible "
+                         + "(layout, speed, graphics options). Settings that change how the game "
+                         + "is set up (game hacks, shader options, the region, plugins and the "
+                         + "like) apply the next time the game starts.")
                 }
             }
 
@@ -182,7 +188,10 @@ struct GameSettingsView: View {
         .navigationTitle("Game Settings")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { overrides = store.overrides(for: game) }
-        .onChange(of: overrides) { store.set($0, for: game) }
+        .onChange(of: overrides) {
+            store.set($0, for: game)
+            onChange?()
+        }
     }
 }
 
