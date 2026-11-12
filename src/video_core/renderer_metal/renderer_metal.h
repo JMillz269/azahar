@@ -151,6 +151,11 @@ struct FrameStats {
 };
 FrameStats TakeFrameStats();
 
+/// Turns the collecting of the statistics for the log (render passes, CPU time) on or off. Off,
+/// the renderer does not do the work of keeping them. Defined in mtl_scheduler.mm.
+void SetStatisticsEnabled(bool enabled);
+bool StatisticsEnabled();
+
 /// Where the GPU readbacks of the last interval came from, see mtl_scheduler.h.
 std::vector<std::string> TakeReadbackSummary(std::size_t max_lines);
 
