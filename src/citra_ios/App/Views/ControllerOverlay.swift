@@ -126,6 +126,9 @@ struct ControllerOverlay: View {
                     }
                 }
                 .environment(\.controlGlassStyle, glass)
+                // Dark glass whatever the game shows: glass that follows the brightness behind it
+                // would switch between dark and light as the picture changes.
+                .environment(\.colorScheme, .dark)
                 .allowsHitTesting(false)
                 // Glass must not be faded (it would turn into a flat picture): its look is set
                 // by the tint. The plain controls keep their opacity.
@@ -703,11 +706,6 @@ private struct DPad: View {
 
     var body: some View {
         ZStack {
-            // The cross is one surface, so as glass it is one piece and not two bars over each
-            // other.
-            Color.clear
-                .frame(width: size, height: size)
-                .controlSurface(DPadCross(), pressed: false, lineWidth: 0)
             ForEach([ConsoleButton.up, .down, .left, .right], id: \.self) { direction in
                 let active = pressed.contains(direction)
                 RoundedRectangle(cornerRadius: 6)
@@ -721,6 +719,9 @@ private struct DPad: View {
             }
         }
         .frame(width: size, height: size)
+        // The cross is one surface, so as glass it is one piece and not two bars over each other.
+        // The arrows are its content, which is drawn on top of the glass.
+        .controlSurface(DPadCross(), pressed: false, lineWidth: 0)
     }
 
     private func arrow(for direction: ConsoleButton) -> String {
@@ -764,17 +765,15 @@ private struct CirclePad: View {
     let knob: CGPoint
 
     var body: some View {
-        ZStack {
-            Color.clear
-                .frame(width: size, height: size)
-                .controlSurface(Circle(), pressed: false)
-            // The knob is a plain disc: glass on glass would have nothing to refract.
-            Circle()
-                .fill(Color.white.opacity(0.45))
-                .frame(width: size * 0.5, height: size * 0.5)
-                .offset(x: knob.x * size / 2, y: knob.y * size / 2)
-        }
-        .frame(width: size, height: size)
+        // The knob is the content of the surface, so it is drawn on top of the glass. It is a
+        // plain disc: glass on glass would have nothing to refract.
+        Circle()
+            .fill(Color.white.opacity(0.5))
+            .overlay { Circle().stroke(Color.white.opacity(0.7), lineWidth: 1) }
+            .frame(width: size * 0.5, height: size * 0.5)
+            .offset(x: knob.x * size / 2, y: knob.y * size / 2)
+            .frame(width: size, height: size)
+            .controlSurface(Circle(), pressed: false)
     }
 }
 

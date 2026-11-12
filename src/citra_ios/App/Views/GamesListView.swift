@@ -226,6 +226,8 @@ struct GamesListView: View {
             }
             .padding()
         }
+        .onAppear { TiltMotion.shared.start() }
+        .onDisappear { TiltMotion.shared.stop() }
     }
 
     @ViewBuilder

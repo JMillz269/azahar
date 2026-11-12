@@ -2,7 +2,9 @@
 // Licensed under GPLv3 or any later version
 // Refer to the LICENSE.txt file included.
 
+import CoreMotion
 import SwiftUI
+import UIKit
 
 // The Liquid Glass pieces of the app in one place.
 //
@@ -176,6 +178,119 @@ extension View {
     }
 }
 
+// MARK: - Settings screens
+
+/// A soft, still backdrop of color for the settings lists, so their translucent rows and the
+/// glass bars have something to show through. It does not move, so it costs nothing to keep.
+struct LGAmbientBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            let size = max(geometry.size.width, geometry.size.height)
+            ZStack {
+                Color(uiColor: .systemGroupedBackground)
+                Circle().fill(Color.indigo)
+                    .frame(width: size * 0.7).offset(x: -size * 0.3, y: -size * 0.35)
+                Circle().fill(Color.teal)
+                    .frame(width: size * 0.6).offset(x: size * 0.35, y: size * 0.05)
+                Circle().fill(Color.purple)
+                    .frame(width: size * 0.6).offset(x: -size * 0.15, y: size * 0.45)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .blur(radius: 90)
+            .opacity(colorScheme == .dark ? 0.55 : 0.35)
+            .background(Color(uiColor: .systemGroupedBackground))
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// The background of a row of a settings list: a material, so the backdrop shows through.
+struct LGRowBackground: View {
+    var body: some View {
+        Rectangle().fill(.regularMaterial)
+    }
+}
+
+private struct LGSettingsStyle: ViewModifier {
+    @EnvironmentObject private var settings: AppSettings
+    @State private var tick = 0
+
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .background { LGAmbientBackdrop() }
+            // Rows that appear and disappear with a setting move with a spring.
+            .animation(LGMotion.panel, value: tick)
+            .onReceive(settings.objectWillChange) { _ in tick &+= 1 }
+    }
+}
+
+extension View {
+    /// A settings list over the ambient backdrop, with spring motion for rows that come and go.
+    func lgSettingsStyle() -> some View {
+        modifier(LGSettingsStyle())
+    }
+}
+
+// MARK: - Device tilt
+
+/// How the device is held, for the parallax of the library cards. Runs only while something asks
+/// for it, at a low rate, and not at all with Reduce Motion.
+@MainActor
+final class TiltMotion: ObservableObject {
+    static let shared = TiltMotion()
+
+    /// Left-right and forward-back tilt from where the device was when the motion started,
+    /// each in -1...1.
+    @Published private(set) var x: Double = 0
+    @Published private(set) var y: Double = 0
+
+    private let manager = CMMotionManager()
+    private var reference: (roll: Double, pitch: Double)?
+    private var users = 0
+
+    func start() {
+        users += 1
+        guard users == 1, manager.isDeviceMotionAvailable,
+              !UIAccessibility.isReduceMotionEnabled else { return }
+        reference = nil
+        manager.deviceMotionUpdateInterval = 1.0 / 30.0
+        manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+            guard let attitude = motion?.attitude else { return }
+            let roll = attitude.roll
+            let pitch = attitude.pitch
+            Task { @MainActor in self?.update(roll: roll, pitch: pitch) }
+        }
+    }
+
+    func stop() {
+        users = max(0, users - 1)
+        guard users == 0 else { return }
+        manager.stopDeviceMotionUpdates()
+        x = 0
+        y = 0
+    }
+
+    private func update(roll: Double, pitch: Double) {
+        guard users > 0 else { return }
+        if reference == nil { reference = (roll, pitch) }
+        guard let reference else { return }
+        // About 25 degrees of tilt is the whole range. The resting position follows slowly, so
+        // the cards settle back however the device is held.
+        let range = 0.45
+        let newX = max(-1, min(1, (roll - reference.roll) / range))
+        let newY = max(-1, min(1, (pitch - reference.pitch) / range))
+        self.reference = (reference.roll + (roll - reference.roll) * 0.02,
+                          reference.pitch + (pitch - reference.pitch) * 0.02)
+        if abs(newX - x) > 0.01 || abs(newY - y) > 0.01 {
+            x = newX
+            y = newY
+        }
+    }
+}
+
 // MARK: - Motion
 
 enum LGMotion {
@@ -271,14 +386,16 @@ private struct ControlSurface<S: Shape>: ViewModifier {
 
     @available(iOS 26.0, *)
     private var glass: Glass {
+        // The clear glass: the regular one adapts to what is behind it and flips between a dark
+        // and a light look as the game's picture changes, which shows as flashes over a game.
         if pressed {
             // Energized: more light in the glass while it is held.
-            return .regular.tint(Color.white.opacity(0.5))
+            return .clear.tint(Color.white.opacity(0.4))
         }
         if style.tint <= 0.02 {
             return .clear
         }
-        return .regular.tint(Color.white.opacity(style.tint * 0.45))
+        return .clear.tint(Color.white.opacity(style.tint * 0.35))
     }
 }
 

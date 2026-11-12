@@ -101,6 +101,7 @@ struct GameSettingsView: View {
             } header: {
                 Text("Graphics")
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 OverridePicker("CPU Clock Speed", value: $overrides.cpuClockPercentage,
@@ -121,6 +122,8 @@ struct GameSettingsView: View {
                 Text("Speed")
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 OverrideToggle("New 3DS Mode", value: $overrides.isNew3DS)
                 OverrideToggle("LLE Applets", value: $overrides.lleApplets)
@@ -140,6 +143,8 @@ struct GameSettingsView: View {
                          + "like) apply the next time the game starts.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 ForEach(GameHack.allCases) { hack in
@@ -166,6 +171,8 @@ struct GameSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Picker("Controller Profile", selection: $overrides.controllerProfile) {
                     Text("Current Mapping").tag(String?.none)
@@ -178,14 +185,19 @@ struct GameSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Button("Reset to Global Settings", role: .destructive) {
                     overrides = GameOverrides()
                 }
                 .disabled(overrides.isEmpty)
             }
+
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("Game Settings")
+        .lgSettingsStyle()
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { overrides = store.overrides(for: game) }
         .onChange(of: overrides) {

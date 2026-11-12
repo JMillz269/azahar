@@ -30,13 +30,16 @@ struct SettingsView: View {
                         Label("Controls", systemImage: "gamecontroller")
                     }
                 }
+                .listRowBackground(LGRowBackground())
                 Section {
                     NavigationLink { AboutView() } label: {
                         Label("About", systemImage: "info.circle")
                     }
                 }
+                .listRowBackground(LGRowBackground())
             }
             .navigationTitle("Settings")
+            .lgSettingsStyle()
         }
     }
 }
@@ -78,6 +81,7 @@ struct GeneralSettingsView: View {
                          + "interpreter is used.")
                 }
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("Limit Speed", isOn: $settings.useFrameLimit)
@@ -99,11 +103,15 @@ struct GeneralSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section("Library") {
                 Picker("Library Style", selection: $settings.libraryStyle) {
                     ForEach(LibraryStyle.allCases) { Text($0.title).tag($0) }
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("Keep Original Files", isOn: $settings.keepOriginalsWhenCompressing)
@@ -141,8 +149,11 @@ struct GeneralSettingsView: View {
                          + "installs like a .cia. Encrypted and bundled games cannot be compressed.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("General")
+        .lgSettingsStyle()
     }
 }
 
@@ -201,6 +212,7 @@ struct GraphicsSettingsView: View {
                          + "small GPU cost.")
                 }
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Picker("Internal Resolution", selection: $settings.resolutionFactor) {
@@ -240,6 +252,8 @@ struct GraphicsSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Toggle("Use External Display", isOn: $settings.useExternalDisplay)
                 Picker("External Display Shows", selection: $settings.secondaryDisplayLayout) {
@@ -258,6 +272,8 @@ struct GraphicsSettingsView: View {
                          + "offering the display to Azahar.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
     }
 
     @ViewBuilder private var enhancementSections: some View {
@@ -277,6 +293,7 @@ struct GraphicsSettingsView: View {
                          + "Applies the next time a game starts.")
                 }
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Picker("Outer Cameras", selection: $settings.outerCamera) {
@@ -292,6 +309,8 @@ struct GraphicsSettingsView: View {
                          + "permission. Applies the next time a game starts.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Picker("3D Mode", selection: $settings.stereoMode) {
@@ -336,6 +355,8 @@ struct GraphicsSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Picker("Upscaling", selection: $settings.upscaling) {
                     ForEach(UpscalingOption.allCases) { Text($0.title).tag($0) }
@@ -353,6 +374,8 @@ struct GraphicsSettingsView: View {
                     }
                 }
             }
+
+            .listRowBackground(LGRowBackground())
     }
 
     @ViewBuilder private var shaderSections: some View {
@@ -379,6 +402,7 @@ struct GraphicsSettingsView: View {
                          + "ignored, the log tells why. Applies when a game starts.")
                 }
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("Frame Pacing", isOn: $settings.framePacing)
@@ -397,6 +421,8 @@ struct GraphicsSettingsView: View {
                          + "when a game starts.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("Async Shader Compilation", isOn: $settings.asyncShaders)
@@ -425,6 +451,8 @@ struct GraphicsSettingsView: View {
                          + "boots, so they don't need to be built again during play.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
             .alert("Shader Cache Cleared", isPresented: $clearedShaderCache) {
                 Button("OK", role: .cancel) {}
             }
@@ -485,6 +513,7 @@ struct GraphicsSettingsView: View {
                     Text(verbatim: Self.performanceFooter)
                 }
             }
+            .listRowBackground(LGRowBackground())
     }
 
     var body: some View {
@@ -495,6 +524,7 @@ struct GraphicsSettingsView: View {
             performanceSections
         }
         .navigationTitle("Graphics")
+        .lgSettingsStyle()
     }
 }
 
@@ -516,6 +546,7 @@ struct LayoutSettingsView: View {
                     }
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 Picker("Screen Layout", selection: $settings.portraitLayout) {
                     ForEach(PortraitScreenLayout.allCases) { Text($0.title).tag($0) }
@@ -527,6 +558,7 @@ struct LayoutSettingsView: View {
                     }
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 Toggle("Swap Screens", isOn: $settings.swapScreens)
                 Toggle("Upright Screens", isOn: $settings.uprightScreens)
@@ -550,6 +582,7 @@ struct LayoutSettingsView: View {
                          + "layout.")
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 Toggle("Integer Scaling", isOn: $settings.integerScaling)
                 Picker("Aspect Ratio", selection: $settings.aspectRatio) {
@@ -581,6 +614,7 @@ struct LayoutSettingsView: View {
                          + "layouts that do not place the screens by hand.")
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 ForEach(settings.layoutPresets) { preset in
                     Button {
@@ -601,6 +635,7 @@ struct LayoutSettingsView: View {
                          + "Save Screen Layout saves what you set up with Edit Screen Layout.")
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 Toggle("Respect Notch", isOn: $settings.respectNotch)
             } header: {
@@ -611,8 +646,10 @@ struct LayoutSettingsView: View {
                          + "corners. Turn it off to draw the game edge to edge.")
                 }
             }
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("Layout")
+        .lgSettingsStyle()
         .alert("Save Layout", isPresented: $savingPreset) {
             TextField("Name", text: $presetName)
             Button("Save") { settings.saveLayoutPreset(named: presetName) }
@@ -657,8 +694,10 @@ struct AudioSettingsView: View {
                          + "Applies when a game starts.")
                 }
             }
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("Audio")
+        .lgSettingsStyle()
     }
 }
 
@@ -684,6 +723,7 @@ struct SystemSettingsView: View {
                          + "booting.")
                 }
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("Fixed Clock", isOn: $settings.fixedClock)
@@ -711,6 +751,8 @@ struct SystemSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Toggle("Deterministic Async Operations", isOn: $settings.deterministicAsync)
                 Toggle("Simulate Headphones Plugged In", isOn: $settings.simulateHeadphones)
@@ -724,6 +766,8 @@ struct SystemSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Toggle("Built-in Game Hacks", isOn: $settings.gameHacksEnabled)
             } header: {
@@ -735,6 +779,8 @@ struct SystemSettingsView: View {
                          + "under Game Hacks.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("LLE Applets", isOn: $settings.lleApplets)
@@ -755,6 +801,8 @@ struct SystemSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Toggle("Nintendo Network Support", isOn: $settings.onlineModules)
                 NavigationLink("Online Play Guide") { OnlinePlayGuideView() }
@@ -766,6 +814,8 @@ struct SystemSettingsView: View {
                          + "servers. See the guide. Applies when a game starts.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("Virtual SD Card", isOn: $settings.useVirtualSD)
@@ -792,6 +842,8 @@ struct SystemSettingsView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 LabeledContent("Data Folder", value: "Files › Azahar")
                 LabeledContent("Games Folder", value: "Files › ROMs")
@@ -803,8 +855,11 @@ struct SystemSettingsView: View {
                          + "the app's documents, accessible from the Files app.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("System")
+        .lgSettingsStyle()
     }
 }
 
@@ -846,6 +901,7 @@ struct ControlsSettingsView: View {
                          + "resize the buttons.")
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 Toggle("Motion Controls", isOn: $settings.useMotion)
             } header: {
@@ -855,6 +911,7 @@ struct ControlsSettingsView: View {
                     Text("Uses the gyroscope and accelerometer for games that use motion controls.")
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 NavigationLink("Controller Mapping") { ControllerMappingView() }
                 Text("MFi, Xbox, PlayStation and Switch controllers are detected automatically. "
@@ -865,8 +922,10 @@ struct ControlsSettingsView: View {
             } header: {
                 Text("Game Controllers")
             }
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("Controls")
+        .lgSettingsStyle()
         .confirmationDialog("Reset the controller layout?", isPresented: $confirmingLayoutReset,
                             titleVisibility: .visible) {
             Button("Reset", role: .destructive) { layout.resetEverything() }
@@ -897,10 +956,12 @@ struct AboutView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical)
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 LabeledContent("Renderer", value: "Metal (native)")
                 LabeledContent("JIT", value: AZEmulator.isJITAvailable ? "Available" : "Unavailable")
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 Toggle("Write Log", isOn: $settings.loggingEnabled)
                 Button {
@@ -921,6 +982,7 @@ struct AboutView: View {
                          + "emulator. It is off by default, so turn it on before you play a game you want a log of.")
                 }
             }
+            .listRowBackground(LGRowBackground())
             Section {
                 Text("Azahar is an open-source Nintendo 3DS emulator based on Citra. This iOS "
                      + "port uses a native Metal renderer. Azahar is licensed under the GPLv2. "
@@ -928,8 +990,10 @@ struct AboutView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("About")
+        .lgSettingsStyle()
         .sheet(item: $sharedLog) { file in
             ShareSheet(url: file.url)
         }
@@ -955,6 +1019,7 @@ struct OnlinePlayGuideView: View {
                 Text("3. Turn on Nintendo Network Support in Settings › System, and the plugin "
                      + "loader if the service's patch is a 3GX plugin.")
             }
+            .listRowBackground(LGRowBackground())
             Section("Good to know") {
                 Text("This runs the real online modules, so it only works with a complete setup "
                      + "from your console. It is slower to start a game, and it has not been "
@@ -962,8 +1027,10 @@ struct OnlinePlayGuideView: View {
                 Text("Local wireless play with others on the same network is separate: use "
                      + "Multiplayer in the game menu.")
             }
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("Online Play")
+        .lgSettingsStyle()
     }
 }
 
@@ -1004,6 +1071,7 @@ struct ConsoleProfileView: View {
             } header: {
                 Text("You")
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Picker("Language", selection: $language) {
@@ -1028,6 +1096,8 @@ struct ConsoleProfileView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Button("Save") {
                     let profile = AZConsoleProfile()
@@ -1045,8 +1115,11 @@ struct ConsoleProfileView: View {
                     }
                 }
             }
+
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("Console Profile")
+        .lgSettingsStyle()
         .onAppear {
             guard !loaded else { return }
             loaded = true

@@ -141,7 +141,8 @@ struct EmulationView: View {
                 .transition(.opacity)
             }
 
-            if session.isPaused && !editingLayout {
+            // Not over the menu, which pauses the game itself: only when it was left paused.
+            if session.isPaused && !editingLayout && !menuVisible {
                 Text("Paused")
                     .font(.headline)
                     .padding(.horizontal, 16)

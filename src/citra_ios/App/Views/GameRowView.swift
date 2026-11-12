@@ -72,6 +72,7 @@ struct GameRowView: View {
 struct GameCardView: View {
     let game: Game
     @ObservedObject private var stats = GameStatsStore.shared
+    @ObservedObject private var tilt = TiltMotion.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -113,6 +114,12 @@ struct GameCardView: View {
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        // The card leans with the device, and the color behind it shifts the other way, which
+        // reads as depth.
+        .rotation3DEffect(.degrees(tilt.x * 7), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+        .rotation3DEffect(.degrees(-tilt.y * 7), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+        .animation(.interpolatingSpring(stiffness: 120, damping: 18), value: tilt.x)
+        .animation(.interpolatingSpring(stiffness: 120, damping: 18), value: tilt.y)
     }
 
     /// The colors of the game's icon, spread out behind the card like light through frosted
@@ -125,6 +132,8 @@ struct GameCardView: View {
                 Image(uiImage: icon)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .scaleEffect(1.25)
+                    .offset(x: -tilt.x * 14, y: tilt.y * 14)
                     .blur(radius: 28)
                     .saturation(1.4)
                     .opacity(0.5)

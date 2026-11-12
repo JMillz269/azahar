@@ -98,6 +98,7 @@ struct ControllerMappingView: View {
                          + "Settings.")
                 }
             }
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Toggle("Control the App With the Controller", isOn: $settings.controllerNavigation)
@@ -111,6 +112,8 @@ struct ControllerMappingView: View {
                          + "games and in the pause menu.")
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 ForEach(ConsoleButton.remappable, id: \.self) { button in
@@ -126,6 +129,8 @@ struct ControllerMappingView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section("Sticks") {
                 Picker("Circle Pad", selection: $store.mapping.circlePad) {
                     ForEach(StickSource.allCases) { Text($0.title).tag($0) }
@@ -134,6 +139,8 @@ struct ControllerMappingView: View {
                     ForEach(StickSource.allCases) { Text($0.title).tag($0) }
                 }
             }
+
+            .listRowBackground(LGRowBackground())
 
             Section {
                 Picker("Touch Screen Cursor", selection: $settings.touchStick) {
@@ -155,6 +162,8 @@ struct ControllerMappingView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 ForEach(Hotkey.allCases) { hotkey in
                     row(title: hotkey.title, input: store.mapping.hotkeys[hotkey.rawValue]) {
@@ -173,12 +182,17 @@ struct ControllerMappingView: View {
                 }
             }
 
+            .listRowBackground(LGRowBackground())
+
             Section {
                 Button("Reset to Defaults", role: .destructive) { store.reset() }
                     .disabled(store.mapping == ControllerMapping())
             }
+
+            .listRowBackground(LGRowBackground())
         }
         .navigationTitle("Controller Mapping")
+        .lgSettingsStyle()
         .alert("New Profile", isPresented: $namingProfile) {
             TextField("Name", text: $profileName)
             Button("Save") { store.addProfile(named: profileName) }
