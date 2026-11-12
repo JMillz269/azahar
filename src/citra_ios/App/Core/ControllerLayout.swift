@@ -19,11 +19,14 @@ enum ControlID: String, CaseIterable, Identifiable {
     case menuButton
     /// Fast forwards while held.
     case turboButton
+    /// Swaps the two screens. Placed like a control, drawn and handled by EmulationView next to
+    /// the menu button, so it stays available while the controller is hidden.
+    case swapButton
 
     var id: String { rawValue }
 
     /// The controls of the on-screen controller itself, without the menu button.
-    static let controllerControls = allCases.filter { $0 != .menuButton }
+    static let controllerControls = allCases.filter { $0 != .menuButton && $0 != .swapButton }
 
     var title: String {
         switch self {
@@ -36,6 +39,7 @@ enum ControlID: String, CaseIterable, Identifiable {
         case .systemButtons: return "Select / Home / Start"
         case .menuButton: return "Menu Button"
         case .turboButton: return "Turbo Button"
+        case .swapButton: return "Swap Screens Button"
         }
     }
 }

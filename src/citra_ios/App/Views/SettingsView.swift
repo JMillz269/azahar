@@ -817,6 +817,7 @@ struct ControlsSettingsView: View {
         Form {
             Section {
                 Toggle("Show Controller", isOn: $settings.showController)
+                Toggle("Show Swap Screens Button", isOn: $settings.showSwapButton)
                 Toggle("Hide When a Controller Is Connected",
                        isOn: $settings.hideControllerWithHardware)
                     .disabled(!settings.showController)

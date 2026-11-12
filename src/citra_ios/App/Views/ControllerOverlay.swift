@@ -24,6 +24,7 @@ struct ControllerMetrics {
         case .systemButtons: return CGSize(width: 152, height: 26)
         case .menuButton: return CGSize(width: 44, height: 44)
         case .turboButton: return CGSize(width: 64, height: 32)
+        case .swapButton: return CGSize(width: 44, height: 44)
         }
     }
 
@@ -45,6 +46,9 @@ struct ControllerMetrics {
         case .menuButton:
             // Top right, where the menu button always was.
             return CGPoint(x: size.width - 8 - 22, y: 22)
+        case .swapButton:
+            // Top right, to the left of the menu button.
+            return CGPoint(x: size.width - 8 - 22 - 52, y: 22)
         case .turboButton:
             // Below the right shoulder buttons.
             let shoulderTop: CGFloat = portrait ? size.height * 0.52 : 56
@@ -177,6 +181,8 @@ struct ControllerOverlay: View {
             MenuButtonIcon(scale: scale)
         case .turboButton:
             PillButton(label: "Turbo", scale: scale, pressed: touchState.turbo)
+        case .swapButton:
+            SwapButtonIcon(scale: scale)
         }
     }
 
@@ -504,7 +510,7 @@ final class ControllerTouchHandler {
             return result
         case .faceButtons:
             return faceButtons(at: local, size: frame.width)
-        case .circlePad, .cStick, .menuButton, .turboButton:
+        case .circlePad, .cStick, .menuButton, .turboButton, .swapButton:
             return []
         }
     }
@@ -752,6 +758,17 @@ private struct CirclePad: View {
 }
 
 /// The icon of the emulation menu button, shared by EmulationView and the layout editor.
+struct SwapButtonIcon: View {
+    let scale: CGFloat
+
+    var body: some View {
+        Image(systemName: "rectangle.2.swap")
+            .font(.system(size: 24 * scale))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(.white)
+    }
+}
+
 struct MenuButtonIcon: View {
     let scale: CGFloat
 

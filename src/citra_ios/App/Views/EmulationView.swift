@@ -86,6 +86,22 @@ struct EmulationView: View {
                     }
                     .accessibilityLabel("Emulation menu")
                     .position(x: frame.midX, y: frame.midY)
+
+                    if settings.showSwapButton {
+                        let swapPlacement = controllerLayout.placement(for: .swapButton,
+                                                                       portrait: metrics.portrait)
+                        let swapFrame = metrics.frame(of: .swapButton, placement: swapPlacement)
+                        Button {
+                            settings.swapScreens.toggle()
+                            session.apply(settings: settings)
+                        } label: {
+                            SwapButtonIcon(scale: CGFloat(swapPlacement.scale))
+                                .frame(width: swapFrame.width, height: swapFrame.height)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Swap screens")
+                        .position(x: swapFrame.midX, y: swapFrame.midY)
+                    }
                 }
             }
 

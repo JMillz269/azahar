@@ -213,6 +213,7 @@ final class AppSettings: ObservableObject {
     @Published var showPerformanceOverlay: Bool { didSet { save(showPerformanceOverlay, "showPerformanceOverlay") } }
     @Published var hideControllerWithHardware: Bool { didSet { save(hideControllerWithHardware, "hideControllerWithHardware") } }
     @Published var showController: Bool { didSet { save(showController, "showController") } }
+    @Published var showSwapButton: Bool { didSet { save(showSwapButton, "showSwapButton") } }
     @Published var controllerOpacity: Double { didSet { save(controllerOpacity, "controllerOpacity") } }
     @Published var hapticFeedback: Bool { didSet { save(hapticFeedback, "hapticFeedback") } }
     @Published var useMotion: Bool { didSet { save(useMotion, "useMotion") } }
@@ -384,6 +385,7 @@ final class AppSettings: ObservableObject {
         showPerformanceOverlay = value("showPerformanceOverlay", true)
         hideControllerWithHardware = value("hideControllerWithHardware", true)
         showController = value("showController", true)
+        showSwapButton = value("showSwapButton", true)
         controllerOpacity = value("controllerOpacity", 0.7)
         hapticFeedback = value("hapticFeedback", true)
         useMotion = value("useMotion", true)
