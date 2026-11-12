@@ -1909,7 +1909,7 @@ void RendererMetal::SwapBuffers() {
 
     // The CPU time this thread used since the previous frame: the emulation (the game's CPU
     // code, the GPU commands, the renderer) without the time it sleeps or waits.
-    {
+    if (StatisticsEnabled()) {
         thread_local u64 last_cpu_ns = 0;
         const u64 now_ns = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID);
         if (last_cpu_ns != 0 && now_ns > last_cpu_ns && now_ns - last_cpu_ns < 200'000'000) {

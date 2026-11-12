@@ -255,6 +255,12 @@ final class AppSettings: ObservableObject {
     @Published var holdFramesForShaders: Bool { didSet { save(holdFramesForShaders, "holdFramesForShaders") } }
     @Published var fastLighting: Bool { didSet { save(fastLighting, "fastLighting") } }
     @Published var fastColor: Bool { didSet { save(fastColor, "fastColor") } }
+    @Published var loggingEnabled: Bool {
+        didSet {
+            save(loggingEnabled, "loggingEnabled")
+            AZEmulator.setLoggingEnabled(loggingEnabled)
+        }
+    }
     @Published var fastMathFunctions: Bool { didSet { save(fastMathFunctions, "fastMathFunctions") } }
     @Published var halfInterpolants: Bool { didSet { save(halfInterpolants, "halfInterpolants") } }
     @Published var untrackedBuffers: Bool { didSet { save(untrackedBuffers, "untrackedBuffers") } }
@@ -411,6 +417,7 @@ final class AppSettings: ObservableObject {
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
         fastColor = value("fastColor", false)
+        loggingEnabled = value("loggingEnabled", true)
         fastMathFunctions = value("fastMathFunctions", false)
         halfInterpolants = value("halfInterpolants", false)
         untrackedBuffers = value("untrackedBuffers", false)
@@ -496,6 +503,8 @@ final class AppSettings: ObservableObject {
         region = ConsoleRegion(rawValue: value("region", -1)) ?? .auto
         useFrameLimit = value("useFrameLimit", true)
         frameLimit = value("frameLimit", 100)
+        // The saved choice applies from the start (property observers do not run in init).
+        AZEmulator.setLoggingEnabled(loggingEnabled)
     }
 
     private func save(_ value: Any, _ key: String) {
@@ -542,6 +551,7 @@ final class AppSettings: ObservableObject {
         config.fastShaderMath = fastShaderMath
         config.fastLighting = fastLighting
         config.fastColor = fastColor
+        config.loggingEnabled = loggingEnabled
         config.fastMathFunctions = fastMathFunctions
         config.halfInterpolants = halfInterpolants
         config.untrackedBuffers = untrackedBuffers

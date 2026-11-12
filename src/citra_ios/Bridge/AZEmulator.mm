@@ -473,11 +473,20 @@ const char* ThermalStateName() {
              Common::AppleJIT::GetModeName(Common::AppleJIT::GetMode()));
 }
 
++ (void)setLoggingEnabled:(BOOL)enabled {
+    // Off: only critical errors are logged, and the statistics for the log are not collected.
+    Common::Log::Filter filter;
+    filter.ParseFilterString(enabled ? "*:Info" : "*:Critical");
+    Common::Log::SetGlobalFilter(filter);
+    Metal::SetStatisticsEnabled(enabled);
+}
+
 - (void)applyConfiguration:(AZConfiguration*)configuration {
     const bool jit = AZEmulator.isJITAvailable;
     auto& values = Settings::values;
 
     // Without a debugger attached, iOS does not allow mapping executable memory.
+    [AZEmulator setLoggingEnabled:configuration.loggingEnabled];
     values.use_cpu_jit = configuration.useCPUJIT && jit;
     values.use_shader_jit = configuration.useShaderJIT && jit;
     values.cpu_clock_percentage = static_cast<s32>(configuration.cpuClockPercentage);
@@ -1066,11 +1075,13 @@ const char* ThermalStateName() {
             _speed = stats.emulation_speed * 100.0;
             _fps = stats.game_fps;
             const auto gpu = Metal::TakeFrameStats();
-            for (const std::string& line : Metal::TakeReadbackSummary(4)) {
-                LOG_INFO(Frontend, "Readback {}", line);
-            }
-            for (const std::string& line : Metal::TakeRenderPassSummary(16)) {
-                LOG_INFO(Frontend, "Render passes (per second): {}", line);
+            if (Metal::StatisticsEnabled()) {
+                for (const std::string& line : Metal::TakeReadbackSummary(4)) {
+                    LOG_INFO(Frontend, "Readback {}", line);
+                }
+                for (const std::string& line : Metal::TakeRenderPassSummary(16)) {
+                    LOG_INFO(Frontend, "Render passes (per second): {}", line);
+                }
             }
             if (gpu.frames > 0) {
                 _gpuMs = gpu.gpu_ms;

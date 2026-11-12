@@ -48,6 +48,11 @@ struct GpuStats {
 /// of its drawable), for the statistics of the intervals between frames.
 void RecordPresentedTime(double time);
 
+/// Turns the collecting of the statistics for the log (render passes, CPU time) on or off. Off,
+/// the renderer does not do the work of keeping them.
+void SetStatisticsEnabled(bool enabled);
+bool StatisticsEnabled();
+
 /// Turns even frame pacing on or off, see Scheduler::PresentDrawable.
 void SetFramePacing(bool enabled);
 

@@ -23,6 +23,7 @@
     config.fastShaderMath = NO;
     config.fastLighting = NO;
     config.fastColor = NO;
+    config.loggingEnabled = YES;
     config.fastMathFunctions = NO;
     config.halfInterpolants = NO;
     config.untrackedBuffers = NO;

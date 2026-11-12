@@ -866,6 +866,7 @@ struct ControlsSettingsView: View {
 }
 
 struct AboutView: View {
+    @EnvironmentObject private var settings: AppSettings
     @State private var sharedLog: SharedFile?
     @State private var showingNoLog = false
 
@@ -889,6 +890,7 @@ struct AboutView: View {
                 LabeledContent("JIT", value: AZEmulator.isJITAvailable ? "Available" : "Unavailable")
             }
             Section {
+                Toggle("Write Log", isOn: $settings.loggingEnabled)
                 Button {
                     if let url = LogExporter.makeShareableLog() {
                         sharedLog = SharedFile(url: url)
@@ -901,7 +903,10 @@ struct AboutView: View {
             } header: {
                 InfoHeader("Diagnostics") {
                     Text("Shares the start and the end of the log and the last crash report, so the "
-                         + "file stays small even when the full log is huge.")
+                         + "file stays small even when the full log is huge. Write Log turns the "
+                         + "log off (only critical errors are still written) and stops the "
+                         + "statistics line and its counters, which saves a little work in the "
+                         + "emulator. Leave it on when you want to send me a log.")
                 }
             }
             Section {

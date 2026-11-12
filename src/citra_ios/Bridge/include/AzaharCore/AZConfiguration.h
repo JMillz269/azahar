@@ -60,6 +60,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL fastLighting;
 /// Texture combiners in half precision (applies to the next game).
 @property(nonatomic) BOOL fastColor;
+/// The emulator log is written (off: critical errors only).
+@property(nonatomic) BOOL loggingEnabled;
 /// Fast versions of the math functions in fragment shaders (rsqrt, normalize, pow, ...), without
 /// the assumptions about NaN and infinity that Fast Shader Math makes (iOS 18).
 @property(nonatomic) BOOL fastMathFunctions;

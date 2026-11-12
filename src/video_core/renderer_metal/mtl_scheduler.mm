@@ -131,6 +131,9 @@ std::vector<std::string> TakeRenderPassSummary(std::size_t max_lines) {
 
 void Scheduler::BeginPassStats(u32 width, u32 height, bool color, bool depth, bool stencil,
                                bool game, const RenderTarget* target) {
+    if (!StatisticsEnabled()) {
+        return;
+    }
     std::string attachments;
     if (color) {
         attachments = "color";
@@ -181,6 +184,18 @@ void Scheduler::EndPassStats() {
     }
     g_pass_stats.end_reasons[reason]++;
     g_pass_stats.bytes += pass_bytes;
+}
+
+namespace {
+std::atomic<bool> g_statistics{true};
+} // namespace
+
+void SetStatisticsEnabled(bool enabled) {
+    g_statistics.store(enabled, std::memory_order_relaxed);
+}
+
+bool StatisticsEnabled() {
+    return g_statistics.load(std::memory_order_relaxed);
 }
 
 void SetFramePacing(bool enabled) {

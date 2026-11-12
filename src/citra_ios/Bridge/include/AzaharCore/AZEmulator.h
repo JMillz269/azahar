@@ -208,6 +208,10 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 + (void)setFrameGenerator:(nullable id<AZFrameGenerating>)generator
     NS_SWIFT_NAME(setFrameGenerator(_:));
 
+/// Turns the emulator log (and the statistics collected for it) on or off. Off, only critical
+/// errors are logged.
++ (void)setLoggingEnabled:(BOOL)enabled NS_SWIFT_NAME(setLoggingEnabled(_:));
+
 /// Writes a line from the app into the emulator log (the log file users can share).
 + (void)logMessage:(NSString*)message NS_SWIFT_NAME(log(_:));
 
