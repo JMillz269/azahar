@@ -277,6 +277,7 @@ const char* ThermalStateName() {
     std::atomic<AZEmulationState> _state;
     std::atomic<double> _speed;
     std::atomic<double> _fps;
+    std::atomic<double> _displayFps;
     std::atomic<double> _shaderProgress;
     std::atomic<double> _gpuMs;
     std::atomic<double> _stallMs;
@@ -382,6 +383,7 @@ const char* ThermalStateName() {
         _state = AZEmulationStateStopped;
         _speed = 0.0;
         _fps = 0.0;
+        _displayFps = 0.0;
         _shaderProgress = -1.0;
         _gpuMs = 0.0;
         _stallMs = 0.0;
@@ -408,6 +410,10 @@ const char* ThermalStateName() {
 
 - (double)framesPerSecond {
     return _fps.load();
+}
+
+- (double)displayFramesPerSecond {
+    return _displayFps.load();
 }
 
 - (double)shaderBuildProgress {
@@ -1070,11 +1076,14 @@ const char* ThermalStateName() {
 
         const auto now = StatsClock::now();
         if (now - last_stats_time >= std::chrono::seconds(1)) {
+            const double window = std::chrono::duration<double>(now - last_stats_time).count();
             last_stats_time = now;
             const auto stats = system.GetAndResetPerfStats();
             _speed = stats.emulation_speed * 100.0;
             _fps = stats.game_fps;
             const auto gpu = Metal::TakeFrameStats();
+            // What reaches the screen, which is more than the game draws with frame generation.
+            _displayFps = window > 0.0 ? gpu.presented / window : 0.0;
             if (Metal::StatisticsEnabled()) {
                 for (const std::string& line : Metal::TakeReadbackSummary(4)) {
                     LOG_INFO(Frontend, "Readback {}", line);
@@ -1125,6 +1134,7 @@ const char* ThermalStateName() {
     Core::System::GetInstance().Shutdown();
     _speed = 0.0;
     _fps = 0.0;
+    _displayFps = 0.0;
     _state = AZEmulationStateStopped;
 
     const bool requested = _stopRequested.load();

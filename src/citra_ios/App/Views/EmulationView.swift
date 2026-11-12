@@ -58,7 +58,8 @@ struct EmulationView: View {
             VStack {
                 HStack(alignment: .top) {
                     if settings.showPerformanceOverlay {
-                        PerformanceOverlay(fps: session.fps, speed: session.speed, gpuMs: session.gpuMs,
+                        PerformanceOverlay(fps: session.fps, displayFps: session.displayFps,
+                                           speed: session.speed, gpuMs: session.gpuMs,
                                            stallMs: session.stallMs, draws: session.draws,
                                            paceJitterMs: session.paceJitterMs)
                     }
@@ -374,6 +375,7 @@ extension EmulationView {
 
 private struct PerformanceOverlay: View {
     let fps: Double
+    let displayFps: Double
     let speed: Double
     let gpuMs: Double
     let stallMs: Double
@@ -382,7 +384,13 @@ private struct PerformanceOverlay: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(String(format: "FPS %.0f", fps))
+            // What reaches the screen, like the Metal HUD counts it. The frames the game draws
+            // itself are shown next to it when frame generation makes the two differ.
+            if displayFps > fps + 2 {
+                Text(String(format: "FPS %.0f (game %.0f)", displayFps, fps))
+            } else {
+                Text(String(format: "FPS %.0f", max(displayFps, fps)))
+            }
             Text(String(format: "Speed %.0f%%", speed))
             Text(String(format: "GPU %.1f ms", gpuMs))
             Text(String(format: "Wait %.1f ms", stallMs))

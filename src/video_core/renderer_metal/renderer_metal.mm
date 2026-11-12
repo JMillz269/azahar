@@ -1988,6 +1988,7 @@ FrameStats TakeFrameStats() {
     GpuStats& stats = Stats();
     FrameStats result;
     result.frames = stats.frames.exchange(0);
+    result.presented = static_cast<double>(stats.presented.exchange(0));
     const u64 cpu_ns = stats.cpu_ns.exchange(0);
     const u32 cpu_frames = stats.cpu_frames.exchange(0);
     result.cpu_max_ms = static_cast<double>(stats.cpu_max_ns.exchange(0)) / 1e6;

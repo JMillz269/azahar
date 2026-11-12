@@ -445,6 +445,7 @@ void RecordPresentedTime(double now) {
     if (now <= 0.0) {
         return; // The frame was dropped
     }
+    Stats().presented.fetch_add(1, std::memory_order_relaxed);
     const double last = g_last_presented.exchange(now, std::memory_order_relaxed);
     if (last <= 0.0 || now <= last) {
         return;

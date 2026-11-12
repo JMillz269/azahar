@@ -176,6 +176,9 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 /// Speed and frame statistics, safe to read from any thread.
 @property(nonatomic, readonly) double emulationSpeed;
 @property(nonatomic, readonly) double framesPerSecond;
+/// Frames that reach the screen per second: more than framesPerSecond (the frames the game draws)
+/// when frame generation adds frames in between.
+@property(nonatomic, readonly) double displayFramesPerSecond;
 /// Progress (0 to 1) of building the cached shaders while a game boots, negative otherwise.
 @property(nonatomic, readonly) double shaderBuildProgress;
 /// Average GPU time, time the emulation thread waited for the GPU, and draw calls per frame.

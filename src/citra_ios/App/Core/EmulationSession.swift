@@ -13,6 +13,7 @@ final class EmulationSession: ObservableObject {
     @Published private(set) var currentGame: Game?
     @Published private(set) var isPaused = false
     @Published private(set) var fps: Double = 0
+    @Published private(set) var displayFps: Double = 0
     @Published private(set) var speed: Double = 0
     /// Progress of building the cached shaders while the game boots, nil when not building.
     @Published private(set) var shaderBuildProgress: Double?
@@ -255,6 +256,7 @@ final class EmulationSession: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.fps = AZEmulator.shared.framesPerSecond
+                self.displayFps = AZEmulator.shared.displayFramesPerSecond
                 self.speed = AZEmulator.shared.emulationSpeed
                 self.gpuMs = AZEmulator.shared.gpuMilliseconds
                 self.stallMs = AZEmulator.shared.stallMilliseconds
@@ -356,6 +358,7 @@ final class EmulationSession: ObservableObject {
         miiRequest = nil
         isPaused = false
         fps = 0
+        displayFps = 0
         speed = 0
     }
 
