@@ -417,7 +417,7 @@ final class AppSettings: ObservableObject {
         fastShaderMath = value("fastShaderMath", false)
         fastLighting = value("fastLighting", false)
         fastColor = value("fastColor", false)
-        loggingEnabled = value("loggingEnabled", true)
+        loggingEnabled = value("loggingEnabled", false)
         fastMathFunctions = value("fastMathFunctions", false)
         halfInterpolants = value("halfInterpolants", false)
         untrackedBuffers = value("untrackedBuffers", false)

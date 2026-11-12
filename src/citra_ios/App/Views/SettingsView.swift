@@ -906,7 +906,7 @@ struct AboutView: View {
                          + "file stays small even when the full log is huge. Write Log turns the "
                          + "log off (only critical errors are still written) and stops the "
                          + "statistics line and its counters, which saves a little work in the "
-                         + "emulator. Leave it on when you want to send me a log.")
+                         + "emulator. It is off by default, so turn it on before you play a game you want a log of.")
                 }
             }
             Section {
