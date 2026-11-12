@@ -38,6 +38,38 @@ static_assert(sizeof(CSTHeader) == 256, "CSTHeader should be 256 bytes");
 
 constexpr std::array<u8, 4> header_magic_bytes{{'C', 'S', 'T', 0x1B}};
 
+#ifdef __APPLE__
+// The state of a core build is readable by the builds that follow it as long as what is serialized
+// does not change, so a state is not tied to the build that wrote it. The header says which
+// layout the state has; BUMP SaveStateFormat WHENEVER SOMETHING THAT IS SERIALIZED CHANGES (a
+// member added or removed, its type changed), states with another format are then refused.
+constexpr u32 SaveStateFormat = 1;
+constexpr std::array<u8, 4> format_tag{{'A', 'Z', 'S', 'F'}};
+
+/// Marks a header with the layout of the state, in the space reserved at its end.
+static void SetStateFormat(CSTHeader& header) {
+    std::memcpy(header.reserved.data(), format_tag.data(), format_tag.size());
+    const u32_le format = SaveStateFormat;
+    std::memcpy(header.reserved.data() + format_tag.size(), &format, sizeof(format));
+}
+
+/// Whether a state of another build can be read: its layout is the one of this build. States
+/// from before the layout was marked have the layout of the first format.
+static bool StateFormatCompatible(const CSTHeader& header) {
+    if (std::memcmp(header.reserved.data(), format_tag.data(), format_tag.size()) != 0) {
+        return SaveStateFormat == 1;
+    }
+    u32_le format{};
+    std::memcpy(&format, header.reserved.data() + format_tag.size(), sizeof(format));
+    return format == SaveStateFormat;
+}
+#else
+static void SetStateFormat(CSTHeader&) {}
+static bool StateFormatCompatible(const CSTHeader&) {
+    return false;
+}
+#endif
+
 static std::string GetSaveStatePath(u64 program_id, u64 movie_id, u32 slot) {
     if (movie_id) {
         return fmt::format("{}{:016X}.movie{:016X}.{:02d}.cst",
@@ -70,6 +102,11 @@ static bool ValidateSaveState(const CSTHeader& header, SaveStateInfo& info, u64 
 
     if (revision == Common::g_scm_rev) {
         info.status = SaveStateInfo::ValidationStatus::OK;
+    } else if (StateFormatCompatible(header)) {
+        // Another build, but the same layout of the state: it loads.
+        info.build_name = build_name;
+        info.build_version = build_version;
+        info.status = SaveStateInfo::ValidationStatus::RevisionMismatch;
     } else {
         info.build_name = build_name;
         info.build_version = build_version;
@@ -188,6 +225,12 @@ void System::SaveState(u32 slot) const {
     std::memcpy(header.build_name.data(), build_fullname.c_str(),
                 std::min(build_fullname.length(), sizeof(header.build_name) - 1));
 
+    const std::string build_version = Common::g_build_version;
+    std::memset(header.build_version.data(), 0, sizeof(header.build_version));
+    std::memcpy(header.build_version.data(), build_version.c_str(),
+                std::min(build_version.length(), sizeof(header.build_version) - 1));
+    SetStateFormat(header);
+
     if (file.WriteBytes(&header, sizeof(header)) != sizeof(header) ||
         file.WriteBytes(buffer.data(), buffer.size()) != buffer.size()) {
         throw std::runtime_error("Could not write to file " + path);
@@ -273,6 +316,7 @@ std::vector<u8> System::SaveStateBuffer() const {
     std::memset(header.build_version.data(), 0, sizeof(header.build_version));
     std::memcpy(header.build_version.data(), build_version.c_str(),
                 std::min(build_version.length(), sizeof(header.build_version) - 1));
+    SetStateFormat(header);
 
     std::vector<u8> result((u8*)&header, (u8*)&header + sizeof(header));
     std::copy(buffer.begin(), buffer.end(), std::back_inserter(result));
@@ -300,7 +344,7 @@ bool System::LoadStateBuffer(std::vector<u8> buffer) {
         return false;
     }
     std::string revision = fmt::format("{:02x}", fmt::join(header.revision, ""));
-    if (revision != Common::g_scm_rev) {
+    if (revision != Common::g_scm_rev && !StateFormatCompatible(header)) {
         LOG_ERROR(Core,
                   "Save state file created from a different revision (core: {}, savestate: {})",
                   Common::g_scm_rev, revision);
