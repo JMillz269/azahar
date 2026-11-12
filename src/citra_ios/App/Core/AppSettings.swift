@@ -216,6 +216,9 @@ final class AppSettings: ObservableObject {
     @Published var showSwapButton: Bool { didSet { save(showSwapButton, "showSwapButton") } }
     @Published var controllerOpacity: Double { didSet { save(controllerOpacity, "controllerOpacity") } }
     @Published var hapticFeedback: Bool { didSet { save(hapticFeedback, "hapticFeedback") } }
+    /// The on-screen controller as Liquid Glass (iOS 26), and how tinted the glass is (0 clear).
+    @Published var glassControls: Bool { didSet { save(glassControls, "glassControls") } }
+    @Published var glassControlTint: Double { didSet { save(glassControlTint, "glassControlTint") } }
     @Published var useMotion: Bool { didSet { save(useMotion, "useMotion") } }
 
     // CPU
@@ -388,6 +391,8 @@ final class AppSettings: ObservableObject {
         showSwapButton = value("showSwapButton", true)
         controllerOpacity = value("controllerOpacity", 0.7)
         hapticFeedback = value("hapticFeedback", true)
+        glassControls = value("glassControls", true)
+        glassControlTint = value("glassControlTint", 0.3)
         useMotion = value("useMotion", true)
 
         cpuJIT = value("cpuJIT", true)

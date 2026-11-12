@@ -52,6 +52,8 @@ struct EmulationView: View {
             if controllerShown && !editingScreens {
                 ControllerOverlay(opacity: settings.controllerOpacity,
                                   haptics: settings.hapticFeedback,
+                                  glass: ControlGlassStyle(enabled: settings.glassControls,
+                                                           tint: settings.glassControlTint),
                                   isEditing: $editingLayout)
             }
 
@@ -77,31 +79,20 @@ struct EmulationView: View {
                     let placement = controllerLayout.placement(for: .menuButton,
                                                                portrait: metrics.portrait)
                     let frame = metrics.frame(of: .menuButton, placement: placement)
-                    Button {
-                        showingMenu = true
-                    } label: {
-                        MenuButtonIcon(scale: CGFloat(placement.scale))
-                            .frame(width: frame.width, height: frame.height)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Emulation menu")
-                    .position(x: frame.midX, y: frame.midY)
-
-                    if settings.showSwapButton {
-                        let swapPlacement = controllerLayout.placement(for: .swapButton,
-                                                                       portrait: metrics.portrait)
-                        let swapFrame = metrics.frame(of: .swapButton, placement: swapPlacement)
-                        Button {
-                            settings.swapScreens.toggle()
-                            session.apply(settings: settings)
-                        } label: {
-                            SwapButtonIcon(scale: CGFloat(swapPlacement.scale))
-                                .frame(width: swapFrame.width, height: swapFrame.height)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("Swap screens")
-                        .position(x: swapFrame.midX, y: swapFrame.midY)
-                    }
+                    let swapPlacement = controllerLayout.placement(for: .swapButton,
+                                                                   portrait: metrics.portrait)
+                    GameHUD(isOpen: $showingMenu,
+                            title: session.currentGame?.title ?? "Emulation",
+                            actions: hudActions,
+                            menuFrame: frame,
+                            menuScale: CGFloat(placement.scale),
+                            swapFrame: settings.showSwapButton
+                                ? metrics.frame(of: .swapButton, placement: swapPlacement) : nil,
+                            swapScale: CGFloat(swapPlacement.scale),
+                            onSwap: {
+                                settings.swapScreens.toggle()
+                                session.apply(settings: settings)
+                            })
                 }
             }
 
@@ -190,51 +181,6 @@ struct EmulationView: View {
         // a system swipe (Home, Control Center, Notification Center), then delivers the press
         // and the release together, so the game never sees a quick tap on the controller.
         .defersSystemGestures(on: .all)
-        .confirmationDialog(session.currentGame?.title ?? "Emulation",
-                            isPresented: $showingMenu, titleVisibility: .visible) {
-            if pausedForMenu {
-                // The game is paused while the menu is up. Leaving it paused afterwards is a choice.
-                Button("Keep Paused") { pausedForMenu = false }
-            }
-            Button(session.isPaused ? "Resume" : "Pause") {
-                pausedForMenu = false
-                session.togglePause()
-            }
-            Button(controllerShown ? "Hide Controller" : "Show Controller") {
-                if controllerShown {
-                    controllerVisible = false
-                } else {
-                    controllerVisible = true
-                    showDespiteHardware = true
-                }
-            }
-            if settings.showController {
-                Button("Edit Controller Layout") { beginEditingLayout() }
-            }
-            Button("Save State…") { showingSaveStates = true }
-            Button("Load State…") { showingLoadStates = true }
-            Button("Cheats…") { showingCheats = true }
-            Button("Amiibo…") { showingAmiibo = true }
-            Button("Multiplayer…") { showingMultiplayer = true }
-            Button("Movies…") { showingMovies = true }
-            Button("Game Settings…") { showingGameSettings = true }
-            Button(session.isFastForwarding ? "Normal Speed" : "Fast Forward") {
-                session.toggleFastForward()
-            }
-            Button("Take Screenshot") { session.takeScreenshot() }
-            Button("Edit Screen Layout") { beginEditingScreens() }
-            Button("Next Screen Layout") { cycleLayout() }
-            Button("Save Screen Layout…") {
-                layoutName = ""
-                savingLayout = true
-            }
-            Button("Swap Screens") {
-                settings.swapScreens.toggle()
-                session.apply(settings: settings)
-            }
-            Button("Stop Emulation", role: .destructive) { session.stop() }
-            Button("Cancel", role: .cancel) {}
-        }
         .sheet(isPresented: $showingSaveStates) {
             SaveStatesView(mode: .save)
         }
@@ -312,6 +258,60 @@ struct EmulationView: View {
 }
 
 extension EmulationView {
+    /// The entries of the control center, the most used first.
+    fileprivate var hudActions: [HUDAction] {
+        var actions: [HUDAction] = []
+        func add(_ id: String, _ title: String, _ image: String, isOn: Bool = false,
+                 isDestructive: Bool = false, _ action: @escaping () -> Void) {
+            actions.append(HUDAction(id: id, title: title, systemImage: image, isOn: isOn,
+                                     isDestructive: isDestructive, action: action))
+        }
+        if pausedForMenu {
+            // The game is paused while the menu is up. Leaving it paused afterwards is a choice.
+            add("keepPaused", "Keep Paused", "pause.circle") { pausedForMenu = false }
+        } else {
+            add("pause", session.isPaused ? "Resume" : "Pause",
+                session.isPaused ? "play.fill" : "pause.fill") {
+                pausedForMenu = false
+                session.togglePause()
+            }
+        }
+        add("save", "Save State", "square.and.arrow.down") { showingSaveStates = true }
+        add("load", "Load State", "square.and.arrow.up") { showingLoadStates = true }
+        add("fastForward", session.isFastForwarding ? "Normal Speed" : "Fast Forward",
+            "forward.fill", isOn: session.isFastForwarding) { session.toggleFastForward() }
+        add("swap", "Swap Screens", "rectangle.2.swap", isOn: settings.swapScreens) {
+            settings.swapScreens.toggle()
+            session.apply(settings: settings)
+        }
+        add("nextLayout", "Next Layout", "rectangle.3.group") { cycleLayout() }
+        add("cheats", "Cheats", "wand.and.stars") { showingCheats = true }
+        add("screenshot", "Screenshot", "camera") { session.takeScreenshot() }
+        add("gameSettings", "Game Settings", "slider.horizontal.3") { showingGameSettings = true }
+        add("controller", controllerShown ? "Hide Controller" : "Show Controller",
+            "gamecontroller") {
+            if controllerShown {
+                controllerVisible = false
+            } else {
+                controllerVisible = true
+                showDespiteHardware = true
+            }
+        }
+        if settings.showController {
+            add("editController", "Edit Controller", "hand.draw") { beginEditingLayout() }
+        }
+        add("editScreens", "Edit Screens", "rectangle.dashed") { beginEditingScreens() }
+        add("saveLayout", "Save Layout", "plus.rectangle.on.rectangle") {
+            layoutName = ""
+            savingLayout = true
+        }
+        add("amiibo", "Amiibo", "figure.stand") { showingAmiibo = true }
+        add("multiplayer", "Multiplayer", "person.2") { showingMultiplayer = true }
+        add("movies", "Movies", "film") { showingMovies = true }
+        add("stop", "Stop", "stop.circle", isDestructive: true) { session.stop() }
+        return actions
+    }
+
     /// Switches to the next saved screen layout.
     fileprivate func cycleLayout() {
         guard let preset = settings.cycleLayout() else {

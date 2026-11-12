@@ -95,9 +95,9 @@ struct GameCardView: View {
             .padding(.bottom, 10)
         }
         .frame(maxWidth: .infinity, minHeight: 170, alignment: .top)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(uiColor: .secondarySystemBackground)))
+        .background { ambientBackground }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay { LGSpecularBorder(shape: RoundedRectangle(cornerRadius: 22, style: .continuous)) }
         .overlay(alignment: .topTrailing) {
             if game.isEncrypted {
                 Image(systemName: "lock.fill")
@@ -112,6 +112,23 @@ struct GameCardView: View {
                     .padding(8)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    /// The colors of the game's icon, spread out behind the card like light through frosted
+    /// glass. A card is content, so it is not Liquid Glass itself; the blur is of a small still
+    /// picture, which costs nothing while the library is not moving.
+    @ViewBuilder private var ambientBackground: some View {
+        ZStack {
+            Color(uiColor: .secondarySystemBackground)
+            if let icon = game.icon {
+                Image(uiImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .blur(radius: 28)
+                    .saturation(1.4)
+                    .opacity(0.5)
+            }
+        }
     }
 }

@@ -23,6 +23,7 @@ struct ContentView: View {
                     SettingsView()
                         .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 }
+                .lgTabBarMinimizes()
                 .alert("Compression", isPresented: Binding(
                     get: { compressor.summary != nil },
                     set: { if !$0 { compressor.summary = nil } })

@@ -825,6 +825,17 @@ struct ControlsSettingsView: View {
                     LabeledContent("Opacity", value: "\(Int(settings.controllerOpacity * 100))%")
                     Slider(value: $settings.controllerOpacity, in: 0.1...1)
                 }
+                if LiquidGlass.isAvailable {
+                    Toggle("Liquid Glass Controls", isOn: $settings.glassControls)
+                    if settings.glassControls {
+                        VStack(alignment: .leading) {
+                            LabeledContent("Glass Tint",
+                                           value: settings.glassControlTint <= 0.02
+                                               ? "Clear" : "\(Int(settings.glassControlTint * 100))%")
+                            Slider(value: $settings.glassControlTint, in: 0...1)
+                        }
+                    }
+                }
                 Toggle("Haptic Feedback", isOn: $settings.hapticFeedback)
                 Button("Reset Controller Layout", role: .destructive) {
                     confirmingLayoutReset = true

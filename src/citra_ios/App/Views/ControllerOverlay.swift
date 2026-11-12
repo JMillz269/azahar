@@ -87,11 +87,15 @@ struct ControllerMetrics {
 struct ControllerOverlay: View {
     let opacity: Double
     let haptics: Bool
+    /// Liquid Glass controls and their tint (see ControlGlassStyle).
+    var glass = ControlGlassStyle()
     @Binding var isEditing: Bool
 
     @EnvironmentObject private var layout: ControllerLayoutStore
     @StateObject private var touchState = ControllerTouchState()
     @State private var selected: ControlID?
+
+    private var usesGlass: Bool { glass.enabled && LiquidGlass.isAvailable }
 
     var body: some View {
         GeometryReader { geometry in
@@ -106,18 +110,26 @@ struct ControllerOverlay: View {
                         .onTapGesture { selected = nil }
                 }
 
-                ZStack {
-                    // The menu button is drawn by EmulationView, except while it is edited here.
-                    ForEach(isEditing ? ControlID.allCases : ControlID.controllerControls) { id in
-                        let placement = layout.placement(for: id, portrait: portrait)
-                        let frame = metrics.frame(of: id, placement: placement)
-                        content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
-                            .frame(width: frame.width, height: frame.height)
-                            .position(x: frame.midX, y: frame.midY)
+                // One container for every control: glass surfaces are drawn together and do not
+                // sample each other. Spacing 0 keeps neighbours (the face buttons) from merging.
+                LGContainer(spacing: 0) {
+                    ZStack {
+                        // The menu button is drawn by EmulationView, except while it is edited
+                        // here.
+                        ForEach(isEditing ? ControlID.allCases : ControlID.controllerControls) { id in
+                            let placement = layout.placement(for: id, portrait: portrait)
+                            let frame = metrics.frame(of: id, placement: placement)
+                            content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
+                                .frame(width: frame.width, height: frame.height)
+                                .position(x: frame.midX, y: frame.midY)
+                        }
                     }
                 }
+                .environment(\.controlGlassStyle, glass)
                 .allowsHitTesting(false)
-                .opacity(isEditing ? 1 : opacity)
+                // Glass must not be faded (it would turn into a flat picture): its look is set
+                // by the tint. The plain controls keep their opacity.
+                .opacity(isEditing || usesGlass ? 1 : opacity)
 
                 if !isEditing {
                     ControllerTouchLayer(
@@ -616,7 +628,6 @@ private struct ControllerTouchLayer: UIViewRepresentable {
 
 // MARK: - Drawing
 
-private let idleFill = Color.white.opacity(0.22)
 private let pressedFill = Color.white.opacity(0.55)
 
 private struct RoundButton: View {
@@ -625,14 +636,11 @@ private struct RoundButton: View {
     let pressed: Bool
 
     var body: some View {
-        Circle()
-            .fill(pressed ? pressedFill : idleFill)
-            .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 1.5))
-            .overlay(
-                Text(label)
-                    .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white))
+        Text(label)
+            .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
             .frame(width: size, height: size)
+            .controlSurface(Circle(), pressed: pressed)
     }
 }
 
@@ -646,8 +654,7 @@ private struct PillButton: View {
             .font(.system(size: 15 * scale, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
             .frame(width: 64 * scale, height: 32 * scale)
-            .background(Capsule().fill(pressed ? pressedFill : idleFill))
-            .overlay(Capsule().stroke(Color.white.opacity(0.6), lineWidth: 1.5))
+            .controlSurface(Capsule(), pressed: pressed)
     }
 }
 
@@ -661,8 +668,7 @@ private struct SmallButton: View {
             .font(.system(size: 13 * scale, weight: .bold))
             .foregroundStyle(.white)
             .frame(width: 40 * scale, height: 26 * scale)
-            .background(Capsule().fill(pressed ? pressedFill : idleFill))
-            .overlay(Capsule().stroke(Color.white.opacity(0.6), lineWidth: 1))
+            .controlSurface(Capsule(), pressed: pressed, lineWidth: 1)
     }
 }
 
@@ -697,12 +703,11 @@ private struct DPad: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(idleFill)
-                .frame(width: size * 0.34, height: size)
-            RoundedRectangle(cornerRadius: 6)
-                .fill(idleFill)
-                .frame(width: size, height: size * 0.34)
+            // The cross is one surface, so as glass it is one piece and not two bars over each
+            // other.
+            Color.clear
+                .frame(width: size, height: size)
+                .controlSurface(DPadCross(), pressed: false, lineWidth: 0)
             ForEach([ConsoleButton.up, .down, .left, .right], id: \.self) { direction in
                 let active = pressed.contains(direction)
                 RoundedRectangle(cornerRadius: 6)
@@ -737,6 +742,21 @@ private struct DPad: View {
     }
 }
 
+/// The outline of the D-pad: two rounded bars as one shape.
+private struct DPadCross: Shape {
+    func path(in rect: CGRect) -> Path {
+        let arm = rect.width * 0.34
+        var path = Path()
+        path.addRoundedRect(
+            in: CGRect(x: rect.midX - arm / 2, y: rect.minY, width: arm, height: rect.height),
+            cornerSize: CGSize(width: 6, height: 6))
+        path.addRoundedRect(
+            in: CGRect(x: rect.minX, y: rect.midY - arm / 2, width: rect.width, height: arm),
+            cornerSize: CGSize(width: 6, height: 6))
+        return path
+    }
+}
+
 /// Analog stick used for the circle pad and the C-stick.
 private struct CirclePad: View {
     let size: CGFloat
@@ -745,9 +765,10 @@ private struct CirclePad: View {
 
     var body: some View {
         ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.15))
-                .overlay(Circle().stroke(Color.white.opacity(0.5), lineWidth: 1.5))
+            Color.clear
+                .frame(width: size, height: size)
+                .controlSurface(Circle(), pressed: false)
+            // The knob is a plain disc: glass on glass would have nothing to refract.
             Circle()
                 .fill(Color.white.opacity(0.45))
                 .frame(width: size * 0.5, height: size * 0.5)
@@ -760,10 +781,12 @@ private struct CirclePad: View {
 /// The icon of the emulation menu button, shared by EmulationView and the layout editor.
 struct SwapButtonIcon: View {
     let scale: CGFloat
+    /// Drawn on a glass disc, which is its outline: a little smaller.
+    var onGlass = false
 
     var body: some View {
         Image(systemName: "rectangle.2.swap")
-            .font(.system(size: 24 * scale))
+            .font(.system(size: (onGlass ? 18 : 24) * scale, weight: onGlass ? .semibold : .regular))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(.white)
     }
@@ -771,10 +794,12 @@ struct SwapButtonIcon: View {
 
 struct MenuButtonIcon: View {
     let scale: CGFloat
+    /// Drawn on a glass disc: only the dots, the disc is the circle.
+    var onGlass = false
 
     var body: some View {
-        Image(systemName: "ellipsis.circle.fill")
-            .font(.system(size: 28 * scale))
+        Image(systemName: onGlass ? "ellipsis" : "ellipsis.circle.fill")
+            .font(.system(size: (onGlass ? 19 : 28) * scale, weight: onGlass ? .bold : .regular))
             .symbolRenderingMode(.hierarchical)
             .foregroundStyle(.white)
     }

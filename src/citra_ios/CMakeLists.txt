@@ -96,6 +96,8 @@ set(APP_SWIFT_SOURCES
     App/Views/ControllerOverlay.swift
     App/Views/EmulationView.swift
     App/Views/GameRowView.swift
+    App/Views/GameHUD.swift
+    App/Views/LiquidGlassDesignSystem.swift
     App/Views/GameSettingsView.swift
     App/Views/GamesListView.swift
     App/Views/KeyboardPromptView.swift

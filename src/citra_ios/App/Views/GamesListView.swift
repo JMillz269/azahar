@@ -220,7 +220,7 @@ struct GamesListView: View {
                     } label: {
                         GameCardView(game: game)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(LGTiltButtonStyle())
                     .contextMenu { contextMenu(for: game) }
                 }
             }
