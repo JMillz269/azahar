@@ -132,7 +132,8 @@ struct QualityOptions {
     bool hold_frames_for_shaders = false;
     /// Frame generation: 0 off, 1 for games below 40 FPS only, 2 for every game.
     int frame_generation = 0;
-    /// Size the frames are made at: 0 full, 1 half, 2 three eighths, 3 a quarter of the screen.
+    /// Size the frames are made at: 0 full, 1 half, 2 three eighths, 3 a quarter, 4 three quarters
+    /// of the screen.
     /// Smaller is faster (less work for the interpolation) and softer.
     int frame_generation_size = 1;
     /// Make frames for the top screen only; the bottom screen shows the game's own frames.

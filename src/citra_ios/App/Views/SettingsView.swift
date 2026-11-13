@@ -542,6 +542,7 @@ struct GraphicsSettingsView: View {
                     set: { settings.frameGeneration = $0 ? 1 : 0 }))
                 Picker("Frame Generation Size", selection: $settings.frameGenerationSize) {
                     Text("Full").tag(0)
+                    Text("3/4").tag(4)
                     Text("Half").tag(1)
                     Text("3/8").tag(2)
                     Text("Quarter").tag(3)

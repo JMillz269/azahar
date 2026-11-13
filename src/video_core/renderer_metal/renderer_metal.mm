@@ -1230,7 +1230,7 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         }
     }
 
-    const int size = std::clamp(GetQualityOptions().frame_generation_size, 0, 3);
+    const int size = std::clamp(GetQualityOptions().frame_generation_size, 0, 4);
     if (layout.width != fg_layout_width || layout.height != fg_layout_height ||
         screens.left != fg_screens.left || screens.top != fg_screens.top ||
         screens.right != fg_screens.right || screens.bottom != fg_screens.bottom ||
@@ -1259,7 +1259,9 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         // of the work), and the made frame is scaled back up. Only the chosen size: when the
         // interpolation refuses it, frame generation stays off rather than picking another size.
         const auto round_up = [](u32 value) { return (value + 15u) & ~15u; };
-        constexpr std::array<f32, 4> all_scales{1.0f, 0.5f, 0.375f, 0.25f};
+        // The values are stored settings: 0 full, 1 half, 2 three eighths, 3 a quarter, 4 three
+        // quarters (added later, so it comes last).
+        constexpr std::array<f32, 5> all_scales{1.0f, 0.5f, 0.375f, 0.25f, 0.75f};
         const std::array<f32, 1> scales{all_scales[size]};
         for (const f32 scale : scales) {
             if (scale <= 0.0f) {
