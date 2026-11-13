@@ -877,6 +877,19 @@ struct SystemSettingsView: View {
             .listRowBackground(LGRowBackground())
 
             Section {
+                NavigationLink {
+                    SaveStateManagerView()
+                } label: {
+                    Label("Save States", systemImage: "square.stack.3d.down.right")
+                }
+            } footer: {
+                Text("See the save states of all games, how much space they take, and delete the "
+                     + "ones you do not need.")
+            }
+
+            .listRowBackground(LGRowBackground())
+
+            Section {
                 LabeledContent("Data Folder", value: "Files › Azahar")
                 LabeledContent("Games Folder", value: "Files › ROMs")
             } header: {

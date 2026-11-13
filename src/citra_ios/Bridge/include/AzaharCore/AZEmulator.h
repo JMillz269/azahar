@@ -87,6 +87,20 @@ extern NSErrorDomain const AZEmulatorErrorDomain;
 @property(nonatomic, readonly, nullable) NSString* thumbnailPath;
 @end
 
+/// A save state file on disk, of any game (a title does not have to be running).
+@interface AZSaveStateEntry : NSObject
+@property(nonatomic, readonly) uint64_t programID;
+/// 0 unless the state belongs to a movie recording or playback.
+@property(nonatomic, readonly) uint64_t movieID;
+@property(nonatomic, readonly) NSInteger slot;
+@property(nonatomic, readonly) NSDate* date;
+/// False when the state was made by another build and can't be loaded (or the file is damaged).
+@property(nonatomic, readonly) BOOL isLoadable;
+/// Size of the state and its picture on disk, in bytes.
+@property(nonatomic, readonly) unsigned long long fileSize;
+@property(nonatomic, readonly, nullable) NSString* thumbnailPath;
+@end
+
 /// A cheat of the running title.
 @interface AZCheat : NSObject
 @property(nonatomic, copy) NSString* name;
@@ -291,6 +305,13 @@ typedef NS_ENUM(NSInteger, AZCompressStatus) {
 /// Asks the emulation to save or load a slot. Returns false when that is not possible right now.
 - (BOOL)saveStateToSlot:(NSInteger)slot;
 - (BOOL)loadStateFromSlot:(NSInteger)slot;
+/// Deletes the state (and its picture) in a slot of the running title.
+- (BOOL)deleteSaveStateInSlot:(NSInteger)slot;
+
+/// Every save state of every game, newest first. Does not need a running title.
++ (NSArray<AZSaveStateEntry*>*)allSaveStates;
+/// Deletes one state and its picture. A state of the running game may be deleted too.
++ (BOOL)deleteSaveStateForProgram:(uint64_t)programID movie:(uint64_t)movieID slot:(NSInteger)slot;
 
 // Cheats of the running title.
 

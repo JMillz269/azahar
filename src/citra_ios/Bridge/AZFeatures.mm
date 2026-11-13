@@ -11,6 +11,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -86,6 +87,59 @@
 
 - (BOOL)isLoadable {
     return _loadable;
+}
+
+@end
+
+@implementation AZSaveStateEntry {
+    uint64_t _programID;
+    uint64_t _movieID;
+    NSInteger _slot;
+    NSDate* _date;
+    BOOL _loadable;
+    unsigned long long _fileSize;
+    NSString* _thumbnailPath;
+}
+
+- (instancetype)initWithProgramID:(uint64_t)programID
+                          movieID:(uint64_t)movieID
+                             slot:(NSInteger)slot
+                             date:(NSDate*)date
+                         loadable:(BOOL)loadable
+                         fileSize:(unsigned long long)fileSize
+                    thumbnailPath:(NSString*)thumbnailPath {
+    if ((self = [super init])) {
+        _programID = programID;
+        _movieID = movieID;
+        _slot = slot;
+        _date = date;
+        _loadable = loadable;
+        _fileSize = fileSize;
+        _thumbnailPath = thumbnailPath;
+    }
+    return self;
+}
+
+- (uint64_t)programID {
+    return _programID;
+}
+- (uint64_t)movieID {
+    return _movieID;
+}
+- (NSInteger)slot {
+    return _slot;
+}
+- (NSDate*)date {
+    return _date;
+}
+- (BOOL)isLoadable {
+    return _loadable;
+}
+- (unsigned long long)fileSize {
+    return _fileSize;
+}
+- (NSString*)thumbnailPath {
+    return _thumbnailPath;
 }
 
 @end
@@ -447,6 +501,16 @@ std::string StateThumbnailPath(u64 program_id, u64 movie_id, u32 slot) {
     return fmt::format("{}{:016X}.{:02d}.jpg", directory, program_id, slot);
 }
 
+/// Where a state itself is kept (the same name the core gives it, see core/savestate.cpp).
+std::string StatePath(u64 program_id, u64 movie_id, u32 slot) {
+    const std::string directory = FileUtil::GetUserPath(FileUtil::UserPath::StatesDir);
+    if (movie_id != 0) {
+        return fmt::format("{}{:016X}.movie{:016X}.{:02d}.cst", directory, program_id, movie_id,
+                           slot);
+    }
+    return fmt::format("{}{:016X}.{:02d}.cst", directory, program_id, slot);
+}
+
 /// Takes a picture of the screens as they are now and writes it, small, as a JPEG.
 void SaveStateThumbnail(const std::string& path) {
     Core::System& system = Core::System::GetInstance();
@@ -560,6 +624,87 @@ void SaveStateThumbnail(const std::string& path) {
     }
     return Core::System::GetInstance().SendSignal(Core::System::Signal::Load,
                                                   static_cast<u32>(slot));
+}
+
+- (BOOL)deleteSaveStateInSlot:(NSInteger)slot {
+    const u64 program_id = RunningProgramId();
+    if (program_id == 0 || slot < 0 || slot >= Core::SaveStateSlotCount) {
+        return NO;
+    }
+    const u64 movie_id = Core::System::GetInstance().Movie().GetCurrentMovieID();
+    return [AZEmulator deleteSaveStateForProgram:program_id
+                                           movie:movie_id
+                                            slot:slot];
+}
+
++ (NSArray<AZSaveStateEntry*>*)allSaveStates {
+    NSString* directory = ToNSString(FileUtil::GetUserPath(FileUtil::UserPath::StatesDir));
+    NSFileManager* manager = [NSFileManager defaultManager];
+    NSArray<NSString*>* names = [manager contentsOfDirectoryAtPath:directory error:nil];
+    // <program>.<slot>.cst, or <program>.movie<movie>.<slot>.cst
+    NSRegularExpression* pattern = [NSRegularExpression
+        regularExpressionWithPattern:@"^([0-9A-Fa-f]{16})(?:\\.movie([0-9A-Fa-f]{16}))?\\.([0-9]{2})\\.cst$"
+                             options:0
+                               error:nil];
+    NSMutableArray<AZSaveStateEntry*>* entries = [NSMutableArray array];
+    for (NSString* name in names) {
+        NSTextCheckingResult* match =
+            [pattern firstMatchInString:name options:0 range:NSMakeRange(0, name.length)];
+        if (match == nil) {
+            continue;
+        }
+        const u64 program_id = strtoull([name substringWithRange:[match rangeAtIndex:1]].UTF8String,
+                                        nullptr, 16);
+        u64 movie_id = 0;
+        if ([match rangeAtIndex:2].location != NSNotFound) {
+            movie_id = strtoull([name substringWithRange:[match rangeAtIndex:2]].UTF8String,
+                                nullptr, 16);
+        }
+        const u32 slot = static_cast<u32>(
+            [[name substringWithRange:[match rangeAtIndex:3]] integerValue]);
+
+        const std::string state_path = StatePath(program_id, movie_id, slot);
+        NSString* state = ToNSString(state_path);
+        NSDictionary* attributes = [manager attributesOfItemAtPath:state error:nil];
+        unsigned long long size = [attributes fileSize];
+        NSDate* date = [attributes fileModificationDate] ?: [NSDate distantPast];
+        BOOL loadable = NO;
+        const Core::SaveStateInfo info = Core::GetSaveStateInfo(program_id, movie_id, slot);
+        if (info.slot != std::numeric_limits<u32>::max()) {
+            date = [NSDate dateWithTimeIntervalSince1970:info.time];
+            loadable = info.status != Core::SaveStateInfo::ValidationStatus::BuildMismatch;
+        }
+        const std::string thumbnail = StateThumbnailPath(program_id, movie_id, slot);
+        NSString* thumbnail_path = nil;
+        if (FileUtil::Exists(thumbnail)) {
+            thumbnail_path = ToNSString(thumbnail);
+            size += [[manager attributesOfItemAtPath:thumbnail_path error:nil] fileSize];
+        }
+        [entries addObject:[[AZSaveStateEntry alloc] initWithProgramID:program_id
+                                                               movieID:movie_id
+                                                                  slot:slot
+                                                                  date:date
+                                                              loadable:loadable
+                                                              fileSize:size
+                                                         thumbnailPath:thumbnail_path]];
+    }
+    [entries sortUsingComparator:^NSComparisonResult(AZSaveStateEntry* a, AZSaveStateEntry* b) {
+      return [b.date compare:a.date];
+    }];
+    return entries;
+}
+
++ (BOOL)deleteSaveStateForProgram:(uint64_t)programID movie:(uint64_t)movieID slot:(NSInteger)slot {
+    if (slot < 0 || slot >= Core::SaveStateSlotCount) {
+        return NO;
+    }
+    const std::string state = StatePath(programID, movieID, static_cast<u32>(slot));
+    const bool removed = !FileUtil::Exists(state) || FileUtil::Delete(state);
+    const std::string thumbnail = StateThumbnailPath(programID, movieID, static_cast<u32>(slot));
+    if (FileUtil::Exists(thumbnail)) {
+        FileUtil::Delete(thumbnail);
+    }
+    return removed;
 }
 
 // MARK: Cheats
