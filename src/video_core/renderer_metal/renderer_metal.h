@@ -43,6 +43,11 @@ enum class UpscalerMode : int {
 
 void SetUpscalerMode(UpscalerMode mode);
 
+/// How far MetalFX scales a screen up, as a factor of the size it is drawn at (1.5, 2, 2.5 ...).
+/// The result is stretched to the screen's size on the display. 0 scales to the size on the
+/// display directly. Applies from the next frame.
+void SetUpscaleFactor(float factor);
+
 /// Built-in post-processing (0 none, 1 sharpen, 2 LCD grid, 3 scanlines) and the anaglyph variant
 /// (0 Dubois, 1 gray, 2 half color, 3 color). Both apply at once.
 void SetPostProcessing(int effect, int anaglyph_mode);

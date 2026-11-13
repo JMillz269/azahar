@@ -150,6 +150,17 @@ std::mutex g_custom_post_mutex;
 std::string g_custom_post_path;
 
 std::atomic<int> g_upscaler_mode{static_cast<int>(UpscalerMode::Off)};
+std::atomic<float> g_upscale_factor{0.0f};
+
+/// The size MetalFX makes a picture: the factor times its size, never more than the size it is
+/// shown at (more would only be scaled back down), or that size when no factor is set.
+u32 UpscaledSize(u32 in, u32 shown) {
+    const float factor = g_upscale_factor.load(std::memory_order_relaxed);
+    if (factor <= 0.0f) {
+        return shown;
+    }
+    return std::min(shown, static_cast<u32>(std::lround(static_cast<float>(in) * factor)));
+}
 
 /// Vertices that draw a screen texture (or the part of it given by `texcoords`) into a rectangle.
 /// The 3DS framebuffers are stored rotated, the orientation takes care of that.
@@ -755,8 +766,8 @@ RendererMetal::UpscaleJob RendererMetal::MakeUpscaleJob(
         // shown in.
         job.in_width = static_cast<u32>(std::lround(swap ? source_height : source_width));
         job.in_height = static_cast<u32>(std::lround(swap ? source_width : source_height));
-        job.out_width = static_cast<u32>(std::lround(w));
-        job.out_height = static_cast<u32>(std::lround(h));
+        job.out_width = UpscaledSize(job.in_width, static_cast<u32>(std::lround(w)));
+        job.out_height = UpscaledSize(job.in_height, static_cast<u32>(std::lround(h)));
         // Only worth it when the screen is shown clearly larger than it is drawn: the scaler costs
         // several milliseconds of GPU time, and for a small enlargement (such as the bottom screen
         // at 3x) plain bilinear filtering looks the same.
@@ -1448,8 +1459,8 @@ bool RendererMetal::PrepareFrameGenerationResources() {
         UpscaleJob job;
         job.in_width = fg_slot_width;
         job.in_height = fg_slot_height;
-        job.out_width = static_cast<u32>(std::lround(fg_area_width));
-        job.out_height = static_cast<u32>(std::lround(fg_area_height));
+        job.out_width = UpscaledSize(job.in_width, static_cast<u32>(std::lround(fg_area_width)));
+        job.out_height = UpscaledSize(job.in_height, static_cast<u32>(std::lround(fg_area_height)));
         if (!EnsureUpscaleSlot(fg_upscale, job)) {
             fg_upscale = UpscaleSlot{};
         }
@@ -2077,6 +2088,10 @@ void SetCustomPostShader(const std::string& path) {
 
 void SetUpscalerMode(UpscalerMode mode) {
     g_upscaler_mode.store(static_cast<int>(mode), std::memory_order_relaxed);
+}
+
+void SetUpscaleFactor(float factor) {
+    g_upscale_factor.store(std::clamp(factor, 0.0f, 8.0f), std::memory_order_relaxed);
 }
 
 bool IsUpscalingSupported() {

@@ -40,6 +40,9 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) NSInteger textureFilter;
 /// 0: off, 1: MetalFX spatial upscaling.
 @property(nonatomic) NSInteger upscaling;
+/// How far MetalFX scales, in tenths of the size a screen is drawn at (15 is 1.5x). 0: straight
+/// to the size on the display.
+@property(nonatomic) NSInteger upscaleFactorTenths;
 @property(nonatomic) BOOL skipDuplicateFrames;
 @property(nonatomic) BOOL asyncShaderCompilation;
 /// Keep showing the previous frame while a draw waits for its shader (no flicker, a repeated frame).

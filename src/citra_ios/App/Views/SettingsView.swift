@@ -362,13 +362,34 @@ struct GraphicsSettingsView: View {
                     ForEach(UpscalingOption.allCases) { Text($0.title).tag($0) }
                 }
                 .disabled(!AZEmulator.isUpscalingSupported)
+                if settings.upscaling != .off {
+                    VStack(alignment: .leading) {
+                        Text("Scale: " + (settings.upscaleFactorTenths == 0
+                             ? "Fit to screen"
+                             : String(format: "%.1fx", Double(settings.upscaleFactorTenths) / 10)))
+                        // The last step (4.5) means "fit to screen".
+                        Slider(value: Binding(
+                            get: {
+                                settings.upscaleFactorTenths == 0
+                                    ? 4.5 : Double(settings.upscaleFactorTenths) / 10
+                            },
+                            set: { settings.upscaleFactorTenths = $0 >= 4.5 ? 0 : Int(($0 * 10).rounded()) }),
+                            in: 1.0...4.5, step: 0.5)
+                    }
+                    .disabled(!AZEmulator.isUpscalingSupported)
+                }
             } header: {
                 InfoHeader("MetalFX") {
                     if AZEmulator.isUpscalingSupported {
                         Text("MetalFX Spatial scales each screen up to the size it is shown at with "
                              + "Apple's GPU upscaler, which looks sharper than plain filtering and "
                              + "lets you use a lower Internal Resolution (1x or 2x) for the same "
-                             + "picture. It applies to the next frame, you do not need to restart.")
+                             + "picture. It applies to the next frame, you do not need to restart. "
+                             + "The scale sets how far it enlarges a screen (1.5x, 2x, ...); the "
+                             + "result is then stretched to the size on the display. A lower scale "
+                             + "costs less GPU time, \"Fit to screen\" goes straight to the "
+                             + "display size. Scales that would not enlarge the screen by at least "
+                             + "a quarter use plain filtering.")
                     } else {
                         Text("MetalFX is not available on this device.")
                     }

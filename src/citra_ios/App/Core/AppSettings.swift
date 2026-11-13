@@ -280,6 +280,8 @@ final class AppSettings: ObservableObject {
     @Published var anisotropy: Int { didSet { save(anisotropy, "anisotropy") } }
     @Published var diskShaderCache: Bool { didSet { save(diskShaderCache, "diskShaderCache") } }
     @Published var upscaling: UpscalingOption { didSet { save(upscaling.rawValue, "upscaling") } }
+    /// How far MetalFX scales, in tenths (15 is 1.5x); 0 scales straight to the display size.
+    @Published var upscaleFactorTenths: Int { didSet { save(upscaleFactorTenths, "upscaleFactorTenths") } }
 
     // Layout
     @Published var layout: ScreenLayout { didSet { save(layout.rawValue, "layout") } }
@@ -435,6 +437,7 @@ final class AppSettings: ObservableObject {
         anisotropy = value("anisotropy", 4)
         diskShaderCache = value("diskShaderCache", true)
         upscaling = UpscalingOption(rawValue: value("upscaling", 0)) ?? .off
+        upscaleFactorTenths = value("upscaleFactorTenths", 0)
 
         layout = ScreenLayout(rawValue: value("layout", ScreenLayout.standard.rawValue)) ?? .standard
         portraitLayout = PortraitScreenLayout(rawValue: value("portraitLayout", 0)) ?? .topFullWidth
@@ -569,6 +572,7 @@ final class AppSettings: ObservableObject {
         config.anisotropy = anisotropy
         config.diskShaderCache = diskShaderCache
         config.upscaling = upscaling.rawValue
+        config.upscaleFactorTenths = upscaleFactorTenths
         config.layoutOption = AZLayoutOption(rawValue: layout.rawValue) ?? .default
         config.portraitLayoutOption =
             AZPortraitLayoutOption(rawValue: portraitLayout.rawValue) ?? .topFullWidth

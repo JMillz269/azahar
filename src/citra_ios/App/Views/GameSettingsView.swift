@@ -42,6 +42,10 @@ struct GameSettingsView: View {
                                options: UpscalingOption.allCases.map(\.rawValue)) {
                     UpscalingOption(rawValue: $0)?.title ?? "\($0)"
                 }
+                OverridePicker("MetalFX Scale", value: $overrides.upscaleFactorTenths,
+                               options: [0, 15, 20, 25, 30, 35, 40]) {
+                    $0 == 0 ? "Fit to screen" : String(format: "%.1fx", Double($0) / 10)
+                }
                 OverridePicker("Anisotropic Filtering", value: $overrides.anisotropy,
                                options: [1, 2, 4, 8, 16]) { $0 == 1 ? "Off" : "\($0)x" }
                 OverrideToggle("Fast Shader Math", value: $overrides.fastShaderMath)
