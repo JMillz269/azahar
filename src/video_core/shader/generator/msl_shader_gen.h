@@ -156,7 +156,10 @@ struct VSVertexLayout {
     u32 index_offset;
     u32 index_format; ///< VSIndexFormat
     u32 topology;     ///< VSTopology
-    u32 pad[3];
+    /// 1 when the GPU assembles the triangles (a native, possibly indexed draw): the vertex id is
+    /// then the PICA vertex index itself, and a vertex used by several triangles is shaded once.
+    u32 direct;
+    u32 pad[2];
 };
 static_assert(sizeof(VSVertexLayout) == 544, "VSVertexLayout must match the MSL structure");
 

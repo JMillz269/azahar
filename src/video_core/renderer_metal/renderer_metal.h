@@ -109,6 +109,10 @@ struct QualityOptions {
     /// The stream buffers the CPU writes and the GPU reads are not tracked by Metal (they track
     /// their own reuse), which saves CPU time at every draw.
     bool untracked_buffers = false;
+    /// Hardware vertex shader draws without lit surfaces are drawn natively (with an index buffer
+    /// where the game has one), so a vertex shared by several triangles is shaded once instead of
+    /// once for every triangle that uses it.
+    bool vertex_reuse = false;
     /// Textures of dropped surfaces are kept and reused by the next surfaces of the same kind.
     bool texture_pool = false;
     TextureCompression texture_compression = TextureCompression::Off;

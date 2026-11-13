@@ -2027,7 +2027,7 @@ struct VertexLayout {
     uint index_offset;
     uint index_format;
     uint topology;
-    uint pad0;
+    uint direct;
     uint pad1;
     uint pad2;
 };
@@ -2231,7 +2231,10 @@ vertex VSOutput {}(uint vid [[vertex_id]], constant VSUniforms& vs [[buffer({})]
 
     PicaShader sh;
     sh.uniforms = &pica_uniforms;
-    sh.Load(layout, vertex_data, FetchVertexIndex(layout, vertex_data, triangle, corner));
+    // A native draw hands over the PICA vertex index as the vertex id (see VSVertexLayout::direct).
+    const uint vertex_index =
+        layout.direct != 0u ? vid : FetchVertexIndex(layout, vertex_data, triangle, corner);
+    sh.Load(layout, vertex_data, vertex_index);
     sh.Run();
 )",
                        VS_ENTRY_POINT, +VS_BUFFER_UNIFORMS, +VS_BUFFER_PICA_UNIFORMS,

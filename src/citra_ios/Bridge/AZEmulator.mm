@@ -513,6 +513,7 @@ const char* ThermalStateName() {
     quality.fast_functions = configuration.fastMathFunctions;
     quality.half_interpolants = configuration.halfInterpolants;
     quality.untracked_buffers = configuration.untrackedBuffers;
+    quality.vertex_reuse = configuration.vertexReuse;
     quality.texture_pool = configuration.texturePool;
     quality.vertex_depth = configuration.hiddenSurfaceRemoval;
     quality.texture_compression = static_cast<Metal::TextureCompression>(

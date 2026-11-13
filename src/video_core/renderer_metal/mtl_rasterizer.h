@@ -88,6 +88,9 @@ private:
     struct HardwareDraw {
         PipelineCache::ShaderHandle vertex;
         bool is_indexed{};
+        /// Drawn natively by the GPU (see QualityOptions::vertex_reuse), not corner by corner.
+        bool direct{};
+        bool strip{};
         VertexArrayInfo vertex_info{};
         u32 vertex_count{}; ///< Vertices drawn, three per triangle.
         u32 upload_size{};  ///< Bytes of vertex and index data.

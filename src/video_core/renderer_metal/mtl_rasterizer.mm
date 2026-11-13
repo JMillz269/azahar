@@ -238,8 +238,18 @@ bool RasterizerMetal::AccelerateDrawBatch(bool is_indexed) {
     }
     draw.vertex_count = triangles * 3;
 
+    // Native draws let the GPU reuse the shaded vertices. The per-triangle quaternion correction
+    // of lit draws needs the first corner of every triangle, those keep the corner by corner
+    // draw, and so do fans (Metal has none). A strip index of 0xFFFF would restart the strip.
+    const bool index_u16 = regs.pipeline.index_array.format != 0;
+    draw.direct = GetQualityOptions().vertex_reuse && regs.lighting.disable.Value() != 0 &&
+                  topology != Topology::Fan &&
+                  !(is_indexed && topology == Topology::Strip &&
+                    draw.vertex_info.vs_input_index_max >= 0xFFFFu);
+    draw.strip = topology == Topology::Strip;
+    // Metal has no 8 bit indices, those are widened.
     const u32 index_size =
-        is_indexed ? num_vertices * (regs.pipeline.index_array.format != 0 ? 2 : 1) : 0;
+        is_indexed ? num_vertices * (index_u16 || draw.direct ? 2 : 1) : 0;
     draw.upload_size = draw.vertex_info.vs_input_size + Common::AlignUp(index_size, 4);
     if (draw.upload_size > VERTEX_BUFFER_SIZE / 4) {
         // Implausibly large, let the software path deal with it.
@@ -342,18 +352,26 @@ void RasterizerMetal::UploadHardwareVertices(HardwareDraw& draw) {
     layout.index_format = VS_INDEX_NONE;
     if (draw.is_indexed) {
         const bool index_u16 = regs.pipeline.index_array.format != 0;
-        const u32 index_size = regs.pipeline.num_vertices * (index_u16 ? 2 : 1);
+        const u32 source_size = regs.pipeline.num_vertices * (index_u16 ? 2 : 1);
+        const u32 index_size = regs.pipeline.num_vertices * (index_u16 || draw.direct ? 2 : 1);
         const u8* indices =
             memory.GetPhysicalPointer(base_address + regs.pipeline.index_array.offset);
-        if (indices != nullptr) {
-            std::memcpy(buffer + used, indices, index_size);
-        } else {
+        if (indices == nullptr) {
             std::memset(buffer + used, 0, index_size);
+        } else if (draw.direct && !index_u16) {
+            // Widened to 16 bits.
+            u16* wide = reinterpret_cast<u16*>(buffer + used);
+            for (u32 i = 0; i < regs.pipeline.num_vertices; i++) {
+                wide[i] = indices[i];
+            }
+        } else {
+            std::memcpy(buffer + used, indices, source_size);
         }
         layout.index_offset = used;
         layout.index_format = index_u16 ? VS_INDEX_U16 : VS_INDEX_U8;
         used += Common::AlignUp(index_size, 4);
     }
+    layout.direct = draw.direct ? 1 : 0;
 
     layout.vertex_min = vertex_min;
     layout.vertex_base = regs.pipeline.vertex_offset;
@@ -654,7 +672,23 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     } else {
         [encoder setVertexBufferOffset:vertex_offset atIndex:MSL::VS_BUFFER_VERTEX_BASE];
     }
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertex_count];
+    if (hw_draw && hw_draw->direct) {
+        const MTLPrimitiveType primitive =
+            hw_draw->strip ? MTLPrimitiveTypeTriangleStrip : MTLPrimitiveTypeTriangle;
+        if (hw_draw->is_indexed) {
+            [encoder drawIndexedPrimitives:primitive
+                                indexCount:regs.pipeline.num_vertices
+                                 indexType:MTLIndexTypeUInt16
+                               indexBuffer:vertex_buffer.Handle()
+                         indexBufferOffset:hw_draw->data_offset + hw_draw->layout.index_offset];
+        } else {
+            [encoder drawPrimitives:primitive
+                        vertexStart:regs.pipeline.vertex_offset
+                        vertexCount:regs.pipeline.num_vertices];
+        }
+    } else {
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:vertex_count];
+    }
     Stats().draws.fetch_add(1, std::memory_order_relaxed);
     scheduler.NoteDraw();
     return true;

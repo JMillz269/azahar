@@ -76,6 +76,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL halfInterpolants;
 /// Metal does not track the hazards of the stream buffers (less CPU time per draw).
 @property(nonatomic) BOOL untrackedBuffers;
+/// Draw hardware vertex shader draws natively so shared vertices are shaded once.
+@property(nonatomic) BOOL vertexReuse;
 /// Keep the textures of dropped surfaces and reuse them (fewer texture allocations).
 @property(nonatomic) BOOL texturePool;
 /// Depth mapped in the vertex shader so the GPU's hidden surface removal works (next game).
