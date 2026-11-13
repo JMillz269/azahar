@@ -2060,8 +2060,22 @@ static float4 LoadAttribute(constant VertexLayout& layout, device const uchar* d
         layout.attributes[reg].offset +
         (vertex_index - layout.vertex_min) * layout.attributes[reg].stride;
     float4 value = float4(0.0, 0.0, 0.0, 1.0);
-    for (uint i = 0u; i < size; ++i) {
-        value[i] = LoadComponent(data, address + i * element, format);
+    if (format == 3u && (address & 3u) == 0u) {
+        // Floats on a word boundary (the usual case): one 32 bit load a component instead of
+        // four byte loads. The data is little endian, like the GPU.
+        device const uint* words = (device const uint*)(data + address);
+        for (uint i = 0u; i < size; ++i) {
+            value[i] = as_type<float>(words[i]);
+        }
+    } else if (format == 2u && (address & 1u) == 0u) {
+        device const ushort* halves = (device const ushort*)(data + address);
+        for (uint i = 0u; i < size; ++i) {
+            value[i] = float(as_type<short>(halves[i]));
+        }
+    } else {
+        for (uint i = 0u; i < size; ++i) {
+            value[i] = LoadComponent(data, address + i * element, format);
+        }
     }
     return value;
 }
