@@ -407,6 +407,14 @@ struct GraphicsSettingsView: View {
                     Text("LCD Grid").tag(2)
                     Text("Scanlines").tag(3)
                 }
+                Toggle("Sharp Pixels", isOn: $settings.sharpPixels)
+                VStack(alignment: .leading) {
+                    Text("Sharpening: " + (settings.sharpness == 0 ? "Off" : "\(settings.sharpness)%"))
+                    Slider(value: Binding(
+                        get: { Double(settings.sharpness) },
+                        set: { settings.sharpness = Int(($0 / 5).rounded()) * 5 }),
+                        in: 0...100, step: 5)
+                }
                 Picker("Custom Shader", selection: $settings.postShader) {
                     Text("None").tag("")
                     ForEach(postShaders, id: \.self) { Text($0).tag($0) }
@@ -417,7 +425,10 @@ struct GraphicsSettingsView: View {
                 }
             } header: {
                 InfoHeader("Post-Processing") {
-                    Text("An effect is applied to the finished screens. A custom shader replaces it: "
+                    Text("Sharp Pixels keeps the pixels of a screen crisp when it is enlarged (only "
+                         + "the edge of a pixel is smoothed). Sharpening adds contrast at edges, "
+                         + "after MetalFX, and can be combined with an effect. "
+                         + "An effect is applied to the finished screens. A custom shader replaces it: "
                          + "put a .metal file with a post_effect function in Files › Azahar › shaders "
                          + "› post (Example.metal shows how). A shader that does not compile is "
                          + "ignored, the log tells why. Applies when a game starts.")

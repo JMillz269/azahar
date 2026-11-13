@@ -282,6 +282,9 @@ final class AppSettings: ObservableObject {
     @Published var upscaling: UpscalingOption { didSet { save(upscaling.rawValue, "upscaling") } }
     /// How far MetalFX scales, in tenths (15 is 1.5x); 0 scales straight to the display size.
     @Published var upscaleFactorTenths: Int { didSet { save(upscaleFactorTenths, "upscaleFactorTenths") } }
+    @Published var sharpPixels: Bool { didSet { save(sharpPixels, "sharpPixels") } }
+    /// Sharpening of the screens in percent, 0 is off.
+    @Published var sharpness: Int { didSet { save(sharpness, "sharpness") } }
 
     // Layout
     @Published var layout: ScreenLayout { didSet { save(layout.rawValue, "layout") } }
@@ -438,6 +441,8 @@ final class AppSettings: ObservableObject {
         diskShaderCache = value("diskShaderCache", true)
         upscaling = UpscalingOption(rawValue: value("upscaling", 0)) ?? .off
         upscaleFactorTenths = value("upscaleFactorTenths", 0)
+        sharpPixels = value("sharpPixels", false)
+        sharpness = value("sharpness", 0)
 
         layout = ScreenLayout(rawValue: value("layout", ScreenLayout.standard.rawValue)) ?? .standard
         portraitLayout = PortraitScreenLayout(rawValue: value("portraitLayout", 0)) ?? .topFullWidth
@@ -573,6 +578,8 @@ final class AppSettings: ObservableObject {
         config.diskShaderCache = diskShaderCache
         config.upscaling = upscaling.rawValue
         config.upscaleFactorTenths = upscaleFactorTenths
+        config.sharpPixels = sharpPixels
+        config.sharpness = sharpness
         config.layoutOption = AZLayoutOption(rawValue: layout.rawValue) ?? .default
         config.portraitLayoutOption =
             AZPortraitLayoutOption(rawValue: portraitLayout.rawValue) ?? .topFullWidth

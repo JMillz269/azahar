@@ -11,6 +11,8 @@ struct GameOverrides: Codable, Equatable {
     var textureFilter: Int?
     var upscaling: Int?
     var upscaleFactorTenths: Int?
+    var sharpPixels: Bool?
+    var sharpness: Int?
     var anisotropy: Int?
     var fastShaderMath: Bool?
     var fastLighting: Bool?
@@ -68,6 +70,8 @@ struct GameOverrides: Codable, Equatable {
         if let textureFilter { config.textureFilter = textureFilter }
         if let upscaling { config.upscaling = upscaling }
         if let upscaleFactorTenths { config.upscaleFactorTenths = upscaleFactorTenths }
+        if let sharpPixels { config.sharpPixels = sharpPixels }
+        if let sharpness { config.sharpness = sharpness }
         if let anisotropy { config.anisotropy = anisotropy }
         if let fastShaderMath { config.fastShaderMath = fastShaderMath }
         if let fastLighting { config.fastLighting = fastLighting }

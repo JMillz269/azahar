@@ -52,6 +52,11 @@ void SetUpscaleFactor(float factor);
 /// (0 Dubois, 1 gray, 2 half color, 3 color). Both apply at once.
 void SetPostProcessing(int effect, int anaglyph_mode);
 
+/// Sharp pixels (a screen's pixels stay crisp when it is enlarged) and a sharpening amount from 0
+/// (off) to 100 percent. Both apply to the screens as they are drawn, after MetalFX, from the
+/// next frame.
+void SetSharpness(bool sharp_pixels, int sharpness);
+
 /// A Metal file with a post_effect function that replaces the built-in effect, applied to games
 /// started afterwards. See the post-processing section of the iOS settings. Empty for none.
 void SetCustomPostShader(const std::string& path);

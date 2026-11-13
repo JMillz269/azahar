@@ -43,6 +43,10 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 /// How far MetalFX scales, in tenths of the size a screen is drawn at (15 is 1.5x). 0: straight
 /// to the size on the display.
 @property(nonatomic) NSInteger upscaleFactorTenths;
+/// Keep the pixels of the screens crisp when they are enlarged.
+@property(nonatomic) BOOL sharpPixels;
+/// Sharpening of the screens, 0 (off) to 100 percent.
+@property(nonatomic) NSInteger sharpness;
 @property(nonatomic) BOOL skipDuplicateFrames;
 @property(nonatomic) BOOL asyncShaderCompilation;
 /// Keep showing the previous frame while a draw waits for its shader (no flicker, a repeated frame).

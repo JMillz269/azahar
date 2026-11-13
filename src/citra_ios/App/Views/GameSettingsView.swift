@@ -46,6 +46,9 @@ struct GameSettingsView: View {
                                options: [0, 15, 20, 25, 30, 35, 40]) {
                     $0 == 0 ? "Fit to screen" : String(format: "%.1fx", Double($0) / 10)
                 }
+                OverrideToggle("Sharp Pixels", value: $overrides.sharpPixels)
+                OverridePicker("Sharpening", value: $overrides.sharpness,
+                               options: [0, 25, 50, 75, 100]) { $0 == 0 ? "Off" : "\($0)%" }
                 OverridePicker("Anisotropic Filtering", value: $overrides.anisotropy,
                                options: [1, 2, 4, 8, 16]) { $0 == 1 ? "Off" : "\($0)x" }
                 OverrideToggle("Fast Shader Math", value: $overrides.fastShaderMath)

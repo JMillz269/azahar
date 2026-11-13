@@ -127,8 +127,8 @@ struct PresentUniforms {
     int interlace_use_y;  // 1 when the rows run along the texture's y axis (upscaled screens)
     int effect;           // post-processing: 0 none, 1 sharpen, 2 LCD grid, 3 scanlines
     int anaglyph_mode;    // 0 Dubois, 1 gray, 2 half color, 3 color
-    int pad0;
-    int pad1;
+    int sharp_pixels;     // 1: the screen's pixels stay crisp when it is enlarged ("sharp bilinear")
+    int sharpness;        // 0 off (effect 1 uses its own amount), 1-100: sharpening amount in percent
 };
 
 struct PresentVertex {
@@ -158,16 +158,33 @@ fragment float4 present_fs(PresentVOut in [[stage_in]], texture2d<float> screen 
     if (u.use_fill != 0) {
         return u.fill_color;
     }
-    float3 color = screen.sample(s, in.tex_coord).rgb;
-    if (u.effect == 1) {
-        // Sharpen: add the difference to the average of the four neighbours.
+    float2 uv = in.tex_coord;
+    if (u.sharp_pixels != 0) {
+        // Sharp bilinear: inside a source pixel the color is flat, and only about one display
+        // pixel at its edge blends with the next one. That keeps pixels crisp at any scale
+        // without the unevenly wide pixels of plain nearest filtering.
+        float2 size = float2(screen.get_width(), screen.get_height());
+        float2 p = uv * size;
+        float2 scale = 1.0f / max(fwidth(p), float2(1e-5f));
+        float2 base = floor(p);
+        float2 blend = clamp((p - base - 0.5f) * scale + 0.5f, 0.0f, 1.0f);
+        uv = (base + blend) / size;
+    }
+    float3 color = screen.sample(s, uv).rgb;
+    // Sharpening: add the difference to the average of the four neighbours. The effect "Sharpen"
+    // has a fixed amount, the sharpness setting an adjustable one (and works with the other
+    // effects and MetalFX).
+    const float amount = u.sharpness > 0 ? float(u.sharpness) * 0.015f
+                                         : (u.effect == 1 ? 0.8f : 0.0f);
+    if (amount > 0.0f) {
         float2 texel = 1.0f / float2(screen.get_width(), screen.get_height());
-        float3 around = screen.sample(s, in.tex_coord + float2(texel.x, 0.0f)).rgb +
-                        screen.sample(s, in.tex_coord - float2(texel.x, 0.0f)).rgb +
-                        screen.sample(s, in.tex_coord + float2(0.0f, texel.y)).rgb +
-                        screen.sample(s, in.tex_coord - float2(0.0f, texel.y)).rgb;
-        color = clamp(color + (color - around * 0.25f) * 0.8f, 0.0f, 1.0f);
-    } else if (u.effect == 2) {
+        float3 around = screen.sample(s, uv + float2(texel.x, 0.0f)).rgb +
+                        screen.sample(s, uv - float2(texel.x, 0.0f)).rgb +
+                        screen.sample(s, uv + float2(0.0f, texel.y)).rgb +
+                        screen.sample(s, uv - float2(0.0f, texel.y)).rgb;
+        color = clamp(color + (color - around * 0.25f) * amount, 0.0f, 1.0f);
+    }
+    if (u.effect == 2) {
         // LCD grid: darken the gaps between the pixels of the console's screen.
         float2 cell = fract(in.tex_coord * float2(screen.get_width(), screen.get_height()));
         float2 edge = smoothstep(0.0f, 0.18f, cell) * smoothstep(0.0f, 0.18f, 1.0f - cell);

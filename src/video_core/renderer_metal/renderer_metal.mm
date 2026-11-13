@@ -139,12 +139,14 @@ struct PresentUniforms {
     s32 interlace_use_y;
     s32 effect;
     s32 anaglyph_mode;
-    s32 pad0;
-    s32 pad1;
+    s32 sharp_pixels;
+    s32 sharpness;
 };
 static_assert(sizeof(PresentUniforms) == 64);
 
 std::atomic<int> g_post_effect{0};
+std::atomic<int> g_sharp_pixels{0};
+std::atomic<int> g_sharpness{0};
 std::atomic<int> g_anaglyph_mode{0};
 std::mutex g_custom_post_mutex;
 std::string g_custom_post_path;
@@ -659,6 +661,9 @@ void RendererMetal::DrawSingleScreen(id<MTLRenderCommandEncoder> encoder, u32 sc
         .fill_color = fill_colors[screen_id],
         .use_fill = use_fill[screen_id] ? 1 : 0,
         .effect = g_post_effect.load(std::memory_order_relaxed),
+        .anaglyph_mode = 0,
+        .sharp_pixels = g_sharp_pixels.load(std::memory_order_relaxed),
+        .sharpness = g_sharpness.load(std::memory_order_relaxed),
     };
     DrawQuad(encoder, vertices, screen_info.texture, uniforms);
 }
@@ -942,6 +947,9 @@ void RendererMetal::DrawUpscaled(id<MTLRenderCommandEncoder> encoder, const Upsc
         .fill_color = {},
         .use_fill = 0,
         .effect = g_post_effect.load(std::memory_order_relaxed),
+        .anaglyph_mode = 0,
+        .sharp_pixels = g_sharp_pixels.load(std::memory_order_relaxed),
+        .sharpness = g_sharpness.load(std::memory_order_relaxed),
     };
     DrawQuad(encoder, vertices, upscale_slots[index].output, uniforms);
 }
@@ -2079,6 +2087,11 @@ FrameStats TakeFrameStats() {
 void SetPostProcessing(int effect, int anaglyph_mode) {
     g_post_effect.store(effect, std::memory_order_relaxed);
     g_anaglyph_mode.store(anaglyph_mode, std::memory_order_relaxed);
+}
+
+void SetSharpness(bool sharp_pixels, int sharpness) {
+    g_sharp_pixels.store(sharp_pixels ? 1 : 0, std::memory_order_relaxed);
+    g_sharpness.store(std::clamp(sharpness, 0, 100), std::memory_order_relaxed);
 }
 
 void SetCustomPostShader(const std::string& path) {

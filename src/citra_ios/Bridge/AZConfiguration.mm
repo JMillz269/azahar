@@ -18,6 +18,8 @@
     config.textureFilter = 0;
     config.upscaling = 0;
     config.upscaleFactorTenths = 0;
+    config.sharpPixels = NO;
+    config.sharpness = 0;
     config.skipDuplicateFrames = NO;
     config.asyncShaderCompilation = YES;
     config.framePacing = YES;
