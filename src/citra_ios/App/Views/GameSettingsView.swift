@@ -11,8 +11,14 @@ struct GameSettingsView: View {
     /// game right away.
     var onChange: (() -> Void)?
     @ObservedObject private var store = GameOverridesStore.shared
+    @EnvironmentObject private var settings: AppSettings
     @State private var overrides = GameOverrides()
     private var profiles: [ControllerProfile] { ControllerMappingStore.loadProfiles() }
+    /// Whether this game runs its vertex shaders on the GPU: its own setting, else the global one.
+    private var usesHardwareShaders: Bool {
+        overrides.hardwareShaders ?? settings.hardwareShaders
+    }
+
     private static let sizeNames = ["Full", "Half", "3/8", "Quarter", "3/4"]
 
     /// The size of the in-between frames; the older Faster Frame Generation override is 3/8.
@@ -58,10 +64,13 @@ struct GameSettingsView: View {
                 OverrideToggle("Half Precision Colors Between Stages", value: $overrides.halfInterpolants)
                 OverrideToggle("Untracked Stream Buffers", value: $overrides.untrackedBuffers)
                 OverrideToggle("Reuse Shaded Vertices", value: $overrides.vertexReuse)
+                    .disabled(!usesHardwareShaders)
                 OverrideToggle("Fast Math Functions in Vertex Shaders",
                                value: $overrides.vertexFastFunctions)
+                    .disabled(!usesHardwareShaders)
                 OverrideToggle("Fast Math in Vertex Shaders (no Accurate Multiplication)",
                                value: $overrides.vertexFastMath)
+                    .disabled(!usesHardwareShaders)
                 OverrideToggle("Texture Pool", value: $overrides.texturePool)
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
