@@ -112,6 +112,7 @@ struct GameSettingsView: View {
             .listRowBackground(LGRowBackground())
 
             Section {
+                OverrideToggle("CPU JIT", value: $overrides.cpuJIT)
                 OverridePicker("CPU Clock Speed", value: $overrides.cpuClockPercentage,
                                options: [50, 75, 100, 150, 200, 300, 400]) { "\($0)%" }
                 OverridePicker("Fast Forward Speed", value: $overrides.fastForwardSpeed,
