@@ -110,19 +110,17 @@ struct ControllerOverlay: View {
                         .onTapGesture { selected = nil }
                 }
 
-                // One container for every control: glass surfaces are drawn together and do not
-                // sample each other. Spacing 0 keeps neighbours (the face buttons) from merging.
-                LGContainer(spacing: 0) {
-                    ZStack {
-                        // The menu button is drawn by EmulationView, except while it is edited
-                        // here.
-                        ForEach(isEditing ? ControlID.allCases : ControlID.controllerControls) { id in
-                            let placement = layout.placement(for: id, portrait: portrait)
-                            let frame = metrics.frame(of: id, placement: placement)
-                            content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
-                                .frame(width: frame.width, height: frame.height)
-                                .position(x: frame.midX, y: frame.midY)
-                        }
+                // Each control carries its own glass. No GlassEffectContainer here: a container
+                // the size of the screen made the system capture the whole game picture behind
+                // it, and that full-screen glass layer flashed over the game now and then.
+                ZStack {
+                    // The menu button is drawn by EmulationView, except while it is edited here.
+                    ForEach(isEditing ? ControlID.allCases : ControlID.controllerControls) { id in
+                        let placement = layout.placement(for: id, portrait: portrait)
+                        let frame = metrics.frame(of: id, placement: placement)
+                        content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
+                            .frame(width: frame.width, height: frame.height)
+                            .position(x: frame.midX, y: frame.midY)
                     }
                 }
                 .environment(\.controlGlassStyle, glass)

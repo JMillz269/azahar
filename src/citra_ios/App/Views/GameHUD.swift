@@ -29,8 +29,6 @@ struct GameHUD: View {
     let swapScale: CGFloat
     let onSwap: () -> Void
 
-    @Namespace private var namespace
-
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -43,41 +41,40 @@ struct GameHUD: View {
                         .accessibilityAddTraits(.isButton)
                 }
 
-                LGContainer(spacing: 0) {
-                    ZStack {
-                        if isOpen {
-                            panel(in: geometry.size)
-                                .lgGlass(in: LGPanelShape())
-                                .lgGlassID("hud", in: namespace)
-                                .lgPanelTransition(anchor: .top)
-                                .position(x: geometry.size.width / 2,
-                                          y: panelCenterY(in: geometry.size))
-                        } else {
-                            Button {
-                                withAnimation(LGMotion.panel) { isOpen = true }
-                            } label: {
-                                MenuButtonIcon(scale: menuScale, onGlass: true)
-                                    .frame(width: menuFrame.width, height: menuFrame.height)
+                // No GlassEffectContainer: one the size of the screen made the system capture
+                // the whole game picture behind it, which flashed over the game. The button and
+                // the panel each carry their own glass and materialize in and out.
+                ZStack {
+                    if isOpen {
+                        panel(in: geometry.size)
+                            .lgGlass(in: LGPanelShape())
+                            .lgPanelTransition(anchor: .top)
+                            .position(x: geometry.size.width / 2,
+                                      y: panelCenterY(in: geometry.size))
+                    } else {
+                        Button {
+                            withAnimation(LGMotion.panel) { isOpen = true }
+                        } label: {
+                            MenuButtonIcon(scale: menuScale, onGlass: true)
+                                .frame(width: menuFrame.width, height: menuFrame.height)
+                                .lgGlass(in: Circle(), tint: .clear)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Emulation menu")
+                        .lgPanelTransition(anchor: .top)
+                        .position(x: menuFrame.midX, y: menuFrame.midY)
+
+                        if let swapFrame {
+                            Button(action: onSwap) {
+                                SwapButtonIcon(scale: swapScale, onGlass: true)
+                                    .frame(width: swapFrame.width, height: swapFrame.height)
                                     .lgGlass(in: Circle(), tint: .clear)
                                     .contentShape(Circle())
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Emulation menu")
-                            .lgGlassID("hud", in: namespace)
-                            .lgPanelTransition(anchor: .top)
-                            .position(x: menuFrame.midX, y: menuFrame.midY)
-
-                            if let swapFrame {
-                                Button(action: onSwap) {
-                                    SwapButtonIcon(scale: swapScale, onGlass: true)
-                                        .frame(width: swapFrame.width, height: swapFrame.height)
-                                        .lgGlass(in: Circle(), tint: .clear)
-                                        .contentShape(Circle())
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Swap screens")
-                                .position(x: swapFrame.midX, y: swapFrame.midY)
-                            }
+                            .accessibilityLabel("Swap screens")
+                            .position(x: swapFrame.midX, y: swapFrame.midY)
                         }
                     }
                 }
