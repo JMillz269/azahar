@@ -9,7 +9,9 @@
 #include <deque>
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <cstdint>
 #include <vector>
 #include "video_core/renderer_metal/mtl_common.h"
 
@@ -240,8 +242,14 @@ private:
     void BeginPassStats(u32 width, u32 height, bool color, bool depth, bool stencil, bool game,
                         const RenderTarget* target);
     void EndPassStats();
+    /// Notes a pass that renders to a depth texture (cleared or loaded) for the statistics of
+    /// depth stores nothing needed again.
+    void NoteDepthPass(id<MTLTexture> texture, u32 level, u32 width, u32 height, bool stencil,
+                       bool cleared);
 
 private:
+    /// Per depth texture level: the last pass stored it (see NoteDepthPass).
+    std::unordered_map<std::uintptr_t, bool> depth_stored;
     id<MTLCommandQueue> queue;
     id<MTLCommandBuffer> command_buffer = nil;
     id<MTLRenderCommandEncoder> render_encoder = nil;

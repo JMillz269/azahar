@@ -82,6 +82,13 @@ struct PassStats {
     u32 total = 0;
     u32 reopened = 0;
     u64 bytes = 0;
+    // The depth (and stencil) a pass stores is read again only when a later pass loads it. A pass
+    // that clears it instead did not need what the pass before stored.
+    u32 depth_passes = 0;
+    u32 depth_loaded = 0;
+    u32 depth_cleared = 0;
+    u32 depth_store_unused = 0;
+    u64 depth_store_unused_bytes = 0;
 };
 std::mutex g_pass_mutex;
 PassStats g_pass_stats;
@@ -117,6 +124,14 @@ std::vector<std::string> TakeRenderPassSummary(std::size_t max_lines) {
         stats.total, empty, stats.reopened, join(stats.reopened_after),
         stats.bytes / (1024 * 1024)));
     lines.push_back(fmt::format("ended by: {}", join(stats.end_reasons)));
+    if (stats.depth_passes > 0) {
+        lines.push_back(fmt::format(
+            "depth: {} passes, {} loaded what the pass before stored, {} cleared it instead; "
+            "those {} stores (about {} MiB, at most: reads outside the passes are not counted) "
+            "could have been skipped",
+            stats.depth_passes, stats.depth_loaded, stats.depth_cleared,
+            stats.depth_store_unused, stats.depth_store_unused_bytes / (1024 * 1024)));
+    }
     std::vector<std::pair<std::string, PassEntry>> sorted(stats.targets.begin(),
                                                           stats.targets.end());
     std::sort(sorted.begin(), sorted.end(),
@@ -162,6 +177,29 @@ void Scheduler::BeginPassStats(u32 width, u32 height, bool color, bool depth, bo
         g_pass_stats.reopened++;
         g_pass_stats.reopened_after[last_end_reason]++;
     }
+}
+
+void Scheduler::NoteDepthPass(id<MTLTexture> texture, u32 level, u32 width, u32 height,
+                              bool stencil, bool cleared) {
+    if (!StatisticsEnabled() || texture == nil) {
+        return;
+    }
+    const auto key = reinterpret_cast<std::uintptr_t>((__bridge void*)texture) * 31u + level;
+    bool& stored = depth_stored[key];
+    std::scoped_lock lock{g_pass_mutex};
+    g_pass_stats.depth_passes++;
+    if (cleared) {
+        g_pass_stats.depth_cleared++;
+        if (stored) {
+            g_pass_stats.depth_store_unused++;
+            g_pass_stats.depth_store_unused_bytes +=
+                static_cast<u64>(width) * height * (stencil ? 5 : 4);
+        }
+    } else {
+        g_pass_stats.depth_loaded++;
+    }
+    // This pass stores what it ends with.
+    stored = true;
 }
 
 void Scheduler::EndPassStats() {
@@ -283,6 +321,8 @@ void Scheduler::FlushPendingClears() {
             desc.depthAttachment.level = clear.level;
             desc.depthAttachment.loadAction = MTLLoadActionClear;
             desc.depthAttachment.storeAction = MTLStoreActionStore;
+            NoteDepthPass(clear.texture, clear.level, static_cast<u32>(clear.texture.width),
+                          static_cast<u32>(clear.texture.height), clear.has_stencil, true);
             desc.depthAttachment.clearDepth = clear.depth;
             if (clear.has_stencil) {
                 desc.stencilAttachment.texture = clear.texture;
@@ -389,6 +429,10 @@ id<MTLRenderCommandEncoder> Scheduler::BeginRendering(const RenderTarget& target
                 stencil.clearStencil = depth_clear->stencil;
             }
         }
+    }
+    if (target.depth != nil) {
+        NoteDepthPass(target.depth, target.depth_level, target.width, target.height,
+                      target.has_stencil, depth_clear.has_value());
     }
     // The render area is the intersection of the attachments, which may have different sizes.
     descriptor.renderTargetWidth = std::max(target.width, 1u);

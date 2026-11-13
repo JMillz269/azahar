@@ -211,16 +211,17 @@ bool MakeScreenVertices(std::array<ScreenRectVertex, 4>& vertices,
 /// an effect and at full opacity. `width` and `height` are the size of the target.
 void EncodeRect(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineState> pipeline,
                 id<MTLSamplerState> sampler, id<MTLTexture> texture, f32 width, f32 height,
-                f32 x, f32 y, f32 w, f32 h) {
+                f32 x, f32 y, f32 w, f32 h, f32 u0 = 0.0f, f32 v0 = 0.0f, f32 u1 = 1.0f,
+                f32 v1 = 1.0f) {
     [encoder setRenderPipelineState:pipeline];
     [encoder setViewport:MTLViewport{0.0, 0.0, width, height, 0.0, 1.0}];
     [encoder setBlendColorRed:0.0f green:0.0f blue:0.0f alpha:1.0f];
     [encoder setFragmentSamplerState:sampler atIndex:0];
     const std::array<ScreenRectVertex, 4> vertices{{
-        ScreenRectVertex(x, y, 0.0f, 0.0f),
-        ScreenRectVertex(x + w, y, 1.0f, 0.0f),
-        ScreenRectVertex(x, y + h, 0.0f, 1.0f),
-        ScreenRectVertex(x + w, y + h, 1.0f, 1.0f),
+        ScreenRectVertex(x, y, u0, v0),
+        ScreenRectVertex(x + w, y, u1, v0),
+        ScreenRectVertex(x, y + h, u0, v1),
+        ScreenRectVertex(x + w, y + h, u1, v1),
     }};
     const PresentUniforms uniforms = {
         .o_resolution = {width, height, 1.0f / width, 1.0f / height},
@@ -235,6 +236,34 @@ void EncodeRect(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineState> 
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:texture atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+}
+
+/// Draws a texture over the whole target except the rectangle (in pixels), which something else
+/// is going to cover: four strips around it with the matching part of the texture. The strips
+/// share their edges with the rectangle, so nothing is drawn twice and nothing is left out.
+void EncodeAround(id<MTLRenderCommandEncoder> encoder, id<MTLRenderPipelineState> pipeline,
+                  id<MTLSamplerState> sampler, id<MTLTexture> texture, f32 width, f32 height,
+                  f32 x, f32 y, f32 w, f32 h) {
+    const f32 left = std::clamp(x, 0.0f, width);
+    const f32 right = std::clamp(x + w, left, width);
+    const f32 top = std::clamp(y, 0.0f, height);
+    const f32 bottom = std::clamp(y + h, top, height);
+    if (right <= left || bottom <= top) {
+        // Nothing to keep free.
+        EncodeRect(encoder, pipeline, sampler, texture, width, height, 0.0f, 0.0f, width, height);
+        return;
+    }
+    const auto strip = [&](f32 sx, f32 sy, f32 sw, f32 sh) {
+        if (sw <= 0.0f || sh <= 0.0f) {
+            return;
+        }
+        EncodeRect(encoder, pipeline, sampler, texture, width, height, sx, sy, sw, sh, sx / width,
+                   sy / height, (sx + sw) / width, (sy + sh) / height);
+    };
+    strip(0.0f, 0.0f, width, top);                      // above
+    strip(0.0f, bottom, width, height - bottom);        // below
+    strip(0.0f, top, left, bottom - top);               // left
+    strip(right, top, width - right, bottom - top);     // right
 }
 
 /// Draws a texture over the whole target.
@@ -1632,8 +1661,11 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
 #endif
             id<MTLRenderCommandEncoder> draw =
                 begin(paced ? made_texture : drawable_between.texture);
-            // Around the screens (borders, background) the real frame, over them the made one.
-            EncodeFullscreen(draw, color_pipeline, color_sampler, current, width, height);
+            // Around the screens (borders, background) the real frame, over them the made one. The
+            // real frame is not drawn under the made one: that part of the target would be
+            // written twice.
+            EncodeAround(draw, color_pipeline, color_sampler, current, width, height, area_x,
+                         area_y, area_width, area_height);
 #if AZAHAR_HAS_METALFX
             if (scaled) {
                 EncodeRect(draw, color_pipeline, color_sampler, scaler_output, width, height,
