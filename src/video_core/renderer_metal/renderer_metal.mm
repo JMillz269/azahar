@@ -409,6 +409,8 @@ private:
     id fg_pacer_link = nil;     ///< CAMetalDisplayLink (iOS 17)
     id fg_pacer_delegate = nil; ///< AzaharPacerDelegate
     NSThread* fg_pacer_thread = nil;
+    // Signalled by the pacing thread once it has invalidated the display link.
+    dispatch_semaphore_t fg_pacer_done = nil;
     CAMetalLayer* fg_pacer_layer = nil;
     int fg_pacer_hz{};
     bool StartPacer(CAMetalLayer* layer);
@@ -1790,15 +1792,17 @@ bool RendererMetal::StartPacer(CAMetalLayer* layer) {
             CAFrameRateRangeMake(static_cast<float>(hz), static_cast<float>(hz),
                                  static_cast<float>(hz));
         // A thread of its own, so the refreshes are not held up by the app's main thread.
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
         NSThread* thread = [[NSThread alloc] initWithBlock:^{
           [link addToRunLoop:NSRunLoop.currentRunLoop forMode:NSDefaultRunLoopMode];
           while (!NSThread.currentThread.isCancelled) {
               @autoreleasepool {
                   [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode
-                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+                                         beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
               }
           }
           [link invalidate];
+          dispatch_semaphore_signal(done);
         }];
         thread.name = @"Azahar frame pacing";
         thread.qualityOfService = NSQualityOfServiceUserInteractive;
@@ -1808,6 +1812,7 @@ bool RendererMetal::StartPacer(CAMetalLayer* layer) {
         fg_pacer_link = link;
         fg_pacer_delegate = delegate;
         fg_pacer_thread = thread;
+        fg_pacer_done = done;
         fg_pacer_layer = layer;
         fg_pacer_hz = hz;
         LOG_INFO(Render, "Frame generation: display-driven pacing at {} Hz", hz);
@@ -1831,12 +1836,19 @@ void RendererMetal::StopPacer() {
     // The thread invalidates the link and ends.
     [fg_pacer_thread cancel];
     fg_pacer_thread = nil;
+    dispatch_semaphore_t done = fg_pacer_done;
+    fg_pacer_done = nil;
     fg_pacer_link = nil;
     fg_pacer_delegate = nil;
     fg_pacer_layer = nil;
     fg_pacer.reset();
-    // Let the display link let go of the layer before drawables are taken from it again.
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    // Wait until the link is invalidated: a new link or a drawable taken from the layer while the
+    // old link still holds it could hang (seen when the screens were swapped, which stops and
+    // restarts the pacing). The thread checks every 5 ms; the wait is bounded all the same.
+    if (done != nil) {
+        dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
 }
 
 void RendererMetal::RenderScreenshot() {
