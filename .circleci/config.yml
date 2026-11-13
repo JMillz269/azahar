@@ -120,7 +120,7 @@ commands:
             # fails much later with "does not contain a CMakeLists.txt". Retry what is missing, a
             # few times, one by one, and stop here if something is still missing.
             for attempt in 1 2 3 4; do
-              missing=$(git submodule status --recursive | grep -E '^-' | awk '{print $2}')
+              missing=$(git submodule status --recursive | { grep -E '^-' || true; } | awk '{print $2}')
               [ -z "$missing" ] && break
               echo "Attempt $attempt, missing submodules:"; echo "$missing"
               for path in $missing; do
@@ -128,7 +128,7 @@ commands:
               done
               sleep $((attempt * 5))
             done
-            missing=$(git submodule status --recursive | grep -E '^-' | awk '{print $2}')
+            missing=$(git submodule status --recursive | { grep -E '^-' || true; } | awk '{print $2}')
             if [ -n "$missing" ]; then
               echo "These submodules could not be fetched:"; echo "$missing"
               exit 1
