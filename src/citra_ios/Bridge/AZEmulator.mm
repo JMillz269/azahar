@@ -303,6 +303,8 @@ const char* ThermalStateName() {
     CGSize _drawableSize;
     BOOL _portrait;
     std::atomic<bool> _surfaceDirty;
+    // Settings changed while a game runs, applied to the core on the emulation thread.
+    std::atomic<bool> _settingsDirty;
 
     NSString* _userDirectory;
     BOOL _gameHacksEnabled;
@@ -390,6 +392,7 @@ const char* ThermalStateName() {
         _drawsPerFrame = 0.0;
         _paceJitterMs = 0.0;
         _surfaceDirty = false;
+        _settingsDirty = false;
         _drawableSize = CGSizeZero;
         _userDirectory = @"";
     }
@@ -661,7 +664,11 @@ const char* ThermalStateName() {
     values.shaders_accurate_mul = configuration.accurateMultiplication;
 
     if (_state.load() != AZEmulationStateStopped) {
-        Core::System::GetInstance().ApplySettings();
+        // ApplySettings rebuilds the input devices, the audio sink and the cameras and redoes
+        // the screen layout. It must run on the emulation thread, between frames: from this
+        // (main) thread it tore those down while the game was using them, which crashed now and
+        // then (for example when the swap screens button changed the layout).
+        _settingsDirty = true;
         _surfaceDirty = true;
     }
 }
@@ -1028,6 +1035,9 @@ const char* ThermalStateName() {
     using StatsClock = std::chrono::steady_clock;
     auto last_stats_time = StatsClock::now();
     while (!_stopRequested) {
+        if (_settingsDirty.exchange(false)) {
+            system.ApplySettings();
+        }
         [self applyPendingSurfaceChanges];
 
         if (_pauseRequested) {
