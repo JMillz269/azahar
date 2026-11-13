@@ -21,6 +21,7 @@ struct GameOverrides: Codable, Equatable {
     var halfInterpolants: Bool?
     var untrackedBuffers: Bool?
     var vertexReuse: Bool?
+    var vertexFastFunctions: Bool?
     var cpuJIT: Bool?
     var texturePool: Bool?
     var realtimeAudio: Bool?
@@ -82,6 +83,7 @@ struct GameOverrides: Codable, Equatable {
         if let halfInterpolants { config.halfInterpolants = halfInterpolants }
         if let untrackedBuffers { config.untrackedBuffers = untrackedBuffers }
         if let vertexReuse { config.vertexReuse = vertexReuse }
+        if let vertexFastFunctions { config.vertexFastFunctions = vertexFastFunctions }
         if let cpuJIT { config.useCPUJIT = cpuJIT }
         if let texturePool { config.texturePool = texturePool }
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }

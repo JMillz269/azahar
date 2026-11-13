@@ -78,6 +78,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL untrackedBuffers;
 /// Draw hardware vertex shader draws natively so shared vertices are shaded once.
 @property(nonatomic) BOOL vertexReuse;
+/// Fast math functions in the hardware vertex shaders (iOS 18).
+@property(nonatomic) BOOL vertexFastFunctions;
 /// Keep the textures of dropped surfaces and reuse them (fewer texture allocations).
 @property(nonatomic) BOOL texturePool;
 /// Depth mapped in the vertex shader so the GPU's hidden surface removal works (next game).

@@ -115,8 +115,13 @@ PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* ver
         }
         return options;
     };
-    // Vertex positions must stay exact, only fragment shaders may opt into fast math.
-    compile_options = make_options(false, false);
+    // Vertex positions must stay exact: vertex shaders never use fast math (it would drop the
+    // checks of the accurate multiplication). They may use the fast versions of the math
+    // functions, which keep the NaN and infinity rules.
+    compile_options = make_options(false, GetQualityOptions().vertex_fast_functions);
+    if (GetQualityOptions().vertex_fast_functions) {
+        LOG_INFO(Render, "Vertex shaders use the fast math functions");
+    }
     fragment_compile_options =
         make_options(GetQualityOptions().fast_math, GetQualityOptions().fast_functions);
     if (GetQualityOptions().fast_functions) {
@@ -520,7 +525,8 @@ void PipelineCache::OpenDiskCache(u64 title_id_) {
         .profile_hash = Common::HashCombine(
             ProfileHash(GetProfile()),
             static_cast<u64>(GetQualityOptions().fast_math) |
-                static_cast<u64>(GetQualityOptions().fast_functions) << 1),
+                static_cast<u64>(GetQualityOptions().fast_functions) << 1 |
+                static_cast<u64>(GetQualityOptions().vertex_fast_functions) << 2),
     };
 
     // Reuse the file when it was written by this build with the same profile, otherwise start over.

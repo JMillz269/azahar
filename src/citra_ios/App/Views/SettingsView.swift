@@ -182,7 +182,10 @@ struct GraphicsSettingsView: View {
         text += "lighting natively, so a vertex shared by several triangles is shaded once "
         text += "and not once for every triangle (it can make GPU-shaded vertices several "
         text += "times cheaper; models with lighting are not affected; turn it off if a game "
-        text += "shows broken models). Texture Pool keeps the textures of surfaces a game stopped using "
+        text += "shows broken models). Fast Math Functions in Vertex Shaders uses the faster, "
+        text += "less exact versions of functions like reciprocal and square root in the "
+        text += "vertex programs (iOS 18); it can make vertices a little cheaper but may "
+        text += "leave tiny cracks between models (turn it off if you see them). Texture Pool keeps the textures of surfaces a game stopped using "
         text += "(up to 192 MB) and gives them to the next surface of the same size and "
         text += "format, instead of creating new ones, which helps games that stream a lot of "
         text += "assets (turn it off if a game shows leftover pictures). They apply when a "
@@ -244,6 +247,7 @@ struct GraphicsSettingsView: View {
                 Toggle("Half Precision Colors Between Stages", isOn: $settings.halfInterpolants)
                 Toggle("Untracked Stream Buffers", isOn: $settings.untrackedBuffers)
                 Toggle("Reuse Shaded Vertices", isOn: $settings.vertexReuse)
+                Toggle("Fast Math Functions in Vertex Shaders", isOn: $settings.vertexFastFunctions)
                 Toggle("Texture Pool", isOn: $settings.texturePool)
                 Toggle("Fast Depth Readback", isOn: $settings.fastDepthReadback)
                 Toggle("Disable Right Eye Render", isOn: $settings.disableRightEyeRender)

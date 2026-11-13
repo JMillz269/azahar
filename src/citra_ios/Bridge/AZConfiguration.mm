@@ -31,6 +31,7 @@
     config.halfInterpolants = NO;
     config.untrackedBuffers = NO;
     config.vertexReuse = NO;
+    config.vertexFastFunctions = NO;
     config.texturePool = NO;
     config.hiddenSurfaceRemoval = NO;
     config.textureCompression = 0;

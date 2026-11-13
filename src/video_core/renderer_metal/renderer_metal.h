@@ -113,6 +113,9 @@ struct QualityOptions {
     /// where the game has one), so a vertex shared by several triangles is shaded once instead of
     /// once for every triangle that uses it.
     bool vertex_reuse = false;
+    /// Fast versions of the math functions in hardware vertex shaders (iOS 18), without fast
+    /// math's assumptions about NaN and infinity (the accurate multiplication still works).
+    bool vertex_fast_functions = false;
     /// Textures of dropped surfaces are kept and reused by the next surfaces of the same kind.
     bool texture_pool = false;
     TextureCompression texture_compression = TextureCompression::Off;
