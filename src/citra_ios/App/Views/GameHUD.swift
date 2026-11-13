@@ -15,8 +15,8 @@ struct HUDAction: Identifiable {
 }
 
 /// The in-game menu: a small glass button that opens into a control center and closes back into
-/// the button. The button and the panel are one piece of glass that morphs (iOS 26); before, the
-/// panel is a material card that scales in.
+/// the button. The button and the panel are one glass view whose frame and corners animate between
+/// the two (a material before iOS 26).
 struct GameHUD: View {
     @Binding var isOpen: Bool
     let title: String
@@ -31,6 +31,16 @@ struct GameHUD: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let size = panelSize(in: geometry.size)
+            let panelFrame = CGRect(x: (geometry.size.width - size.width) / 2,
+                                    y: panelCenterY(in: geometry.size) - size.height / 2,
+                                    width: size.width, height: size.height)
+            // The button and the panel are ONE glass view whose frame and corners animate
+            // between the button and the panel. That gives the morph without a
+            // GlassEffectContainer: a container the size of the screen made the system capture
+            // the whole game picture behind it, which flashed over the game.
+            let frame = isOpen ? panelFrame : menuFrame
+
             ZStack {
                 if isOpen {
                     // A tap beside the panel closes it.
@@ -41,42 +51,48 @@ struct GameHUD: View {
                         .accessibilityAddTraits(.isButton)
                 }
 
-                // No GlassEffectContainer: one the size of the screen made the system capture
-                // the whole game picture behind it, which flashed over the game. The button and
-                // the panel each carry their own glass and materialize in and out.
                 ZStack {
-                    if isOpen {
-                        panel(in: geometry.size)
-                            .lgGlass(in: LGPanelShape())
-                            .lgPanelTransition(anchor: .top)
-                            .position(x: geometry.size.width / 2,
-                                      y: panelCenterY(in: geometry.size))
-                    } else {
+                    MenuButtonIcon(scale: menuScale, onGlass: true)
+                        .frame(width: menuFrame.width, height: menuFrame.height)
+                        .opacity(isOpen ? 0 : 1)
+                        .accessibilityHidden(isOpen)
+
+                    // The panel keeps its full size and is scaled down into the button, so its
+                    // layout does not reflow while the glass grows.
+                    panel(size: size)
+                        .scaleEffect(isOpen ? 1 : min(menuFrame.width / size.width,
+                                                       menuFrame.height / size.height))
+                        .opacity(isOpen ? 1 : 0)
+                        .allowsHitTesting(isOpen)
+                        .accessibilityHidden(!isOpen)
+                }
+                .frame(width: frame.width, height: frame.height)
+                .clipShape(LGPanelShape())
+                .lgGlass(in: LGPanelShape(), tint: isOpen ? .regular : .clear)
+                .overlay {
+                    if !isOpen {
                         Button {
                             withAnimation(LGMotion.panel) { isOpen = true }
                         } label: {
-                            MenuButtonIcon(scale: menuScale, onGlass: true)
-                                .frame(width: menuFrame.width, height: menuFrame.height)
-                                .lgGlass(in: Circle(), tint: .clear)
-                                .contentShape(Circle())
+                            Color.clear.contentShape(LGPanelShape())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Emulation menu")
-                        .lgPanelTransition(anchor: .top)
-                        .position(x: menuFrame.midX, y: menuFrame.midY)
-
-                        if let swapFrame {
-                            Button(action: onSwap) {
-                                SwapButtonIcon(scale: swapScale, onGlass: true)
-                                    .frame(width: swapFrame.width, height: swapFrame.height)
-                                    .lgGlass(in: Circle(), tint: .clear)
-                                    .contentShape(Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Swap screens")
-                            .position(x: swapFrame.midX, y: swapFrame.midY)
-                        }
                     }
+                }
+                .position(x: frame.midX, y: frame.midY)
+
+                if !isOpen, let swapFrame {
+                    Button(action: onSwap) {
+                        SwapButtonIcon(scale: swapScale, onGlass: true)
+                            .frame(width: swapFrame.width, height: swapFrame.height)
+                            .lgGlass(in: Circle(), tint: .clear)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Swap screens")
+                    .transition(.opacity)
+                    .position(x: swapFrame.midX, y: swapFrame.midY)
                 }
             }
         }
@@ -100,12 +116,21 @@ struct GameHUD: View {
         size.height / 2
     }
 
-    private func panel(in size: CGSize) -> some View {
+    /// The panel's size: as wide as fits (at most 560 points), as tall as its tiles need,
+    /// scrolling when the screen is too short.
+    private func panelSize(in size: CGSize) -> CGSize {
         let width = panelWidth(in: size)
-        let columns = max(3, Int((width - 24) / 84))
-        let rows = Int((Double(actions.count) / Double(columns)).rounded(.up))
-        // Title, the tiles and the padding around them; scrolls when the screen is too short.
+        let rows = Int((Double(actions.count) / Double(columns(for: width))).rounded(.up))
         let wanted = CGFloat(rows) * 76 + 64
+        return CGSize(width: width, height: min(wanted, panelMaxHeight(in: size)))
+    }
+
+    private func columns(for width: CGFloat) -> Int {
+        max(3, Int((width - 24) / 84))
+    }
+
+    private func panel(size: CGSize) -> some View {
+        let columnCount = columns(for: size.width)
         return VStack(spacing: 8) {
             HStack {
                 Text(title)
@@ -125,7 +150,7 @@ struct GameHUD: View {
 
             ScrollView {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4),
-                                         count: columns),
+                                         count: columnCount),
                           spacing: 4) {
                     ForEach(actions) { action in
                         Button {
@@ -141,7 +166,7 @@ struct GameHUD: View {
             .scrollIndicators(.hidden)
         }
         .padding(14)
-        .frame(width: width, height: min(wanted, panelMaxHeight(in: size)))
+        .frame(width: size.width, height: size.height)
     }
 
     private func tile(_ action: HUDAction) -> some View {
