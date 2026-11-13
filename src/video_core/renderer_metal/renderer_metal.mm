@@ -1187,6 +1187,19 @@ bool RendererMetal::UseFrameGeneration(const Layout::FramebufferLayout& layout) 
         screens.left != fg_screens.left || screens.top != fg_screens.top ||
         screens.right != fg_screens.right || screens.bottom != fg_screens.bottom ||
         size != fg_size) {
+        // The old setup (the interpolation session and its buffers, the textures, the pacing) may
+        // still be in use by the frame that was last handed over, on a callback thread or the
+        // display link. Rotating the device or swapping the screens changes the size, and
+        // replacing all of it under that frame showed half a picture of unset planes (purple)
+        // and froze the game. Stop the pacing and wait (bounded) for the last frame first.
+        StopPacer();
+        for (int i = 0; i < 250 && fg_busy.load(std::memory_order_acquire); i++) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        if (fg_busy.load(std::memory_order_acquire)) {
+            LOG_WARNING(Render, "Frame generation: the last frame is still being made, changing "
+                                "the size anyway");
+        }
         fg_size = size;
         fg_layout_width = layout.width;
         fg_layout_height = layout.height;
