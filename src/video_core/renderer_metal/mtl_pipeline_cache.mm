@@ -115,11 +115,15 @@ PipelineCache::PipelineCache(const Instance& instance_, MTLVertexDescriptor* ver
         }
         return options;
     };
-    // Vertex positions must stay exact: vertex shaders never use fast math (it would drop the
-    // checks of the accurate multiplication). They may use the fast versions of the math
-    // functions, which keep the NaN and infinity rules.
-    compile_options = make_options(false, GetQualityOptions().vertex_fast_functions);
-    if (GetQualityOptions().vertex_fast_functions) {
+    // Vertex shaders may use the fast versions of the math functions, which keep the NaN and
+    // infinity rules, or full fast math, which does not (and therefore needs the accurate
+    // multiplication off, see AZEmulator).
+    compile_options = make_options(GetQualityOptions().vertex_fast_math,
+                                   GetQualityOptions().vertex_fast_functions ||
+                                       GetQualityOptions().vertex_fast_math);
+    if (GetQualityOptions().vertex_fast_math) {
+        LOG_INFO(Render, "Vertex shaders are compiled with fast math");
+    } else if (GetQualityOptions().vertex_fast_functions) {
         LOG_INFO(Render, "Vertex shaders use the fast math functions");
     }
     fragment_compile_options =
@@ -526,7 +530,8 @@ void PipelineCache::OpenDiskCache(u64 title_id_) {
             ProfileHash(GetProfile()),
             static_cast<u64>(GetQualityOptions().fast_math) |
                 static_cast<u64>(GetQualityOptions().fast_functions) << 1 |
-                static_cast<u64>(GetQualityOptions().vertex_fast_functions) << 2),
+                static_cast<u64>(GetQualityOptions().vertex_fast_functions) << 2 |
+                static_cast<u64>(GetQualityOptions().vertex_fast_math) << 3),
     };
 
     // Reuse the file when it was written by this build with the same profile, otherwise start over.

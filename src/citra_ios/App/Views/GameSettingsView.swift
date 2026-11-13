@@ -60,6 +60,8 @@ struct GameSettingsView: View {
                 OverrideToggle("Reuse Shaded Vertices", value: $overrides.vertexReuse)
                 OverrideToggle("Fast Math Functions in Vertex Shaders",
                                value: $overrides.vertexFastFunctions)
+                OverrideToggle("Fast Math in Vertex Shaders (no Accurate Multiplication)",
+                               value: $overrides.vertexFastMath)
                 OverrideToggle("Texture Pool", value: $overrides.texturePool)
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)

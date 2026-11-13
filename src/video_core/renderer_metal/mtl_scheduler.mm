@@ -89,6 +89,10 @@ struct PassStats {
     u32 depth_cleared = 0;
     u32 depth_store_unused = 0;
     u64 depth_store_unused_bytes = 0;
+    // Hardware vertex shader draws: native ones (shared vertices shaded once), and the ones drawn
+    // corner by corner (lit models, fans, or the setting off), with the vertices they draw.
+    u32 hw_native = 0, hw_lit = 0, hw_other = 0;
+    u64 hw_native_vertices = 0, hw_lit_vertices = 0, hw_other_vertices = 0;
 };
 std::mutex g_pass_mutex;
 PassStats g_pass_stats;
@@ -124,6 +128,13 @@ std::vector<std::string> TakeRenderPassSummary(std::size_t max_lines) {
         stats.total, empty, stats.reopened, join(stats.reopened_after),
         stats.bytes / (1024 * 1024)));
     lines.push_back(fmt::format("ended by: {}", join(stats.end_reasons)));
+    if (stats.hw_native + stats.hw_lit + stats.hw_other > 0) {
+        lines.push_back(fmt::format(
+            "hardware vertex draws: {} native ({} vertices), {} corner by corner with lighting "
+            "({} vertices), {} corner by corner otherwise ({} vertices)",
+            stats.hw_native, stats.hw_native_vertices, stats.hw_lit, stats.hw_lit_vertices,
+            stats.hw_other, stats.hw_other_vertices));
+    }
     if (stats.depth_passes > 0) {
         lines.push_back(fmt::format(
             "depth: {} passes, {} loaded what the pass before stored, {} cleared it instead; "
@@ -176,6 +187,27 @@ void Scheduler::BeginPassStats(u32 width, u32 height, bool color, bool depth, bo
     if (game && target != nullptr && last_pass_was_target && *target == last_pass_target) {
         g_pass_stats.reopened++;
         g_pass_stats.reopened_after[last_end_reason]++;
+    }
+}
+
+void NoteHardwareDraw(int kind, u32 vertices) {
+    if (!StatisticsEnabled()) {
+        return;
+    }
+    std::scoped_lock lock{g_pass_mutex};
+    switch (kind) {
+    case 0:
+        g_pass_stats.hw_native++;
+        g_pass_stats.hw_native_vertices += vertices;
+        break;
+    case 1:
+        g_pass_stats.hw_lit++;
+        g_pass_stats.hw_lit_vertices += vertices;
+        break;
+    default:
+        g_pass_stats.hw_other++;
+        g_pass_stats.hw_other_vertices += vertices;
+        break;
     }
 }
 

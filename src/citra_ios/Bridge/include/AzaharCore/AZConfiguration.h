@@ -80,6 +80,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL vertexReuse;
 /// Fast math functions in the hardware vertex shaders (iOS 18).
 @property(nonatomic) BOOL vertexFastFunctions;
+/// Full fast math in the hardware vertex shaders. Turns the accurate multiplication off.
+@property(nonatomic) BOOL vertexFastMath;
 /// Keep the textures of dropped surfaces and reuse them (fewer texture allocations).
 @property(nonatomic) BOOL texturePool;
 /// Depth mapped in the vertex shader so the GPU's hidden surface removal works (next game).

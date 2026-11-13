@@ -270,6 +270,7 @@ final class AppSettings: ObservableObject {
     @Published var untrackedBuffers: Bool { didSet { save(untrackedBuffers, "untrackedBuffers") } }
     @Published var vertexReuse: Bool { didSet { save(vertexReuse, "vertexReuse") } }
     @Published var vertexFastFunctions: Bool { didSet { save(vertexFastFunctions, "vertexFastFunctions") } }
+    @Published var vertexFastMath: Bool { didSet { save(vertexFastMath, "vertexFastMath") } }
     @Published var texturePool: Bool { didSet { save(texturePool, "texturePool") } }
     @Published var fastDepthReadback: Bool { didSet { save(fastDepthReadback, "fastDepthReadback") } }
     @Published var hiddenSurfaceRemoval: Bool {
@@ -437,6 +438,7 @@ final class AppSettings: ObservableObject {
         untrackedBuffers = value("untrackedBuffers", false)
         vertexReuse = value("vertexReuse", false)
         vertexFastFunctions = value("vertexFastFunctions", false)
+        vertexFastMath = value("vertexFastMath", false)
         texturePool = value("texturePool", false)
         fastDepthReadback = value("fastDepthReadback", false)
         hiddenSurfaceRemoval = value("hiddenSurfaceRemoval", false)
@@ -576,6 +578,7 @@ final class AppSettings: ObservableObject {
         config.untrackedBuffers = untrackedBuffers
         config.vertexReuse = vertexReuse
         config.vertexFastFunctions = vertexFastFunctions
+        config.vertexFastMath = vertexFastMath
         config.texturePool = texturePool
         config.fastDepthReadback = fastDepthReadback
         config.hiddenSurfaceRemoval = hiddenSurfaceRemoval

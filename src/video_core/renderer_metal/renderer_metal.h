@@ -116,6 +116,9 @@ struct QualityOptions {
     /// Fast versions of the math functions in hardware vertex shaders (iOS 18), without fast
     /// math's assumptions about NaN and infinity (the accurate multiplication still works).
     bool vertex_fast_functions = false;
+    /// Hardware vertex shaders compiled with fast math. It assumes there is no NaN or infinity,
+    /// which the accurate multiplication relies on, so that is switched off with it.
+    bool vertex_fast_math = false;
     /// Textures of dropped surfaces are kept and reused by the next surfaces of the same kind.
     bool texture_pool = false;
     TextureCompression texture_compression = TextureCompression::Off;

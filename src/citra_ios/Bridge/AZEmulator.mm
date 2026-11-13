@@ -515,6 +515,7 @@ const char* ThermalStateName() {
     quality.untracked_buffers = configuration.untrackedBuffers;
     quality.vertex_reuse = configuration.vertexReuse;
     quality.vertex_fast_functions = configuration.vertexFastFunctions;
+    quality.vertex_fast_math = configuration.vertexFastMath;
     quality.texture_pool = configuration.texturePool;
     quality.vertex_depth = configuration.hiddenSurfaceRemoval;
     quality.texture_compression = static_cast<Metal::TextureCompression>(
@@ -665,7 +666,9 @@ const char* ThermalStateName() {
     // Vertex shaders run on the GPU unless disabled; draws the Metal backend cannot translate
     // (geometry shaders, untranslatable programs) still fall back to the CPU per draw.
     values.use_hw_shader = configuration.useHardwareShaders;
-    values.shaders_accurate_mul = configuration.accurateMultiplication;
+    // Fast math in the vertex shaders assumes no NaN or infinity, which the accurate
+    // multiplication needs, so it is off then.
+    values.shaders_accurate_mul = configuration.accurateMultiplication && !configuration.vertexFastMath;
 
     if (_state.load() != AZEmulationStateStopped) {
         // ApplySettings rebuilds the input devices, the audio sink and the cameras and redoes

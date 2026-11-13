@@ -47,6 +47,10 @@ struct GpuStats {
     std::atomic<u32> cpu_frames{};
 };
 
+/// Notes a hardware vertex shader draw for the statistics: 0 native, 1 corner by corner with
+/// lighting, 2 corner by corner otherwise, and the vertices it draws.
+void NoteHardwareDraw(int kind, u32 vertices);
+
 /// Counts a frame of the main display that reached the screen at this time (the presentedTime
 /// of its drawable), for the statistics of the intervals between frames.
 void RecordPresentedTime(double time);

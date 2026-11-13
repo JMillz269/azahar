@@ -672,6 +672,10 @@ bool RasterizerMetal::Draw(HardwareDraw* hw_draw) {
     } else {
         [encoder setVertexBufferOffset:vertex_offset atIndex:MSL::VS_BUFFER_VERTEX_BASE];
     }
+    if (hw_draw) {
+        NoteHardwareDraw(hw_draw->direct ? 0 : (regs.lighting.disable.Value() == 0 ? 1 : 2),
+                         hw_draw->direct ? regs.pipeline.num_vertices : hw_draw->vertex_count);
+    }
     if (hw_draw && hw_draw->direct) {
         const MTLPrimitiveType primitive =
             hw_draw->strip ? MTLPrimitiveTypeTriangleStrip : MTLPrimitiveTypeTriangle;
