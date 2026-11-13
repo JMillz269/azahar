@@ -166,15 +166,11 @@ struct ControllerOverlay: View {
         let pressed = touchState.pressed
         switch id {
         case .shoulderLeft:
-            VStack(spacing: 8 * scale) {
-                PillButton(label: "ZL", scale: scale, pressed: pressed.contains(.zl))
-                PillButton(label: "L", scale: scale, pressed: pressed.contains(.l))
-            }
+            ShoulderPair(top: "ZL", bottom: "L", scale: scale,
+                         topPressed: pressed.contains(.zl), bottomPressed: pressed.contains(.l))
         case .shoulderRight:
-            VStack(spacing: 8 * scale) {
-                PillButton(label: "ZR", scale: scale, pressed: pressed.contains(.zr))
-                PillButton(label: "R", scale: scale, pressed: pressed.contains(.r))
-            }
+            ShoulderPair(top: "ZR", bottom: "R", scale: scale,
+                         topPressed: pressed.contains(.zr), bottomPressed: pressed.contains(.r))
         case .circlePad:
             CirclePad(size: unit * 2.1 * scale, knob: touchState.sticks[.circlePad] ?? .zero)
         case .dpad:
@@ -184,12 +180,7 @@ struct ControllerOverlay: View {
         case .cStick:
             CirclePad(size: unit * 1.2 * scale, knob: touchState.sticks[.cStick] ?? .zero)
         case .systemButtons:
-            HStack(spacing: 16 * scale) {
-                SmallButton(systemImage: "minus", scale: scale, pressed: pressed.contains(.select))
-                SmallButton(systemImage: "house.fill", scale: scale,
-                            pressed: pressed.contains(.home))
-                SmallButton(systemImage: "plus", scale: scale, pressed: pressed.contains(.start))
-            }
+            SystemButtons(scale: scale, pressed: pressed)
         case .menuButton:
             MenuButtonIcon(scale: scale)
         case .turboButton:
@@ -631,17 +622,58 @@ private struct ControllerTouchLayer: UIViewRepresentable {
 
 private let pressedFill = Color.white.opacity(0.55)
 
-private struct RoundButton: View {
-    let label: String
-    let size: CGFloat
-    let pressed: Bool
+/// Several separate rounded shapes (circles, capsules) drawn as one. As glass they are ONE surface
+/// instead of one each: the system blurs and lights one surface per pass, so a cluster of buttons
+/// costs a fraction of what the same buttons cost one by one, and they look the same, separate.
+private struct ClusterShape: Shape {
+    struct Part {
+        /// In the points of the cluster, from its top left corner.
+        var rect: CGRect
+    }
+    let parts: [Part]
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for part in parts {
+            let r = part.rect.offsetBy(dx: rect.minX, dy: rect.minY)
+            let radius = min(r.width, r.height) / 2
+            path.addRoundedRect(in: r, cornerSize: CGSize(width: radius, height: radius),
+                                style: .continuous)
+        }
+        return path
+    }
+}
+
+/// A cluster of buttons on one surface. The labels are drawn over the glass, and a button that
+/// is held gets a light disc over the glass (the glass itself can only be tinted as a whole).
+private struct ButtonCluster: View {
+    struct Button {
+        let rect: CGRect
+        let pressed: Bool
+        let label: AnyView
+    }
+
+    let size: CGSize
+    let buttons: [Button]
+    var lineWidth: CGFloat = 1.5
 
     var body: some View {
-        Text(label)
-            .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .controlSurface(Circle(), pressed: pressed)
+        ZStack(alignment: .topLeading) {
+            ForEach(buttons.indices, id: \.self) { index in
+                let button = buttons[index]
+                ClusterShape(parts: [ClusterShape.Part(rect: button.rect)])
+                    .fill(Color.white.opacity(button.pressed ? 0.33 : 0))
+                    .animation(LGMotion.press, value: button.pressed)
+                button.label
+                    .scaleEffect(button.pressed ? 0.93 : 1)
+                    .animation(LGMotion.press, value: button.pressed)
+                    .frame(width: button.rect.width, height: button.rect.height)
+                    .position(x: button.rect.midX, y: button.rect.midY)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .controlSurface(ClusterShape(parts: buttons.map { ClusterShape.Part(rect: $0.rect) }),
+                        pressed: false, lineWidth: lineWidth)
     }
 }
 
@@ -659,17 +691,53 @@ private struct PillButton: View {
     }
 }
 
-private struct SmallButton: View {
-    let systemImage: String
+/// ZL over L (or ZR over R): two capsules on one surface.
+private struct ShoulderPair: View {
+    let top: String
+    let bottom: String
     let scale: CGFloat
-    let pressed: Bool
+    let topPressed: Bool
+    let bottomPressed: Bool
 
     var body: some View {
-        Image(systemName: systemImage)
-            .font(.system(size: 13 * scale, weight: .bold))
+        let width = 64 * scale, height = 32 * scale, gap = 8 * scale
+        ButtonCluster(
+            size: CGSize(width: width, height: height * 2 + gap),
+            buttons: [
+                ButtonCluster.Button(rect: CGRect(x: 0, y: 0, width: width, height: height),
+                      pressed: topPressed, label: AnyView(label(top))),
+                ButtonCluster.Button(rect: CGRect(x: 0, y: height + gap, width: width, height: height),
+                      pressed: bottomPressed, label: AnyView(label(bottom))),
+            ])
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 15 * scale, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
-            .frame(width: 40 * scale, height: 26 * scale)
-            .controlSurface(Capsule(), pressed: pressed, lineWidth: 1)
+    }
+}
+
+/// Select, Home and Start: three capsules on one surface.
+private struct SystemButtons: View {
+    let scale: CGFloat
+    let pressed: Set<ConsoleButton>
+
+    var body: some View {
+        let width = 40 * scale, height = 26 * scale, gap = 16 * scale
+        let items: [(String, ConsoleButton)] = [("minus", .select), ("house.fill", .home),
+                                                ("plus", .start)]
+        ButtonCluster(
+            size: CGSize(width: width * 3 + gap * 2, height: height),
+            buttons: items.enumerated().map { index, item in
+                ButtonCluster.Button(rect: CGRect(x: CGFloat(index) * (width + gap), y: 0,
+                                   width: width, height: height),
+                      pressed: pressed.contains(item.1),
+                      label: AnyView(Image(systemName: item.0)
+                          .font(.system(size: 13 * scale, weight: .bold))
+                          .foregroundStyle(.white)))
+            },
+            lineWidth: 1)
     }
 }
 
@@ -684,17 +752,20 @@ private struct FaceButtons: View {
     var body: some View {
         let button = size * Self.diameter
         let offset = size * Self.offset
-        ZStack {
-            RoundButton(label: "X", size: button, pressed: pressed.contains(.x))
-                .offset(y: -offset)
-            RoundButton(label: "B", size: button, pressed: pressed.contains(.b))
-                .offset(y: offset)
-            RoundButton(label: "Y", size: button, pressed: pressed.contains(.y))
-                .offset(x: -offset)
-            RoundButton(label: "A", size: button, pressed: pressed.contains(.a))
-                .offset(x: offset)
-        }
-        .frame(width: size, height: size)
+        let middle = size / 2
+        let items: [(String, ConsoleButton, CGFloat, CGFloat)] = [
+            ("X", .x, 0, -offset), ("B", .b, 0, offset), ("Y", .y, -offset, 0), ("A", .a, offset, 0),
+        ]
+        ButtonCluster(
+            size: CGSize(width: size, height: size),
+            buttons: items.map { item in
+                ButtonCluster.Button(rect: CGRect(x: middle + item.2 - button / 2, y: middle + item.3 - button / 2,
+                                   width: button, height: button),
+                      pressed: pressed.contains(item.1),
+                      label: AnyView(Text(item.0)
+                          .font(.system(size: button * 0.42, weight: .bold, design: .rounded))
+                          .foregroundStyle(.white)))
+            })
     }
 }
 
