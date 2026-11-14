@@ -31,6 +31,7 @@ struct GameOverrides: Codable, Equatable {
     var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
     var asyncShaders: Bool?
+    var deterministicAsync: Bool?
     var holdFramesForShaders: Bool?
     var frameGeneration: Int?
     var frameGenerationFast: Bool?
@@ -97,6 +98,7 @@ struct GameOverrides: Codable, Equatable {
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }
         if let asyncShaders { config.asyncShaderCompilation = asyncShaders }
+        if let deterministicAsync { config.deterministicAsync = deterministicAsync }
         if let holdFramesForShaders { config.holdFramesForShaders = holdFramesForShaders }
         if let frameGeneration {
             config.frameGeneration = FrameGenerator.isSupported ? min(frameGeneration, 2) : 0

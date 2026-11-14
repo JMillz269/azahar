@@ -75,6 +75,7 @@ struct GameSettingsView: View {
                 OverrideToggle("Realtime Audio", value: $overrides.realtimeAudio)
                 OverrideToggle("Fast Depth Readback", value: $overrides.fastDepthReadback)
                 OverrideToggle("Async Shader Compilation", value: $overrides.asyncShaders)
+                OverrideToggle("Deterministic Async Operations", value: $overrides.deterministicAsync)
                 OverrideToggle("Hold Frame While Shaders Build", value: $overrides.holdFramesForShaders)
                 OverridePicker("Wait for Shaders", value: $overrides.shaderWaitMs,
                                options: [0, 1, 2, 4, 8]) { $0 == 0 ? "Never" : "\($0) ms" }
