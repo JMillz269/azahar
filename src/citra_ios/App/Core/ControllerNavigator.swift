@@ -242,6 +242,12 @@ final class ControllerNavigator {
                             label: object.accessibilityLabel ?? "",
                             traits: object.accessibilityTraits)
             }
+            // Something covering most of the screen is a backdrop or the game's own view, not a
+            // control: while the menu is open it would be picked when moving past the edge of
+            // the tiles, selecting the whole game screen. Only dropped when real controls exist.
+            let screenArea = screen.width * screen.height
+            let controls = items.filter { $0.frame.width * $0.frame.height < screenArea * 0.5 }
+            if !controls.isEmpty { return (window, controls) }
             if !items.isEmpty { return (window, items) }
         }
         return nil
