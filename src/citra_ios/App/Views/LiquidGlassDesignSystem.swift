@@ -45,6 +45,8 @@ enum LGTint: Equatable {
     case clear
     /// Standard glass with a color that means something (an active state, a warning).
     case color(Color)
+    /// The clear glass of the on-screen controls with their tint setting (0 is ultra clear).
+    case control(Double)
 }
 
 private struct LGSurface<S: Shape>: ViewModifier {
@@ -57,11 +59,16 @@ private struct LGSurface<S: Shape>: ViewModifier {
             content.glassEffect(glass, in: shape)
         } else {
             content
-                .background(tint == .clear ? Material.ultraThinMaterial : Material.regularMaterial,
+                .background(tint == .clear || isControl ? Material.ultraThinMaterial : Material.regularMaterial,
                             in: shape)
                 .overlay { fallbackTint }
                 .overlay { LGSpecularBorder(shape: shape) }
         }
+    }
+
+    private var isControl: Bool {
+        if case .control = tint { return true }
+        return false
     }
 
     @available(iOS 26.0, *)
@@ -70,6 +77,8 @@ private struct LGSurface<S: Shape>: ViewModifier {
         switch tint {
         case .regular: base = .regular
         case .clear: base = .clear
+        case .control(let amount):
+            base = amount <= 0.02 ? .clear : .clear.tint(Color.white.opacity(amount * 0.35))
         case .color(let color): base = .regular.tint(color)
         }
         return interactive ? base.interactive() : base

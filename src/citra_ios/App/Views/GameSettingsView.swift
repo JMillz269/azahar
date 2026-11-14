@@ -129,10 +129,7 @@ struct GameSettingsView: View {
                 OverrideToggle("Simulate 3DS GPU Timing", value: $overrides.simulateGPUTimings)
                 OverridePicker("GPU Timing Strength", value: $overrides.gpuTimingPercent,
                                options: [100, 150, 200, 300, 400, 600]) { "\($0)%" }
-                OverridePicker("Minimum GPU Time", value: $overrides.gpuTimingMinMs,
-                               options: [0] + Array(stride(from: 160, through: 240, by: 2))) {
-                    $0 == 0 ? "Off" : String(format: "%.1f ms", Double($0) / 10)
-                }
+                MinimumGPUTimeField(title: "Minimum GPU Time", value: $overrides.gpuTimingMinMs)
                 OverridePicker("CPU Clock Speed", value: $overrides.cpuClockPercentage,
                                options: [50, 75, 100, 150, 200, 300, 400]) { "\($0)%" }
                 OverridePicker("Fast Forward Speed", value: $overrides.fastForwardSpeed,
@@ -276,5 +273,54 @@ private struct OverrideToggle: View {
             Text("On").tag(Bool?.some(true))
             Text("Off").tag(Bool?.some(false))
         }
+    }
+}
+
+/// A minimum time in milliseconds typed in (to a tenth), for the setting of a game. Empty is the
+/// global setting; 0 turns the minimum off. The value is kept in tenths of a millisecond.
+struct MinimumGPUTimeField: View {
+    let title: String
+    @Binding var value: Int?
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField("Default", text: $text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 90)
+                .focused($focused)
+                .onChange(of: focused) { isFocused in
+                    if !isFocused { commit() }
+                }
+                .onSubmit { commit() }
+            Text("ms").foregroundStyle(.secondary)
+        }
+        .onAppear { text = Self.format(value) }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focused = false }
+            }
+        }
+    }
+
+    private func commit() {
+        let cleaned = text.replacingOccurrences(of: ",", with: ".")
+            .trimmingCharacters(in: .whitespaces)
+        if cleaned.isEmpty {
+            value = nil
+        } else if let ms = Double(cleaned) {
+            value = min(max(Int((ms * 10).rounded()), 0), 600)
+        }
+        text = Self.format(value)
+    }
+
+    private static func format(_ tenths: Int?) -> String {
+        guard let tenths else { return "" }
+        return tenths % 10 == 0 ? "\(tenths / 10)" : String(format: "%.1f", Double(tenths) / 10)
     }
 }

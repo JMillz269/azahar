@@ -27,6 +27,8 @@ struct GameHUD: View {
     /// The swap screens button, nil when it is turned off.
     let swapFrame: CGRect?
     let swapScale: CGFloat
+    /// How the menu and swap buttons look while closed: the glass setting of the controller.
+    var glass = ControlGlassStyle()
     let onSwap: () -> Void
 
     var body: some View {
@@ -70,7 +72,7 @@ struct GameHUD: View {
                 }
                 .frame(width: frame.width, height: frame.height)
                 .clipShape(LGPanelShape())
-                .lgGlass(in: LGPanelShape(), tint: isOpen ? .regular : .clear)
+                .lgGlass(in: LGPanelShape(), tint: isOpen ? .regular : buttonTint)
                 .overlay {
                     if !isOpen {
                         Button {
@@ -88,7 +90,7 @@ struct GameHUD: View {
                     Button(action: onSwap) {
                         SwapButtonIcon(scale: swapScale, onGlass: true)
                             .frame(width: swapFrame.width, height: swapFrame.height)
-                            .lgGlass(in: Circle(), tint: .clear)
+                            .lgGlass(in: Circle(), tint: buttonTint)
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
@@ -98,6 +100,10 @@ struct GameHUD: View {
                 }
             }
         }
+    }
+
+    private var buttonTint: LGTint {
+        glass.enabled ? .control(glass.tint) : .clear
     }
 
     private func close() {

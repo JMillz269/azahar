@@ -117,6 +117,11 @@ set(AZAHAR_COMPAT_LIST "${PROJECT_SOURCE_DIR}/dist/compatibility_list/compatibil
 target_sources(azahar_ios PRIVATE ${AZAHAR_COMPAT_LIST})
 set_source_files_properties(${AZAHAR_COMPAT_LIST} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 
+# The app icon (the Azahar flower), as plain PNGs named for CFBundleIcons.
+file(GLOB AZAHAR_ICON_FILES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Icons/*.png")
+target_sources(azahar_ios PRIVATE ${AZAHAR_ICON_FILES})
+set_source_files_properties(${AZAHAR_ICON_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+
 include(GenerateBuildInfo)
 set(SRC_DIR "${PROJECT_SOURCE_DIR}")
 generate_build_info()
@@ -124,7 +129,7 @@ generate_build_info()
 set_target_properties(azahar_ios PROPERTIES
     OUTPUT_NAME "Azahar"
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
-    MACOSX_BUNDLE_BUNDLE_NAME "Azahar"
+    MACOSX_BUNDLE_BUNDLE_NAME "Azahar-iOS"
     MACOSX_BUNDLE_GUI_IDENTIFIER "${AZAHAR_IOS_BUNDLE_ID}"
     MACOSX_BUNDLE_BUNDLE_VERSION "${BUILD_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${BUILD_FULLNAME}"

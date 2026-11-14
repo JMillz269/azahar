@@ -100,11 +100,10 @@ struct GeneralSettingsView: View {
                     LabeledContent("GPU Timing Strength", value: "\(settings.gpuTimingPercent)%")
                 }
                 .disabled(!settings.simulateGPUTimings)
-                Stepper(value: $settings.gpuTimingMinMs, in: 0...400, step: 2) {
-                    LabeledContent("Minimum GPU Time",
-                                   value: settings.gpuTimingMinMs == 0 ? "Off" : String(format: "%.1f ms", Double(settings.gpuTimingMinMs) / 10))
-                }
-                .disabled(!settings.simulateGPUTimings)
+                MinimumGPUTimeField(title: "Minimum GPU Time",
+                                    value: Binding(get: { settings.gpuTimingMinMs },
+                                                   set: { settings.gpuTimingMinMs = $0 ?? 0 }))
+                    .disabled(!settings.simulateGPUTimings)
             } header: {
                 InfoHeader("Speed") {
                     Text("Simulate 3DS GPU Timing makes games see the graphics chip take as long as "

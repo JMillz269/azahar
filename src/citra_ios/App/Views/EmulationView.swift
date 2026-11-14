@@ -86,9 +86,11 @@ struct EmulationView: View {
                             actions: hudActions,
                             menuFrame: frame,
                             menuScale: CGFloat(placement.scale),
-                            swapFrame: settings.showSwapButton
+                            swapFrame: settings.showSwapButton && !swapPlacement.hidden
                                 ? metrics.frame(of: .swapButton, placement: swapPlacement) : nil,
                             swapScale: CGFloat(swapPlacement.scale),
+                            glass: ControlGlassStyle(enabled: settings.glassControls,
+                                                     tint: settings.glassControlTint),
                             onSwap: {
                                 settings.swapScreens.toggle()
                                 session.apply(settings: settings)

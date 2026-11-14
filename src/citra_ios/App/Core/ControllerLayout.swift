@@ -52,6 +52,24 @@ struct ControlPlacement: Codable, Equatable {
     var dy: Double = 0
     /// Size relative to the default size.
     var scale: Double = 1
+    /// Not drawn and not touchable while playing (shown dimmed in the editor).
+    var hidden = false
+
+    init(dx: Double = 0, dy: Double = 0, scale: Double = 1, hidden: Bool = false) {
+        self.dx = dx
+        self.dy = dy
+        self.scale = scale
+        self.hidden = hidden
+    }
+
+    // Layouts saved before controls could be hidden have no such key.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        dx = try values.decodeIfPresent(Double.self, forKey: .dx) ?? 0
+        dy = try values.decodeIfPresent(Double.self, forKey: .dy) ?? 0
+        scale = try values.decodeIfPresent(Double.self, forKey: .scale) ?? 1
+        hidden = try values.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
+    }
 
     static let scaleRange: ClosedRange<Double> = 0.5...2.0
 }

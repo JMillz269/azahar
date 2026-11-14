@@ -118,9 +118,12 @@ struct ControllerOverlay: View {
                     ForEach(isEditing ? ControlID.allCases : ControlID.controllerControls) { id in
                         let placement = layout.placement(for: id, portrait: portrait)
                         let frame = metrics.frame(of: id, placement: placement)
-                        content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
-                            .frame(width: frame.width, height: frame.height)
-                            .position(x: frame.midX, y: frame.midY)
+                        if isEditing || !placement.hidden {
+                            content(of: id, scale: CGFloat(placement.scale), unit: metrics.unit)
+                                .frame(width: frame.width, height: frame.height)
+                                .opacity(placement.hidden ? 0.3 : 1)
+                                .position(x: frame.midX, y: frame.midY)
+                        }
                     }
                 }
                 .environment(\.controlGlassStyle, glass)
@@ -134,8 +137,9 @@ struct ControllerOverlay: View {
 
                 if !isEditing {
                     ControllerTouchLayer(
-                        regions: ControlID.controllerControls.map { id in
+                        regions: ControlID.controllerControls.compactMap { id in
                             let placement = layout.placement(for: id, portrait: portrait)
+                            if placement.hidden { return nil }
                             return TouchRegion(id: id,
                                                frame: metrics.frame(of: id, placement: placement),
                                                scale: CGFloat(placement.scale))
@@ -219,9 +223,17 @@ struct ControllerOverlay: View {
                             .frame(width: 52, alignment: .trailing)
                     }
                 } else {
-                    Text("Drag a control to move it. Pinch it or pick it to resize.")
+                    Text("Drag a control to move it. Pinch it or pick it to resize or hide it.")
                         .font(.callout)
                         .multilineTextAlignment(.center)
+                }
+                if let selected, selected != .menuButton {
+                    Toggle("Hide This Control", isOn: Binding(
+                        get: { layout.placement(for: selected, portrait: portrait).hidden },
+                        set: { hide in
+                            layout.update(selected, portrait: portrait) { $0.hidden = hide }
+                            layout.commit()
+                        }))
                 }
                 if layout.hasActiveGame {
                     Toggle("Separate Layout for This Game", isOn: Binding(
