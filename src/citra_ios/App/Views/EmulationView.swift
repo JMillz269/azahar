@@ -161,9 +161,9 @@ struct EmulationView: View {
                         swapFrame: settings.showSwapButton && !swapPlacement.hidden
                             ? metrics.frame(of: .swapButton, placement: swapPlacement) : nil,
                         swapScale: CGFloat(swapPlacement.scale),
-                        concealed: buttonsFaded,
                         glass: ControlGlassStyle(enabled: settings.glassControls,
                                                  tint: settings.glassControlTint),
+                        concealed: buttonsFaded,
                         onSwap: {
                             settings.swapScreens.toggle()
                             session.apply(settings: settings)
