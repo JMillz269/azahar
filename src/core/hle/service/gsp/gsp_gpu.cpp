@@ -657,6 +657,11 @@ void GSP_GPU::SignalInterruptForThread(InterruptId interrupt_id, u32 thread_id, 
         track_average(true);
 #endif
 
+        if (interrupt_id == InterruptId::PDC0) {
+            last_vblank_us =
+                static_cast<u64>(system.Kernel().timing.GetGlobalTimeUs().count());
+        }
+
         if (perf_recorder.IsEnabled()) {
             constexpr u64 nanoseconds_per_frame = static_cast<u64>(
                 ((static_cast<double>(VideoCore::FRAME_TICKS) / BASE_CLOCK_RATE_ARM11) * 1e9));
@@ -673,6 +678,19 @@ void GSP_GPU::SignalInterruptForThread(InterruptId interrupt_id, u32 thread_id, 
     }
 
     if (Settings::values.simulate_3ds_gpu_timings.GetValue()) {
+
+        // A floor for the time from the last vertical blank to the end of the 3D commands: the
+        // game then sees every frame take at least that long, however many command lists it
+        // used, and a game that adapts its frame rate holds 30 FPS in scenes it would do 60 in.
+        const u64 floor_ns =
+            static_cast<u64>(Pica::g_gpu_timing_min_us.load(std::memory_order_relaxed)) * 1000;
+        if (interrupt_id == InterruptId::P3D && floor_ns != 0 && last_vblank_us != 0) {
+            const u64 now_us = static_cast<u64>(system.Kernel().timing.GetGlobalTimeUs().count());
+            const u64 since_ns = (now_us - last_vblank_us) * 1000;
+            if (since_ns < floor_ns) {
+                wait_delay_ns = std::max(wait_delay_ns, floor_ns - since_ns);
+            }
+        }
 
         if (delay_texture_copy_completion) {
             wait_delay_ns += (interrupt_id == InterruptId::PPF)

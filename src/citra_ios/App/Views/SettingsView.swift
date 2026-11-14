@@ -114,9 +114,10 @@ struct GeneralSettingsView: View {
                          + "how slow that GPU is (the estimate is twice as fast as a console, so "
                          + "about 200% is the console; raise it if a game still runs at 60 FPS "
                          + "where the console would run 30). Minimum GPU Time is steadier than the "
-                         + "estimate: no frame is ever seen to finish sooner than that, so a game that "
-                         + "switches between 30 and 60 holds 30 (try 20 ms; raise it if the game goes "
-                         + "below 30, lower it to 17 if it never reaches 30); without it the "
+                         + "estimate: the game never sees a frame's 3D work finish sooner than that "
+                         + "after the vertical blank (17 ms and up is more than one 60 FPS refresh), so "
+                         + "a game that switches between 30 and 60 holds 30 (try 20 ms; raise it if "
+                         + "it goes below 30, lower it if it never reaches 30); without it the "
                          + "emulated GPU is instant and they can run at 60 FPS everywhere. Fast Forward is in the game menu, and on a controller button in Controls › "
                          + "Controller Mapping. With Hold on, the controller button only fast-forwards "
                          + "while it is held.")

@@ -594,6 +594,9 @@ private:
     /// The current thread needs a longer emulated texture copy completion
     bool delay_texture_copy_completion{};
 
+    /// Emulated time of the last vertical blank (not part of the saved state).
+    u64 last_vblank_us{};
+
     class PendingInterruptArray {
     public:
         PendingInterruptArray() {
