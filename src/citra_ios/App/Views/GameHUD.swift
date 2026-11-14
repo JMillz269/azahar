@@ -147,10 +147,14 @@ struct GameHUD: View {
         let columnCount = columns(for: size.width)
         return VStack(spacing: 8) {
             HStack {
-                Text(title)
+                // 3DS titles often hold a line break ("The Legend of Zelda" / "Majora's Mask 3D"),
+                // which with a one line limit cut the title after the first line.
+                Text(title.replacingOccurrences(of: "\n", with: " ")
+                        .replacingOccurrences(of: "\r", with: " "))
                     .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
                 Button(action: close) {
