@@ -120,7 +120,8 @@ set_source_files_properties(${AZAHAR_COMPAT_LIST} PROPERTIES MACOSX_PACKAGE_LOCA
 # The app icon (the Azahar flower), as plain PNGs named for CFBundleIcons.
 file(GLOB AZAHAR_ICON_FILES "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Icons/*.png")
 target_sources(azahar_ios PRIVATE ${AZAHAR_ICON_FILES})
-set_source_files_properties(${AZAHAR_ICON_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+# No package location: the files are copied as plain bundle resources, which on iOS puts them at
+# the root of the app, where the system and LiveContainer look for them.
 
 include(GenerateBuildInfo)
 set(SRC_DIR "${PROJECT_SOURCE_DIR}")

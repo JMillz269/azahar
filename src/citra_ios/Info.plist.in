@@ -6,6 +6,10 @@
     <string>en</string>
     <key>CFBundleDisplayName</key>
     <string>Azahar-iOS</string>
+    <key>CFBundleIconFiles</key>
+    <array>
+        <string>AppIcon60x60</string>
+    </array>
     <key>CFBundleIcons</key>
     <dict>
         <key>CFBundlePrimaryIcon</key>
@@ -14,8 +18,6 @@
             <array>
                 <string>AppIcon60x60</string>
             </array>
-            <key>CFBundleIconName</key>
-            <string>AppIcon</string>
         </dict>
     </dict>
     <key>CFBundleIcons~ipad</key>
@@ -28,8 +30,6 @@
                 <string>AppIcon76x76</string>
                 <string>AppIcon83.5x83.5</string>
             </array>
-            <key>CFBundleIconName</key>
-            <string>AppIcon</string>
         </dict>
     </dict>
     <key>CFBundleExecutable</key>
