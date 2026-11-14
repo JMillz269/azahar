@@ -431,6 +431,10 @@ private:
     int fg_prev{-1};
     /// A frame is being made: its callbacks show it and the real frame after it.
     std::atomic<bool> fg_busy{false};
+    /// When the frame in progress was started (steady clock seconds), and a counter that makes
+    /// the callbacks of a frame given up on (see RenderGenerated) do nothing.
+    std::atomic<double> fg_busy_since{0.0};
+    std::atomic<u32> fg_epoch{0};
     /// Made frames that failed in a row: when the interpolation rejects every frame, stop.
     std::atomic<u32> fg_failures{0};
     /// When the last real frame is set to reach the screen (CACurrentMediaTime), which spaces the
@@ -1514,9 +1518,23 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     // previous ones are still on their way, this frame is dropped: the emulation never waits for
     // frame generation, and a frame shown out of order would be worse than one not shown.
     if (fg_busy.load(std::memory_order_acquire)) {
-        Stats().fg_skipped.fetch_add(1, std::memory_order_relaxed);
-        fg_prev = -1;
-        return;
+        // A frame whose interpolation never reports back (seen as both screens staying black
+        // while the game runs on) must not hold every later frame back forever: after a while
+        // it is given up on, and its callbacks, should they ever come, do nothing.
+        const double since = fg_busy_since.load(std::memory_order_relaxed);
+        const double now_s = CACurrentMediaTime();
+        if (since > 0.0 && now_s - since > 0.5) {
+            LOG_WARNING(Render, "Frame generation: a frame did not finish in {:.0f} ms, "
+                                "giving it up",
+                        (now_s - since) * 1000.0);
+            fg_epoch.fetch_add(1, std::memory_order_acq_rel);
+            fg_busy.store(false, std::memory_order_release);
+            fg_failures.fetch_add(30, std::memory_order_relaxed);
+        } else {
+            Stats().fg_skipped.fetch_add(1, std::memory_order_relaxed);
+            fg_prev = -1;
+            return;
+        }
     }
     const double arrived = CACurrentMediaTime();
     fg_last_generated = std::chrono::steady_clock::now();
@@ -1586,8 +1604,11 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
         std::clamp(std::abs(fg_interval - nominal) < nominal * 0.05 ? nominal : fg_interval, 0.012,
                    0.1);
 
+    fg_busy_since.store(CACurrentMediaTime(), std::memory_order_relaxed);
     fg_busy.store(true, std::memory_order_release);
     std::atomic<bool>* busy = &fg_busy;
+    const u32 epoch = fg_epoch.load(std::memory_order_acquire);
+    std::atomic<u32>* epoch_now = &fg_epoch;
     std::atomic<u32>* failures = &fg_failures;
     std::atomic<double>* last_real_time = &fg_last_real_time;
     id<MTLCommandQueue> queue = instance.GetCommandQueue();
@@ -1612,6 +1633,9 @@ void RendererMetal::RenderGenerated(CAMetalLayer* target,
     // Shows the made frame (when there is one) and the real one. Runs on a callback thread, which
     // is where the waits for drawables happen, not on the emulation thread.
     const auto show = std::make_shared<std::function<void(bool)>>([=](bool made) {
+        if (epoch_now->load(std::memory_order_acquire) != epoch) {
+            return; // Given up on: a newer frame owns the screen now
+        }
         made = made && between_luma != nil && between_chroma != nil;
         id<MTLCommandBuffer> buffer = [queue commandBuffer];
         const auto begin = [&](id<MTLTexture> to) {
