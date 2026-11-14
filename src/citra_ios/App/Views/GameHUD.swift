@@ -47,8 +47,10 @@ struct GameHUD: View {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture { close() }
-                        .accessibilityLabel("Close menu")
-                        .accessibilityAddTraits(.isButton)
+                        // Hidden from accessibility (and so from the controller navigation):
+                        // as a full-screen "button" it showed up as a selectable game screen.
+                        // The close button of the panel does the same for those.
+                        .accessibilityHidden(true)
                 }
 
                 ZStack {
@@ -136,7 +138,9 @@ struct GameHUD: View {
                 Text(title)
                     .font(.headline)
                     .lineLimit(1)
-                Spacer()
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
                 Button(action: close) {
                     Image(systemName: "xmark")
                         .font(.footnote.weight(.bold))

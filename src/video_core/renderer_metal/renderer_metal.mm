@@ -1128,6 +1128,29 @@ void RendererMetal::RenderToLayer(CAMetalLayer* target, const Layout::Framebuffe
         target.drawableSize = size;
     }
 
+    // What is about to be shown, about every two seconds: both screens black while the game runs
+    // on needs this to tell a screen without a picture from a picture that is not reaching the
+    // display.
+    {
+        static std::chrono::steady_clock::time_point last_report{};
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_report > std::chrono::seconds(2)) {
+            last_report = now;
+            const auto describe = [&](u32 i) {
+                const ScreenInfo& info = screen_infos[i];
+                return fmt::format("{}{}x{}", use_fill[i] ? "fill " : "",
+                                   info.texture != nil ? static_cast<u32>(info.texture.width) : 0u,
+                                   info.texture != nil ? static_cast<u32>(info.texture.height) : 0u);
+            };
+            LOG_INFO(Render,
+                     "Showing: top {}, bottom {}, target {}x{}, frame generation {} (pacer {}, "
+                     "ready {}, busy {})",
+                     describe(0), describe(2), layout.width, layout.height,
+                     GetQualityOptions().frame_generation, fg_pacer_link != nil ? "on" : "off",
+                     fg_ready, fg_busy.load(std::memory_order_relaxed));
+        }
+    }
+
     if (allow_upscale && UseFrameGeneration(layout)) {
         // Takes its drawables itself, when the frames are ready to be shown.
         RenderGenerated(target, layout);
