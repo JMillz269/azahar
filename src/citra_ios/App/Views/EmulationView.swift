@@ -39,150 +39,8 @@ struct EmulationView: View {
     /// Seconds without a touch before the menu buttons fade out (controller connected).
     private static let fadeDelay: TimeInterval = 8
 
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            // By default stays inside the safe area so the screens do not go under the notch or
-            // the Dynamic Island. The black background behind it still fills the whole display.
-            MetalView {
-                session.renderSurfaceReady()
-            }
-            .ignoresSafeArea(settings.respectNotch ? [] : .all)
-
-            if editingScreens {
-                ScreenLayoutEditor(isEditing: $editingScreens)
-                    .ignoresSafeArea(settings.respectNotch ? [] : .all)
-            }
-
-            if controllerShown && !editingScreens {
-                ControllerOverlay(opacity: settings.controllerOpacity,
-                                  haptics: settings.hapticFeedback,
-                                  concealed: buttonsFaded,
-                            glass: ControlGlassStyle(enabled: settings.glassControls,
-                                                           tint: settings.glassControlTint),
-                                  isEditing: $editingLayout)
-            }
-
-            VStack {
-                HStack(alignment: .top) {
-                    if settings.showPerformanceOverlay {
-                        PerformanceOverlay(fps: session.fps, displayFps: session.displayFps,
-                                           speed: session.speed, gpuMs: session.gpuMs,
-                                           stallMs: session.stallMs, draws: session.draws,
-                                           paceJitterMs: session.paceJitterMs)
-                    }
-                    Spacer()
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 8)
-
-            // Placed with the controller layout, so it can be moved in the layout editor (which
-            // draws it itself while editing).
-            if !editingLayout && !editingScreens {
-                GeometryReader { geometry in
-                    let metrics = ControllerMetrics(size: geometry.size)
-                    let placement = controllerLayout.placement(for: .menuButton,
-                                                               portrait: metrics.portrait)
-                    let frame = metrics.frame(of: .menuButton, placement: placement)
-                    let swapPlacement = controllerLayout.placement(for: .swapButton,
-                                                                   portrait: metrics.portrait)
-                    GameHUD(isOpen: $showingMenu,
-                            title: session.currentGame?.title ?? "Emulation",
-                            actions: hudActions,
-                            menuFrame: frame,
-                            menuScale: CGFloat(placement.scale),
-                            swapFrame: settings.showSwapButton && !swapPlacement.hidden
-                                ? metrics.frame(of: .swapButton, placement: swapPlacement) : nil,
-                            swapScale: CGFloat(swapPlacement.scale),
-                            glass: ControlGlassStyle(enabled: settings.glassControls,
-                                                     tint: settings.glassControlTint),
-                            onSwap: {
-                                settings.swapScreens.toggle()
-                                session.apply(settings: settings)
-                            })
-                }
-            }
-
-            // The cursor of the touch stick, over the bottom screen.
-            if let cursor = session.touchCursor, !cursor.frame.isEmpty {
-                GeometryReader { _ in
-                    let scale = UIScreen.main.scale
-                    Image(systemName: "circle.circle")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black, radius: 2)
-                        .position(
-                            x: (cursor.frame.minX + cursor.position.x * cursor.frame.width) / scale,
-                            y: (cursor.frame.minY + cursor.position.y * cursor.frame.height) / scale)
-                }
-                .ignoresSafeArea(settings.respectNotch ? [] : .all)
-                .allowsHitTesting(false)
-            }
-
-            if let progress = session.shaderBuildProgress {
-                VStack(spacing: 8) {
-                    Text("Building Shaders")
-                        .font(.headline)
-                    ProgressView(value: progress)
-                        .frame(width: 180)
-                    Text("\(Int((progress * 100).rounded()))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                .padding(16)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                .allowsHitTesting(false)
-            }
-
-            if let toast = session.toast {
-                VStack {
-                    Spacer()
-                    Text(toast)
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .padding(.bottom, 24)
-                }
-                .allowsHitTesting(false)
-                .transition(.opacity)
-            }
-
-            // Not over the menu, which pauses the game itself: only when it was left paused.
-            if session.isPaused && !editingLayout && !menuVisible {
-                Text("Paused")
-                    .font(.headline)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-            }
-        }
-        .onAppear {
-            controllerLayout.activate(gameID: session.currentGame?.programIDString)
-            RefreshRateController.shared.apply(settings.refreshRate)
-        }
-        .onDisappear {
-            controllerLayout.activate(gameID: nil)
-            RefreshRateController.shared.apply(.automatic)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openEmulationMenu)) { _ in
-            showingMenu = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .nextScreenLayout)) { _ in
-            cycleLayout()
-        }
-        .alert("Save Screen Layout", isPresented: $savingLayout) {
-            TextField("Name", text: $layoutName)
-            Button("Save") {
-                settings.saveLayoutPreset(named: layoutName)
-                session.showToast("Layout saved")
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Saves the screens as they are now. A layout with the same name is replaced.")
-        }
+    private var observed: some View {
+        stage
         .onChange(of: session.hardwareControllerConnected) { _ in showDespiteHardware = false }
         .onReceive(NotificationCenter.default.publisher(for: .azaharScreenTouched)) { _ in
             lastTouch = Date()
@@ -201,6 +59,10 @@ struct EmulationView: View {
         // a system swipe (Home, Control Center, Notification Center), then delivers the press
         // and the release together, so the game never sees a quick tap on the controller.
         .defersSystemGestures(on: .all)
+    }
+
+    private var presented: some View {
+        observed
         .sheet(isPresented: $showingSaveStates) {
             SaveStatesView(mode: .save)
         }
@@ -247,6 +109,10 @@ struct EmulationView: View {
         } message: {
             Text(session.notice?.message ?? "")
         }
+    }
+
+    var body: some View {
+        presented
         .onChange(of: menuVisible) { visible in
             menuVisibilityChanged(visible)
         }
@@ -273,6 +139,160 @@ struct EmulationView: View {
             @unknown default:
                 break
             }
+        }
+    }
+
+    @ViewBuilder private var hudLayer: some View {
+        // Placed with the controller layout, so it can be moved in the layout editor (which
+        // draws it itself while editing).
+        if !editingLayout && !editingScreens {
+            GeometryReader { geometry in
+                let metrics = ControllerMetrics(size: geometry.size)
+                let placement = controllerLayout.placement(for: .menuButton,
+                                                           portrait: metrics.portrait)
+                let frame = metrics.frame(of: .menuButton, placement: placement)
+                let swapPlacement = controllerLayout.placement(for: .swapButton,
+                                                               portrait: metrics.portrait)
+                GameHUD(isOpen: $showingMenu,
+                        title: session.currentGame?.title ?? "Emulation",
+                        actions: hudActions,
+                        menuFrame: frame,
+                        menuScale: CGFloat(placement.scale),
+                        swapFrame: settings.showSwapButton && !swapPlacement.hidden
+                            ? metrics.frame(of: .swapButton, placement: swapPlacement) : nil,
+                        swapScale: CGFloat(swapPlacement.scale),
+                        concealed: buttonsFaded,
+                        glass: ControlGlassStyle(enabled: settings.glassControls,
+                                                 tint: settings.glassControlTint),
+                        onSwap: {
+                            settings.swapScreens.toggle()
+                            session.apply(settings: settings)
+                        })
+            }
+        }
+    }
+
+    @ViewBuilder private var statusLayers: some View {
+        // The cursor of the touch stick, over the bottom screen.
+        if let cursor = session.touchCursor, !cursor.frame.isEmpty {
+            GeometryReader { _ in
+                let scale = UIScreen.main.scale
+                Image(systemName: "circle.circle")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black, radius: 2)
+                    .position(
+                        x: (cursor.frame.minX + cursor.position.x * cursor.frame.width) / scale,
+                        y: (cursor.frame.minY + cursor.position.y * cursor.frame.height) / scale)
+            }
+            .ignoresSafeArea(settings.respectNotch ? [] : .all)
+            .allowsHitTesting(false)
+        }
+
+        if let progress = session.shaderBuildProgress {
+            VStack(spacing: 8) {
+                Text("Building Shaders")
+                    .font(.headline)
+                ProgressView(value: progress)
+                    .frame(width: 180)
+                Text("\(Int((progress * 100).rounded()))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .allowsHitTesting(false)
+        }
+
+        if let toast = session.toast {
+            VStack {
+                Spacer()
+                Text(toast)
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(.bottom, 24)
+            }
+            .allowsHitTesting(false)
+            .transition(.opacity)
+        }
+
+        // Not over the menu, which pauses the game itself: only when it was left paused.
+        if session.isPaused && !editingLayout && !menuVisible {
+            Text("Paused")
+                .font(.headline)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+
+    private var stage: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            // By default stays inside the safe area so the screens do not go under the notch or
+            // the Dynamic Island. The black background behind it still fills the whole display.
+            MetalView {
+                session.renderSurfaceReady()
+            }
+            .ignoresSafeArea(settings.respectNotch ? [] : .all)
+
+            if editingScreens {
+                ScreenLayoutEditor(isEditing: $editingScreens)
+                    .ignoresSafeArea(settings.respectNotch ? [] : .all)
+            }
+
+            if controllerShown && !editingScreens {
+                ControllerOverlay(opacity: settings.controllerOpacity,
+                                  haptics: settings.hapticFeedback,
+                                  glass: ControlGlassStyle(enabled: settings.glassControls,
+                                                           tint: settings.glassControlTint),
+                                  isEditing: $editingLayout)
+            }
+
+            VStack {
+                HStack(alignment: .top) {
+                    if settings.showPerformanceOverlay {
+                        PerformanceOverlay(fps: session.fps, displayFps: session.displayFps,
+                                           speed: session.speed, gpuMs: session.gpuMs,
+                                           stallMs: session.stallMs, draws: session.draws,
+                                           paceJitterMs: session.paceJitterMs)
+                    }
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+
+            hudLayer
+
+            statusLayers
+        }
+        .onAppear {
+            controllerLayout.activate(gameID: session.currentGame?.programIDString)
+            RefreshRateController.shared.apply(settings.refreshRate)
+        }
+        .onDisappear {
+            controllerLayout.activate(gameID: nil)
+            RefreshRateController.shared.apply(.automatic)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openEmulationMenu)) { _ in
+            showingMenu = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .nextScreenLayout)) { _ in
+            cycleLayout()
+        }
+        .alert("Save Screen Layout", isPresented: $savingLayout) {
+            TextField("Name", text: $layoutName)
+            Button("Save") {
+                settings.saveLayoutPreset(named: layoutName)
+                session.showToast("Layout saved")
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves the screens as they are now. A layout with the same name is replaced.")
         }
     }
 }
