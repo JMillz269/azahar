@@ -100,9 +100,9 @@ struct GeneralSettingsView: View {
                     LabeledContent("GPU Timing Strength", value: "\(settings.gpuTimingPercent)%")
                 }
                 .disabled(!settings.simulateGPUTimings)
-                Stepper(value: $settings.gpuTimingMinMs, in: 0...40, step: 1) {
+                Stepper(value: $settings.gpuTimingMinMs, in: 0...400, step: 2) {
                     LabeledContent("Minimum GPU Time",
-                                   value: settings.gpuTimingMinMs == 0 ? "Off" : "\(settings.gpuTimingMinMs) ms")
+                                   value: settings.gpuTimingMinMs == 0 ? "Off" : String(format: "%.1f ms", Double(settings.gpuTimingMinMs) / 10))
                 }
                 .disabled(!settings.simulateGPUTimings)
             } header: {

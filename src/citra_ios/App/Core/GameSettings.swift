@@ -26,7 +26,7 @@ struct GameOverrides: Codable, Equatable {
     var cpuJIT: Bool?
     var simulateGPUTimings: Bool?
     var gpuTimingPercent: Int?
-    var gpuTimingMinMs: Int?
+    var gpuTimingMinMs: Int? // tenths of a ms; older saves held whole ms (under 100)
     var texturePool: Bool?
     var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
@@ -92,7 +92,7 @@ struct GameOverrides: Codable, Equatable {
         if let cpuJIT { config.useCPUJIT = cpuJIT }
         if let simulateGPUTimings { config.simulateGPUTimings = simulateGPUTimings }
         if let gpuTimingPercent { config.gpuTimingPercent = gpuTimingPercent }
-        if let gpuTimingMinMs { config.gpuTimingMinMs = gpuTimingMinMs }
+        if let gpuTimingMinMs { config.gpuTimingMinMs = gpuTimingMinMs > 0 && gpuTimingMinMs < 100 ? gpuTimingMinMs * 10 : gpuTimingMinMs }
         if let texturePool { config.texturePool = texturePool }
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }

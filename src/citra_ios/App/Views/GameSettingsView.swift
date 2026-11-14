@@ -130,7 +130,9 @@ struct GameSettingsView: View {
                 OverridePicker("GPU Timing Strength", value: $overrides.gpuTimingPercent,
                                options: [100, 150, 200, 300, 400, 600]) { "\($0)%" }
                 OverridePicker("Minimum GPU Time", value: $overrides.gpuTimingMinMs,
-                               options: [0, 17, 18, 19, 20, 22, 24, 28, 32]) { $0 == 0 ? "Off" : "\($0) ms" }
+                               options: [0] + Array(stride(from: 160, through: 240, by: 2))) {
+                    $0 == 0 ? "Off" : String(format: "%.1f ms", Double($0) / 10)
+                }
                 OverridePicker("CPU Clock Speed", value: $overrides.cpuClockPercentage,
                                options: [50, 75, 100, 150, 200, 300, 400]) { "\($0)%" }
                 OverridePicker("Fast Forward Speed", value: $overrides.fastForwardSpeed,

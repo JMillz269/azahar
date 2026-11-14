@@ -317,7 +317,8 @@ final class AppSettings: ObservableObject {
     @Published var simulateHeadphones: Bool { didSet { save(simulateHeadphones, "simulateHeadphones") } }
     @Published var simulateGPUTimings: Bool { didSet { save(simulateGPUTimings, "simulateGPUTimings") } }
     @Published var gpuTimingPercent: Int { didSet { save(gpuTimingPercent, "gpuTimingPercent") } }
-    @Published var gpuTimingMinMs: Int { didSet { save(gpuTimingMinMs, "gpuTimingMinMs") } }
+    /// In tenths of a millisecond (180 = 18.0 ms).
+    @Published var gpuTimingMinMs: Int { didSet { save(gpuTimingMinMs, "gpuTimingMinTenths") } }
     @Published var customTextures: Bool { didSet { save(customTextures, "customTextures") } }
     @Published var preloadTextures: Bool { didSet { save(preloadTextures, "preloadTextures") } }
     @Published var dumpTextures: Bool { didSet { save(dumpTextures, "dumpTextures") } }
@@ -471,7 +472,7 @@ final class AppSettings: ObservableObject {
         simulateHeadphones = value("simulateHeadphones", false)
         simulateGPUTimings = value("simulateGPUTimings", false)
         gpuTimingPercent = value("gpuTimingPercent", 200)
-        gpuTimingMinMs = value("gpuTimingMinMs", 0)
+        gpuTimingMinMs = value("gpuTimingMinTenths", value("gpuTimingMinMs", 0) * 10)
         customTextures = value("customTextures", false)
         preloadTextures = value("preloadTextures", false)
         dumpTextures = value("dumpTextures", false)

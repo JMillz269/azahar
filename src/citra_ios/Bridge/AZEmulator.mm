@@ -652,10 +652,10 @@ const char* ThermalStateName() {
     values.simulate_headphones_plugged = configuration.simulateHeadphones;
     values.simulate_3ds_gpu_timings = configuration.simulateGPUTimings;
     Pica::g_gpu_timing_percent.store(static_cast<u32>(std::clamp<NSInteger>(configuration.gpuTimingPercent, 50, 800)));
-    Pica::g_gpu_timing_min_us.store(static_cast<u32>(std::clamp<NSInteger>(configuration.gpuTimingMinMs, 0, 60)) * 1000);
+    Pica::g_gpu_timing_min_us.store(static_cast<u32>(std::clamp<NSInteger>(configuration.gpuTimingMinMs, 0, 600)) * 100);
     if (configuration.simulateGPUTimings) {
-        LOG_INFO(Frontend, "Simulating the GPU time: strength {}%, at least {} ms",
-                 Pica::g_gpu_timing_percent.load(), Pica::g_gpu_timing_min_us.load() / 1000);
+        LOG_INFO(Frontend, "Simulating the GPU time: strength {}%, at least {:.1f} ms",
+                 Pica::g_gpu_timing_percent.load(), Pica::g_gpu_timing_min_us.load() / 1000.0);
     }
     _secondaryLayoutMode = configuration.secondaryDisplayLayout;
     values.preload_textures = configuration.preloadTextures;
