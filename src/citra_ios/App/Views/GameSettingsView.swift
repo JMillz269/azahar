@@ -127,6 +127,8 @@ struct GameSettingsView: View {
             Section {
                 OverrideToggle("CPU JIT", value: $overrides.cpuJIT)
                 OverrideToggle("Simulate 3DS GPU Timing", value: $overrides.simulateGPUTimings)
+                OverridePicker("GPU Timing Strength", value: $overrides.gpuTimingPercent,
+                               options: [100, 150, 200, 300, 400, 600]) { "\($0)%" }
                 OverridePicker("CPU Clock Speed", value: $overrides.cpuClockPercentage,
                                options: [50, 75, 100, 150, 200, 300, 400]) { "\($0)%" }
                 OverridePicker("Fast Forward Speed", value: $overrides.fastForwardSpeed,

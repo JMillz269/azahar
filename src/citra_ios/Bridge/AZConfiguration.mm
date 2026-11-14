@@ -67,6 +67,7 @@
     config.deterministicAsync = NO;
     config.simulateHeadphones = NO;
     config.simulateGPUTimings = NO;
+    config.gpuTimingPercent = 100;
     config.customTextures = NO;
     config.preloadTextures = NO;
     config.dumpTextures = NO;

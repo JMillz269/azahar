@@ -143,6 +143,9 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 /// Games see the GPU finish its work after the time the real one would take, so games that adapt
 /// their frame rate to the GPU (30 FPS in heavy scenes) behave as on a console.
 @property(nonatomic) BOOL simulateGPUTimings;
+/// How slow the simulated GPU is, in percent of the estimate (which is twice as fast as a console:
+/// 200 is about a console). Only used with simulateGPUTimings.
+@property(nonatomic) NSInteger gpuTimingPercent;
 
 // Textures
 @property(nonatomic) BOOL customTextures;

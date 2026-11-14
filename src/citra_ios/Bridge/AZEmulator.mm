@@ -43,6 +43,7 @@
 #include "core/hle/service/service.h"
 #include "core/loader/loader.h"
 #include "video_core/gpu.h"
+#include "video_core/pica/pica_core.h"
 #include "video_core/renderer_base.h"
 #include "video_core/renderer_metal/renderer_metal.h"
 
@@ -650,6 +651,7 @@ const char* ThermalStateName() {
     values.deterministic_async_operations = configuration.deterministicAsync;
     values.simulate_headphones_plugged = configuration.simulateHeadphones;
     values.simulate_3ds_gpu_timings = configuration.simulateGPUTimings;
+    Pica::g_gpu_timing_percent.store(static_cast<u32>(std::clamp<NSInteger>(configuration.gpuTimingPercent, 50, 800)));
     _secondaryLayoutMode = configuration.secondaryDisplayLayout;
     values.preload_textures = configuration.preloadTextures;
     values.dump_textures = configuration.dumpTextures;

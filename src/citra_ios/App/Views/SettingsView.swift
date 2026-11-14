@@ -96,12 +96,19 @@ struct GeneralSettingsView: View {
                 }
                 Toggle("Hold to Fast Forward (Controller)", isOn: $settings.fastForwardHold)
                 Toggle("Simulate 3DS GPU Timing", isOn: $settings.simulateGPUTimings)
+                Stepper(value: $settings.gpuTimingPercent, in: 50...800, step: 25) {
+                    LabeledContent("GPU Timing Strength", value: "\(settings.gpuTimingPercent)%")
+                }
+                .disabled(!settings.simulateGPUTimings)
             } header: {
                 InfoHeader("Speed") {
                     Text("Simulate 3DS GPU Timing makes games see the graphics chip take as long as "
                          + "the real one. Games that adapt their frame rate to it (some run at 60 "
                          + "FPS where there is little to draw and drop to 30 in heavy scenes) then "
-                         + "run at the frame rate they have on a console; without it the "
+                         + "run at the frame rate they have on a console; GPU Timing Strength sets "
+                         + "how slow that GPU is (the estimate is twice as fast as a console, so "
+                         + "about 200% is the console; raise it if a game still runs at 60 FPS "
+                         + "where the console would run 30); without it the "
                          + "emulated GPU is instant and they can run at 60 FPS everywhere. Fast Forward is in the game menu, and on a controller button in Controls › "
                          + "Controller Mapping. With Hold on, the controller button only fast-forwards "
                          + "while it is held.")
