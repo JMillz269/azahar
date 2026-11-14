@@ -315,6 +315,7 @@ final class AppSettings: ObservableObject {
     @Published var asyncCustomTextures: Bool { didSet { save(asyncCustomTextures, "asyncCustomTextures") } }
     @Published var deterministicAsync: Bool { didSet { save(deterministicAsync, "deterministicAsync") } }
     @Published var simulateHeadphones: Bool { didSet { save(simulateHeadphones, "simulateHeadphones") } }
+    @Published var simulateGPUTimings: Bool { didSet { save(simulateGPUTimings, "simulateGPUTimings") } }
     @Published var customTextures: Bool { didSet { save(customTextures, "customTextures") } }
     @Published var preloadTextures: Bool { didSet { save(preloadTextures, "preloadTextures") } }
     @Published var dumpTextures: Bool { didSet { save(dumpTextures, "dumpTextures") } }
@@ -466,6 +467,7 @@ final class AppSettings: ObservableObject {
         asyncCustomTextures = value("asyncCustomTextures", true)
         deterministicAsync = value("deterministicAsync", false)
         simulateHeadphones = value("simulateHeadphones", false)
+        simulateGPUTimings = value("simulateGPUTimings", false)
         customTextures = value("customTextures", false)
         preloadTextures = value("preloadTextures", false)
         dumpTextures = value("dumpTextures", false)
@@ -606,6 +608,7 @@ final class AppSettings: ObservableObject {
         config.asyncCustomTextures = asyncCustomTextures
         config.deterministicAsync = deterministicAsync
         config.simulateHeadphones = simulateHeadphones
+        config.simulateGPUTimings = simulateGPUTimings
         config.customTextures = customTextures
         config.preloadTextures = preloadTextures
         config.dumpTextures = dumpTextures

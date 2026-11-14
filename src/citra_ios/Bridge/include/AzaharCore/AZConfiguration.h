@@ -140,6 +140,9 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 @property(nonatomic) BOOL deterministicAsync;
 /// The DSP reports plugged in headphones to the game.
 @property(nonatomic) BOOL simulateHeadphones;
+/// Games see the GPU finish its work after the time the real one would take, so games that adapt
+/// their frame rate to the GPU (30 FPS in heavy scenes) behave as on a console.
+@property(nonatomic) BOOL simulateGPUTimings;
 
 // Textures
 @property(nonatomic) BOOL customTextures;

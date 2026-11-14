@@ -649,6 +649,7 @@ const char* ThermalStateName() {
     values.use_integer_scaling = configuration.integerScaling;
     values.deterministic_async_operations = configuration.deterministicAsync;
     values.simulate_headphones_plugged = configuration.simulateHeadphones;
+    values.simulate_3ds_gpu_timings = configuration.simulateGPUTimings;
     _secondaryLayoutMode = configuration.secondaryDisplayLayout;
     values.preload_textures = configuration.preloadTextures;
     values.dump_textures = configuration.dumpTextures;

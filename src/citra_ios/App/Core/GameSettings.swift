@@ -24,6 +24,7 @@ struct GameOverrides: Codable, Equatable {
     var vertexFastFunctions: Bool?
     var vertexFastMath: Bool?
     var cpuJIT: Bool?
+    var simulateGPUTimings: Bool?
     var texturePool: Bool?
     var realtimeAudio: Bool?
     var fastDepthReadback: Bool?
@@ -87,6 +88,7 @@ struct GameOverrides: Codable, Equatable {
         if let vertexFastFunctions { config.vertexFastFunctions = vertexFastFunctions }
         if let vertexFastMath { config.vertexFastMath = vertexFastMath }
         if let cpuJIT { config.useCPUJIT = cpuJIT }
+        if let simulateGPUTimings { config.simulateGPUTimings = simulateGPUTimings }
         if let texturePool { config.texturePool = texturePool }
         if let realtimeAudio { config.realtimeAudio = realtimeAudio }
         if let fastDepthReadback { config.fastDepthReadback = fastDepthReadback }

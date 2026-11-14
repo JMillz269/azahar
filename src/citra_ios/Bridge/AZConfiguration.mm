@@ -66,6 +66,7 @@
     config.asyncCustomTextures = YES;
     config.deterministicAsync = NO;
     config.simulateHeadphones = NO;
+    config.simulateGPUTimings = NO;
     config.customTextures = NO;
     config.preloadTextures = NO;
     config.dumpTextures = NO;
