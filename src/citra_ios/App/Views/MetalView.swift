@@ -66,6 +66,7 @@ final class EmulatorLayerView: UIView {
     // (one finger at a time).
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        NotificationCenter.default.post(name: .azaharScreenTouched, object: nil)
         let unclaimed = ControllerTouchHandler.shared.began(touches)
         guard activeTouch == nil, let touch = unclaimed.first else { return }
         activeTouch = touch
@@ -133,4 +134,9 @@ final class RefreshRateController: NSObject {
         link.add(to: .main, forMode: .common)
         self.link = link
     }
+}
+
+extension Notification.Name {
+    /// Posted when a finger touches the game's view (used to bring back faded-out buttons).
+    static let azaharScreenTouched = Notification.Name("azaharScreenTouched")
 }

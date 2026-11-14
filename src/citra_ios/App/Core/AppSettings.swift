@@ -211,6 +211,9 @@ final class AppSettings: ObservableObject {
     // App
     @Published var libraryStyle: LibraryStyle { didSet { save(libraryStyle.rawValue, "libraryStyle") } }
     @Published var showPerformanceOverlay: Bool { didSet { save(showPerformanceOverlay, "showPerformanceOverlay") } }
+    /// Fade out the menu and swap buttons after a few seconds without a touch while a physical
+    /// controller is connected.
+    @Published var autoHideMenuButtons: Bool { didSet { save(autoHideMenuButtons, "autoHideMenuButtons") } }
     @Published var hideControllerWithHardware: Bool { didSet { save(hideControllerWithHardware, "hideControllerWithHardware") } }
     @Published var showController: Bool { didSet { save(showController, "showController") } }
     @Published var showSwapButton: Bool { didSet { save(showSwapButton, "showSwapButton") } }
@@ -399,6 +402,7 @@ final class AppSettings: ObservableObject {
         libraryStyle = LibraryStyle(rawValue: value("libraryStyle", LibraryStyle.grid.rawValue)) ?? .grid
         showPerformanceOverlay = value("showPerformanceOverlay", true)
         hideControllerWithHardware = value("hideControllerWithHardware", true)
+        autoHideMenuButtons = value("autoHideMenuButtons", false)
         showController = value("showController", true)
         showSwapButton = value("showSwapButton", true)
         controllerOpacity = value("controllerOpacity", 0.7)

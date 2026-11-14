@@ -29,6 +29,8 @@ struct GameHUD: View {
     let swapScale: CGFloat
     /// How the menu and swap buttons look while closed: the glass setting of the controller.
     var glass = ControlGlassStyle()
+    /// Faded out (the buttons only, an open panel stays): a controller is in use.
+    var concealed = false
     let onSwap: () -> Void
 
     var body: some View {
@@ -99,6 +101,10 @@ struct GameHUD: View {
                     .position(x: swapFrame.midX, y: swapFrame.midY)
                 }
             }
+            .opacity(concealed && !isOpen ? 0 : 1)
+            .allowsHitTesting(!(concealed && !isOpen))
+            .accessibilityHidden(concealed && !isOpen)
+            .animation(.easeInOut(duration: 0.4), value: concealed)
         }
     }
 

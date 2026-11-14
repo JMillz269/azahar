@@ -960,6 +960,8 @@ struct ControlsSettingsView: View {
                 Toggle("Hide When a Controller Is Connected",
                        isOn: $settings.hideControllerWithHardware)
                     .disabled(!settings.showController)
+                Toggle("Fade Out Menu Buttons With a Controller",
+                       isOn: $settings.autoHideMenuButtons)
                 VStack(alignment: .leading) {
                     LabeledContent("Opacity", value: "\(Int(settings.controllerOpacity * 100))%")
                     Slider(value: $settings.controllerOpacity, in: 0.1...1)

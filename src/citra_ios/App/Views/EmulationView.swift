@@ -31,7 +31,13 @@ struct EmulationView: View {
     @State private var resumeAfterEditing = false
     /// The game was paused because the menu came up, and runs again once it is gone.
     @State private var pausedForMenu = false
+    /// The last touch on the screen, for fading the menu buttons out while a controller is used.
+    @State private var lastTouch = Date()
+    @State private var buttonsFaded = false
     @State private var resumeTask: Task<Void, Never>?
+
+    /// Seconds without a touch before the menu buttons fade out (controller connected).
+    private static let fadeDelay: TimeInterval = 8
 
     var body: some View {
         ZStack {
@@ -52,7 +58,8 @@ struct EmulationView: View {
             if controllerShown && !editingScreens {
                 ControllerOverlay(opacity: settings.controllerOpacity,
                                   haptics: settings.hapticFeedback,
-                                  glass: ControlGlassStyle(enabled: settings.glassControls,
+                                  concealed: buttonsFaded,
+                            glass: ControlGlassStyle(enabled: settings.glassControls,
                                                            tint: settings.glassControlTint),
                                   isEditing: $editingLayout)
             }
@@ -177,6 +184,16 @@ struct EmulationView: View {
             Text("Saves the screens as they are now. A layout with the same name is replaced.")
         }
         .onChange(of: session.hardwareControllerConnected) { _ in showDespiteHardware = false }
+        .onReceive(NotificationCenter.default.publisher(for: .azaharScreenTouched)) { _ in
+            lastTouch = Date()
+            buttonsFaded = false
+        }
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            let idle = Date().timeIntervalSince(lastTouch) > Self.fadeDelay
+            let fade = settings.autoHideMenuButtons && session.hardwareControllerConnected
+                && !showingMenu && idle
+            if fade != buttonsFaded { buttonsFaded = fade }
+        }
         .onChange(of: settings.refreshRate) { RefreshRateController.shared.apply($0) }
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
