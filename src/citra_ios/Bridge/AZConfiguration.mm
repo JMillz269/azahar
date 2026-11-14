@@ -68,6 +68,7 @@
     config.simulateHeadphones = NO;
     config.simulateGPUTimings = NO;
     config.gpuTimingPercent = 100;
+    config.gpuTimingMinMs = 0;
     config.customTextures = NO;
     config.preloadTextures = NO;
     config.dumpTextures = NO;

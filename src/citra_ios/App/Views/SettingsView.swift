@@ -100,6 +100,11 @@ struct GeneralSettingsView: View {
                     LabeledContent("GPU Timing Strength", value: "\(settings.gpuTimingPercent)%")
                 }
                 .disabled(!settings.simulateGPUTimings)
+                Stepper(value: $settings.gpuTimingMinMs, in: 0...40, step: 1) {
+                    LabeledContent("Minimum GPU Time",
+                                   value: settings.gpuTimingMinMs == 0 ? "Off" : "\(settings.gpuTimingMinMs) ms")
+                }
+                .disabled(!settings.simulateGPUTimings)
             } header: {
                 InfoHeader("Speed") {
                     Text("Simulate 3DS GPU Timing makes games see the graphics chip take as long as "
@@ -108,7 +113,10 @@ struct GeneralSettingsView: View {
                          + "run at the frame rate they have on a console; GPU Timing Strength sets "
                          + "how slow that GPU is (the estimate is twice as fast as a console, so "
                          + "about 200% is the console; raise it if a game still runs at 60 FPS "
-                         + "where the console would run 30); without it the "
+                         + "where the console would run 30). Minimum GPU Time is steadier than the "
+                         + "estimate: no frame is ever seen to finish sooner than that, so a game that "
+                         + "switches between 30 and 60 holds 30 (try 20 ms; raise it if the game goes "
+                         + "below 30, lower it to 17 if it never reaches 30); without it the "
                          + "emulated GPU is instant and they can run at 60 FPS everywhere. Fast Forward is in the game menu, and on a controller button in Controls › "
                          + "Controller Mapping. With Hold on, the controller button only fast-forwards "
                          + "while it is held.")

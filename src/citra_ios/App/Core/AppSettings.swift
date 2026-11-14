@@ -317,6 +317,7 @@ final class AppSettings: ObservableObject {
     @Published var simulateHeadphones: Bool { didSet { save(simulateHeadphones, "simulateHeadphones") } }
     @Published var simulateGPUTimings: Bool { didSet { save(simulateGPUTimings, "simulateGPUTimings") } }
     @Published var gpuTimingPercent: Int { didSet { save(gpuTimingPercent, "gpuTimingPercent") } }
+    @Published var gpuTimingMinMs: Int { didSet { save(gpuTimingMinMs, "gpuTimingMinMs") } }
     @Published var customTextures: Bool { didSet { save(customTextures, "customTextures") } }
     @Published var preloadTextures: Bool { didSet { save(preloadTextures, "preloadTextures") } }
     @Published var dumpTextures: Bool { didSet { save(dumpTextures, "dumpTextures") } }
@@ -470,6 +471,7 @@ final class AppSettings: ObservableObject {
         simulateHeadphones = value("simulateHeadphones", false)
         simulateGPUTimings = value("simulateGPUTimings", false)
         gpuTimingPercent = value("gpuTimingPercent", 200)
+        gpuTimingMinMs = value("gpuTimingMinMs", 0)
         customTextures = value("customTextures", false)
         preloadTextures = value("preloadTextures", false)
         dumpTextures = value("dumpTextures", false)
@@ -612,6 +614,7 @@ final class AppSettings: ObservableObject {
         config.simulateHeadphones = simulateHeadphones
         config.simulateGPUTimings = simulateGPUTimings
         config.gpuTimingPercent = gpuTimingPercent
+        config.gpuTimingMinMs = gpuTimingMinMs
         config.customTextures = customTextures
         config.preloadTextures = preloadTextures
         config.dumpTextures = dumpTextures

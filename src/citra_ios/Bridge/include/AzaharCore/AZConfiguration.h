@@ -146,6 +146,8 @@ typedef NS_ENUM(NSInteger, AZPortraitLayoutOption) {
 /// How slow the simulated GPU is, in percent of the estimate (which is twice as fast as a console:
 /// 200 is about a console). Only used with simulateGPUTimings.
 @property(nonatomic) NSInteger gpuTimingPercent;
+/// The least time a command list takes to finish, in milliseconds, 0 for none (simulateGPUTimings).
+@property(nonatomic) NSInteger gpuTimingMinMs;
 
 // Textures
 @property(nonatomic) BOOL customTextures;

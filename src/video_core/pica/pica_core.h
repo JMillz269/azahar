@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include "common/common_types.h"
 #include "core/hle/service/gsp/gsp_interrupt.h"
@@ -34,6 +35,10 @@ class ShaderEngine;
 /// DelayGenerator). The estimate assumes a GPU twice as fast as the console's, so games that
 /// adapt their frame rate to the GPU still run faster than on hardware; 200 is about the console.
 inline std::atomic<u32> g_gpu_timing_percent{100};
+/// The least time, in microseconds, a command list takes to finish for the games (0 for none). A
+/// game that adapts its frame rate then never sees a frame finish within a refresh, so it holds
+/// 30 FPS instead of switching between 30 and 60 as the scene gets lighter and heavier.
+inline std::atomic<u32> g_gpu_timing_min_us{0};
 
 class DelayGenerator {
 private:
@@ -101,7 +106,8 @@ public:
         command_count = 0;
 
         result *= static_cast<float>(g_gpu_timing_percent.load(std::memory_order_relaxed)) / 100.f;
-        return static_cast<u64>(result);
+        return std::max(static_cast<u64>(result),
+                        static_cast<u64>(g_gpu_timing_min_us.load(std::memory_order_relaxed)) * 1000);
     }
 
 private:
